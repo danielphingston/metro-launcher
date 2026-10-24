@@ -3,6 +3,7 @@ package io.github.danielphingston.metro.ui
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -12,6 +13,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroColors
@@ -26,17 +28,27 @@ class MainActivity : ComponentActivity() {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
             MetroTheme(settings) {
                 val colors = Metro.colors
-                LaunchedEffect(colors) { applyWindowColors(colors) }
+                val wallpaper = settings.background == StartBackground.SYSTEM_WALLPAPER
+                LaunchedEffect(colors, wallpaper) { applyWindowColors(colors, wallpaper) }
                 LauncherScreen(viewModel)
             }
         }
     }
 
-    private fun applyWindowColors(colors: MetroColors) {
+    /**
+     * The window is opaque, which is the cheapest to draw, except in wallpaper mode: then it is
+     * transparent and asks the system to composite the wallpaper behind it.
+     */
+    private fun applyWindowColors(colors: MetroColors, wallpaper: Boolean) {
         val transparent = android.graphics.Color.TRANSPARENT
         val style = if (colors.isDark) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent)
         enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
-        window.setBackgroundDrawable(ColorDrawable(colors.background.toArgb()))
+        window.setBackgroundDrawable(ColorDrawable(if (wallpaper) transparent else colors.background.toArgb()))
+        if (wallpaper) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

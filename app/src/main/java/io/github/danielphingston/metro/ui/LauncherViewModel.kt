@@ -3,11 +3,15 @@ package io.github.danielphingston.metro.ui
 import android.app.Application
 import android.content.ComponentName
 import android.graphics.Rect
+import android.net.Uri
 import android.os.Bundle
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.AppInfo
+import io.github.danielphingston.metro.data.BackgroundPhoto
 import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.DefaultLayout
 import io.github.danielphingston.metro.data.IconCache
@@ -20,6 +24,8 @@ import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationHub
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -28,11 +34,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.FileNotFoundException
 
 /**
  * A tile ready to draw. [app] is the app the tile belongs to (for app, shortcut and widget
@@ -45,12 +55,39 @@ data class ResolvedTile(
     val children: List<ResolvedTile> = emptyList(),
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
     private val metro = application as MetroApplication
     val icons: IconCache = metro.icons
 
     val settings: StateFlow<LauncherSettings> =
         metro.settings.settings.stateIn(viewModelScope, SharingStarted.Eagerly, LauncherSettings())
+
+    /**
+     * The photo behind the start screen: the only bitmap held for it. Null while loading and
+     * whenever no photo background is on; a photo that can't be read switches back to SOLID.
+     */
+    val backdropImage: StateFlow<ImageBitmap?> = settings
+        .map { if (it.showsPhoto) it.backgroundPhoto else null }
+        .distinctUntilChanged()
+        .mapLatest { uri ->
+            uri ?: return@mapLatest null
+            val metrics = application.resources.displayMetrics
+            try {
+                withContext(Dispatchers.IO) {
+                    BackgroundPhoto.decode(application, Uri.parse(uri), metrics.widthPixels, metrics.heightPixels)
+                }.asImageBitmap()
+            } catch (_: SecurityException) {
+                metro.settings.clearUnreadablePhoto()
+                null
+            } catch (_: FileNotFoundException) {
+                metro.settings.clearUnreadablePhoto()
+                null
+            } catch (_: Exception) {
+                null // Corrupt or transiently unreadable: plain background for now.
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val apps: StateFlow<List<AppInfo>> =
         metro.apps.apps.map { it.orEmpty() }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())

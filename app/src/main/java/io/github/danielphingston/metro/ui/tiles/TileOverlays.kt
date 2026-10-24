@@ -17,6 +17,7 @@ import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
+import io.github.danielphingston.metro.ui.theme.tileSurface
 import io.github.danielphingston.metro.ui.theme.MetroType
 
 /** The tile label at the bottom left over a subtle dark gradient, so it reads on any photo. */
@@ -35,7 +36,7 @@ internal fun BoxScope.ScrimmedLabel(text: String, m: TileMetrics) {
 /** The accent tile shown while a photo or people tile has nothing to show, with a hint. */
 @Composable
 internal fun HintFace(label: String, hint: String, size: TileSize, m: TileMetrics) {
-    Box(Modifier.fillMaxSize().background(Metro.colors.accent)) {
+    Box(Modifier.fillMaxSize().tileSurface()) {
         if (size != TileSize.SMALL) {
             MetroText(
                 hint,

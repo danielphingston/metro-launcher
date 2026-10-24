@@ -7,6 +7,10 @@ no battery.
 |---|---|
 | <img src="docs/start_dark.png" width="300"> | <img src="docs/start_more_tiles.png" width="300"> |
 
+| Photo tiles | Full photo |
+|---|---|
+| <img src="docs/start_photo_tiles.png" width="300"> | <img src="docs/start_photo_full.png" width="300"> |
+
 *Rendered on the JVM by `StartScreenshotTest` (placeholder icons; real apps use their themed icons).*
 
 ## Features
@@ -21,6 +25,11 @@ no battery.
   - Calendar app: next appointment and today's date.
 - **Theme**: dark/light/system background, the 20 Windows Phone accent colours, themed
   (monochrome) app icons on Android 13+, tilt-on-press effect.
+- **Start background**: solid, Windows Phone 8.1 "photo tiles" (each tile is a window onto one
+  photo), Windows 10 Mobile full-screen photo with parallax, or the system wallpaper. A tile
+  transparency slider and an "accent colour from my background" option go with them. The photo
+  comes from the system photo picker, so no media permission is needed.
+- **App list**: a "recently added" group (up to 3 apps from the last 5 days) above the letters.
 - **Settings**: "Metro settings" in the app list. Also sets Metro as the default home app.
 
 ## Battery design
@@ -31,7 +40,9 @@ no battery.
 - The clock ticker, calendar queries and tile flip animations run only while the start
   screen is in the foreground (`collectAsStateWithLifecycle` / `repeatOnLifecycle`), and
   only for tiles that need them and are visible.
-- Black background by default (OLED pixels off); opaque window, no wallpaper compositing.
+- Black background by default (OLED pixels off); opaque window, no wallpaper compositing
+  unless the "wallpaper" start background is chosen. Photo backgrounds hold one downsampled
+  bitmap and animate nothing: parallax is a draw-only offset of the scroll position.
 - Icons are rendered once and cached in memory.
 
 ## Building
@@ -52,8 +63,8 @@ Requires JDK 17+ and the Android SDK (platform 36).
   and Data safety form.
 - No SMS or call-log permissions (Play restricts them to default SMS/dialer apps); message
   tiles work through notifications instead.
-- Fonts: Segoe is proprietary, so the system sans-serif is used. Microsoft's OFL-licensed
-  Selawik can be added to `res/font` for a closer look.
+- Fonts: Segoe is proprietary, so Open Sans (SIL OFL; Light, Regular and SemiBold in
+  `res/font`, licence in `assets/licenses`) is bundled instead.
 - Don't use "Windows" or Microsoft logos in the store listing.
 
 ## Roadmap

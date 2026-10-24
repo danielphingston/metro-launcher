@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -43,29 +44,40 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.IconCache
+import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileIcon
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.ui.tiles.rememberAppShortcutItems
 import io.github.danielphingston.metro.ui.AppLauncher
 import io.github.danielphingston.metro.ui.LauncherViewModel
+import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.metroTilt
+import io.github.danielphingston.metro.ui.theme.LocalStartBackdrop
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.Dispatchers
@@ -98,17 +110,46 @@ class AppListState {
     }
 }
 
-private sealed interface Row {
+internal sealed interface AppListRow {
     val key: String
 
-    data class Header(val group: String) : Row {
+    data class Header(val group: String) : AppListRow {
         override val key get() = "h:$group"
     }
 
-    data class App(val app: AppInfo) : Row {
-        override val key get() = "a:${app.key.serialize()}"
+    /** The caption above the "recently added" apps. */
+    data object RecentHeader : AppListRow {
+        override val key get() = "recent"
+    }
+
+    /** An app in the list; [recent] marks its copy in the "recently added" group. */
+    data class App(val app: AppInfo, val recent: Boolean = false) : AppListRow {
+        override val key get() = "${if (recent) "r" else "a"}:${app.key.serialize()}"
     }
 }
+
+/**
+ * The rows for [apps] (sorted by label): search results while [query] is set, otherwise
+ * "recently added" followed by the alphabetical groups.
+ */
+internal fun appListRows(apps: List<AppInfo>, query: String, now: Long): List<AppListRow> {
+    if (query.isNotBlank()) return apps.filter { AppGroups.matches(it.label, query) }.map { AppListRow.App(it) }
+    val recent = AppGroups.recentlyAdded(apps, now)
+    val grouped = apps.groupBy { AppGroups.groupOf(it.label) }.toSortedMap(compareBy { AppGroups.ALL.indexOf(it) })
+    return buildList {
+        if (recent.isNotEmpty()) {
+            add(AppListRow.RecentHeader)
+            recent.forEach { add(AppListRow.App(it, recent = true)) }
+        }
+        grouped.forEach { (group, members) ->
+            add(AppListRow.Header(group))
+            members.forEach { add(AppListRow.App(it)) }
+        }
+    }
+}
+
+private val ListStart = 20.dp
+private val IconBox = 44.dp
 
 @Composable
 fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: AppLauncher) {
@@ -117,68 +158,48 @@ fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: A
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
     val haptics = LocalHapticFeedback.current
+    val colors = Metro.colors
 
-    val grouped = remember(apps) {
-        apps.groupBy { AppGroups.groupOf(it.label) }
-            .toSortedMap(compareBy { AppGroups.ALL.indexOf(it) })
-    }
-    val rows: List<Row> = remember(grouped, state.query) {
-        if (state.query.isNotBlank()) {
-            apps.filter { AppGroups.matches(it.label, state.query) }.map(Row::App)
-        } else {
-            grouped.flatMap { (group, members) -> listOf(Row.Header(group)) + members.map(Row::App) }
-        }
-    }
+    val rows = remember(apps, state.query) { appListRows(apps, state.query, System.currentTimeMillis()) }
+    val letters = remember(rows) { rows.mapNotNullTo(mutableSetOf()) { (it as? AppListRow.Header)?.group } }
 
     LaunchedEffect(state.query) { if (state.query.isNotEmpty()) state.list.scrollToItem(0) }
 
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            SearchBox(
-                query = state.query,
-                onQueryChange = { state.query = it },
-                onSubmit = {
-                    (rows.firstOrNull() as? Row.App)?.let { launcher.launch(it.app, null) }
-                    focus.clearFocus()
-                },
-            )
-            LazyColumn(
-                state = state.list,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = 20.dp,
-                    end = 12.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
-                ),
-            ) {
-                items(rows, key = { it.key }) { row ->
-                    when (row) {
-                        is Row.Header -> LetterTile(row.group, onClick = {
-                            focus.clearFocus()
-                            state.jumpListOpen = true
-                        })
-                        is Row.App -> AppRow(
-                            app = row.app,
-                            icons = viewModel.icons,
-                            monochrome = settings.monochromeIcons,
-                            onClick = { bounds -> launcher.launch(row.app, bounds) },
-                            onLongClick = { bounds ->
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                focus.clearFocus()
-                                state.menu = row.app to bounds
-                            },
-                        )
-                    }
-                }
-            }
-        }
+    // Photo and wallpaper backgrounds belong to the start screen: the list sits on a nearly opaque
+    // page so text stays readable.
+    val translucent = LocalStartBackdrop.current.mode.let {
+        it == StartBackground.PHOTO_FULL || it == StartBackground.SYSTEM_WALLPAPER
+    }
+    Box(Modifier.fillMaxSize().then(if (translucent) Modifier.background(colors.background.copy(alpha = 0.94f)) else Modifier)) {
+        AppListContent(
+            rows = rows,
+            listState = state.list,
+            icons = viewModel.icons,
+            monochrome = settings.monochromeIcons,
+            query = state.query,
+            onQueryChange = { state.query = it },
+            onSubmit = {
+                (rows.firstOrNull { it is AppListRow.App } as? AppListRow.App)?.let { launcher.launch(it.app, null) }
+                focus.clearFocus()
+            },
+            onLetterClick = {
+                focus.clearFocus()
+                state.jumpListOpen = true
+            },
+            onClick = { app, bounds -> launcher.launch(app, bounds) },
+            onLongClick = { app, bounds ->
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                focus.clearFocus()
+                state.menu = app to bounds
+            },
+        )
 
         if (state.jumpListOpen) {
             JumpList(
-                available = grouped.keys,
+                available = letters,
                 onPick = { group ->
                     state.jumpListOpen = false
-                    val index = rows.indexOfFirst { it is Row.Header && it.group == group }
+                    val index = rows.indexOfFirst { it is AppListRow.Header && it.group == group }
                     if (index >= 0) scope.launch { state.list.scrollToItem(index) }
                 },
                 onDismiss = { state.jumpListOpen = false },
@@ -200,51 +221,117 @@ fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: A
     }
 }
 
+/** The search box and the list, without the overlays or the view model. */
+@Composable
+internal fun AppListContent(
+    rows: List<AppListRow>,
+    listState: LazyListState,
+    icons: IconCache,
+    monochrome: Boolean,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    onLetterClick: () -> Unit,
+    onClick: (AppInfo, Rect?) -> Unit,
+    onLongClick: (AppInfo, Rect) -> Unit,
+) {
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        SearchBox(query, onQueryChange, onSubmit)
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = ListStart,
+                end = 12.dp,
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
+            ),
+        ) {
+            items(rows, key = { it.key }) { row ->
+                when (row) {
+                    is AppListRow.Header -> LetterTile(row.group, onClick = onLetterClick)
+                    AppListRow.RecentHeader -> MetroText(
+                        "recently added",
+                        MetroType.caption,
+                        color = Metro.colors.subtle,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
+                    )
+                    is AppListRow.App -> AppRow(
+                        app = row.app,
+                        icons = icons,
+                        monochrome = monochrome,
+                        onClick = { bounds -> onClick(row.app, bounds) },
+                        onLongClick = { bounds -> onLongClick(row.app, bounds) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** A slim box with a magnifier; the border turns accent while typing. */
 @Composable
 private fun SearchBox(query: String, onQueryChange: (String) -> Unit, onSubmit: () -> Unit) {
     val colors = Metro.colors
+    var focused by remember { mutableStateOf(false) }
     BasicTextField(
         value = query,
         onValueChange = onQueryChange,
         singleLine = true,
-        textStyle = MetroType.body.copy(color = colors.foreground),
+        textStyle = MetroType.listItem.copy(color = colors.foreground),
         cursorBrush = SolidColor(colors.accent),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 12.dp),
+            .padding(start = ListStart, end = 12.dp, top = 12.dp, bottom = 8.dp)
+            .onFocusChanged { focused = it.isFocused },
         decorationBox = { field ->
-            Box(
+            Row(
                 Modifier
                     .fillMaxWidth()
-                    .border(2.dp, if (query.isEmpty()) colors.subtle else colors.accent)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .height(40.dp)
+                    .background(colors.control.copy(alpha = 0.6f))
+                    .then(if (focused) Modifier.border(2.dp, colors.accent) else Modifier),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (query.isEmpty()) MetroText("search", MetroType.body, color = colors.subtle)
-                field()
+                Box(Modifier.weight(1f).padding(start = 12.dp), contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) MetroText("search", MetroType.listItem, color = colors.subtle, maxLines = 1)
+                    field()
+                }
+                Box(
+                    Modifier
+                        .padding(horizontal = 12.dp)
+                        .size(18.dp)
+                        .drawBehind { drawMagnifier(if (focused) colors.accent else colors.subtle) },
+                )
             }
         },
     )
 }
 
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMagnifier(color: Color) {
+    val stroke = 1.5.dp.toPx()
+    val r = size.width * 0.32f
+    val c = Offset(size.width * 0.42f, size.height * 0.42f)
+    drawCircle(color, r, c, style = Stroke(stroke))
+    val from = c + Offset(r, r) * 0.72f
+    drawLine(color, from, Offset(size.width * 0.92f, size.height * 0.92f), stroke, StrokeCap.Round)
+}
+
+/** The letter that starts each group: an accent outline square that opens the jump grid. */
 @Composable
 private fun LetterTile(group: String, onClick: () -> Unit) {
     val colors = Metro.colors
     Box(
         Modifier
-            .padding(vertical = 8.dp)
-            .size(52.dp)
+            .padding(top = 12.dp, bottom = 6.dp)
+            .size(IconBox)
             .metroTilt()
             .border(2.dp, colors.accent)
             .clickable(remember { MutableInteractionSource() }, null, onClickLabel = "jump to letter", onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        MetroText(
-            group,
-            MetroType.style(MetroType.sectionTitle.fontSize),
-            color = colors.accent,
-            modifier = Modifier.align(Alignment.BottomStart).padding(start = 6.dp, bottom = 2.dp),
-        )
+        MetroText(group, MetroType.style(24.sp, FontWeight.Light), color = colors.accent)
     }
 }
 
@@ -270,19 +357,19 @@ private fun AppRow(
                 onLongClick = { bounds?.let(onLongClick) },
                 onLongClickLabel = "more options",
             )
-            .padding(vertical = 6.dp),
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(52.dp).background(Metro.colors.accent), contentAlignment = Alignment.Center) {
-            val px = with(LocalDensity.current) { 34.dp.roundToPx() }
+        Box(Modifier.size(IconBox).background(Metro.colors.accent), contentAlignment = Alignment.Center) {
+            val px = with(LocalDensity.current) { 28.dp.roundToPx() }
             val cached = icons.peek(app, px, monochrome)
             val icon by produceState<TileIcon?>(cached, app.key, monochrome) {
                 if (value == null) value = withContext(Dispatchers.Default) { icons.load(app, px, monochrome) }
             }
-            icon?.let { Image(it.bitmap, contentDescription = null, modifier = Modifier.size(34.dp)) }
+            icon?.let { Image(it.bitmap, contentDescription = null, modifier = Modifier.size(28.dp)) }
         }
         Spacer(Modifier.width(14.dp))
-        MetroText(app.label, MetroType.body, maxLines = 1)
+        MetroText(app.label, MetroType.listItem, maxLines = 1)
     }
 }
 
@@ -290,17 +377,18 @@ private fun AppRow(
 @Composable
 private fun JumpList(available: Set<String>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
     val colors = Metro.colors
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(colors.background.copy(alpha = 0.92f))
-            .clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)
-            .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 24.dp),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    MetroFlyout(onDismiss) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(colors.background.copy(alpha = 0.95f))
+                .clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             AppGroups.ALL.chunked(4).forEach { line ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     line.forEach { group ->
                         val enabled = group in available
                         Box(
@@ -308,13 +396,19 @@ private fun JumpList(available: Set<String>, onPick: (String) -> Unit, onDismiss
                                 .weight(1f)
                                 .aspectRatio(1f)
                                 .background(if (enabled) colors.accent else colors.chrome)
-                                .then(if (enabled) Modifier.metroTilt().clickable { onPick(group) } else Modifier),
+                                .then(
+                                    if (enabled) {
+                                        Modifier.metroTilt().clickable(onClickLabel = "jump to $group") { onPick(group) }
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
                         ) {
                             MetroText(
                                 group,
-                                MetroType.style(MetroType.pageTitle.fontSize * 0.6f),
-                                color = if (enabled) colors.onAccent else colors.subtle,
-                                modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 2.dp),
+                                MetroType.style(30.sp, FontWeight.Light),
+                                color = if (enabled) colors.onAccent else colors.subtle.copy(alpha = 0.6f),
+                                modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 4.dp),
                             )
                         }
                     }
@@ -344,20 +438,17 @@ private fun AppMenu(
         add("app info" to onAppInfo)
     }
     var menuHeight by remember { mutableIntStateOf(0) }
-    BoxWithConstraints(
-        Modifier
-            .fillMaxSize()
-            .background(Metro.colors.background.copy(alpha = 0.5f))
-            .clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss),
-    ) {
-        // Open below the pressed row, or above it when there is no room.
-        val screenHeight = constraints.maxHeight
-        val y = if (anchor.bottom + menuHeight > screenHeight) anchor.top - menuHeight else anchor.bottom
-        MetroMenu(
-            items = items,
-            modifier = Modifier
-                .offset { IntOffset(0, y.roundToInt()) }
-                .onGloballyPositioned { menuHeight = it.size.height },
-        )
+    MetroFlyout(onDismiss) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            // Open below the pressed row, or above it when there is no room.
+            val screenHeight = constraints.maxHeight
+            val y = if (anchor.bottom + menuHeight > screenHeight) anchor.top - menuHeight else anchor.bottom
+            MetroMenu(
+                items = items,
+                modifier = Modifier
+                    .offset { IntOffset(0, y.roundToInt()) }
+                    .onGloballyPositioned { menuHeight = it.size.height },
+            )
+        }
     }
 }

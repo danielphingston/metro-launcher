@@ -10,10 +10,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
+import io.github.danielphingston.metro.R
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.ThemeMode
 
@@ -30,6 +32,12 @@ data class MetroColors(
 ) {
     /** Tile text is always white, as on Windows Phone. */
     val onAccent: Color get() = Color.White
+
+    /** Buttons, inactive toggle tracks and other raised controls on the page. */
+    val control: Color get() = if (isDark) Color(0xFF333333) else Color(0xFFCCCCCC)
+
+    /** Dims the page behind flyouts. */
+    val scrim: Color get() = Color.Black.copy(alpha = if (isDark) 0.6f else 0.4f)
 
     companion object {
         fun of(dark: Boolean, accent: Color) = if (dark) {
@@ -52,21 +60,46 @@ val MetroAccents: List<Pair<String, Color>> = listOf(
 )
 
 /**
- * Segoe WP is proprietary. The system sans-serif in light weights gets close; drop Selawik
- * (Microsoft's OFL Segoe UI substitute) into res/font and point this at it for a closer match.
+ * Segoe WP is proprietary. Open Sans (SIL OFL, see assets/licenses) is a humanist sans with the
+ * same open, friendly shapes; only the three weights Metro uses are bundled.
  */
-val MetroFont: FontFamily = FontFamily.SansSerif
+val MetroFont: FontFamily = FontFamily(
+    Font(R.font.opensans_light, FontWeight.Light),
+    Font(R.font.opensans_regular, FontWeight.Normal),
+    Font(R.font.opensans_semibold, FontWeight.SemiBold),
+)
 
+/**
+ * The type scale: light for big titles, regular for reading, semibold only for small labels.
+ * Tile text is sized from the tile instead (see TileMetrics) and uses [style] directly.
+ */
 object MetroType {
     fun style(size: TextUnit, weight: FontWeight = FontWeight.Normal, color: Color = Color.Unspecified) =
         TextStyle(fontFamily = MetroFont, fontSize = size, fontWeight = weight, color = color)
 
-    /** Big page titles: "settings", "start+theme". */
-    val pageTitle = style(56.sp, FontWeight.Light).copy(letterSpacing = (-1).sp)
-    val appName = style(14.sp, FontWeight.SemiBold)
-    val sectionTitle = style(26.sp, FontWeight.Light)
-    val body = style(20.sp, FontWeight.Normal)
-    val caption = style(15.sp)
+    /** Big page titles: "settings", "widgets". */
+    val pageTitle = style(46.sp, FontWeight.Light).copy(letterSpacing = (-0.5).sp)
+
+    /** Small caps line above a page title. */
+    val appName = style(13.sp, FontWeight.SemiBold).copy(letterSpacing = 0.8.sp)
+
+    /** Section headers in settings, group headers in pickers. */
+    val sectionTitle = style(24.sp, FontWeight.Light)
+
+    /** Settings rows and body copy. */
+    val body = style(18.sp)
+
+    /** App names in the app list. */
+    val listItem = style(18.sp)
+
+    /** Context menu entries. */
+    val menuItem = style(20.sp)
+
+    /** Button labels. */
+    val button = style(16.sp)
+
+    /** Captions under settings, "recently added", search hint. */
+    val caption = style(14.sp)
 }
 
 val LocalMetroColors = staticCompositionLocalOf { MetroColors.of(true, Color(LauncherSettings.DEFAULT_ACCENT)) }
@@ -86,7 +119,7 @@ fun isDarkTheme(mode: ThemeMode): Boolean = when (mode) {
 @Composable
 fun MetroTheme(settings: LauncherSettings, content: @Composable () -> Unit) {
     val dark = isDarkTheme(settings.theme)
-    val colors = remember(dark, settings.accent) { MetroColors.of(dark, Color(settings.accent)) }
+    val colors = remember(dark, settings.effectiveAccent) { MetroColors.of(dark, Color(settings.effectiveAccent)) }
     val selection = remember(colors) { TextSelectionColors(colors.accent, colors.accent.copy(alpha = 0.4f)) }
     CompositionLocalProvider(
         LocalMetroColors provides colors,

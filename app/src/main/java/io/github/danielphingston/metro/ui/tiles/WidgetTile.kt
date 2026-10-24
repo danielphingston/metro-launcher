@@ -33,6 +33,7 @@ import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.theme.Metro
+import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlin.math.hypot
 
 /** Hosts Android app widgets inside tiles. One [AppWidgetHost] serves the whole app. */
@@ -147,7 +148,7 @@ fun WidgetTile(
 
     val size = WidgetTiles.widgetSize(cellSize, tile.spec.size)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
-    Box(Modifier.fillMaxSize().background(Metro.colors.accent)) {
+    Box(Modifier.fillMaxSize().tileSurface()) {
         AndroidView(
             factory = { ctx ->
                 val hostView = WidgetTiles.host(ctx).createView(ctx, widget.appWidgetId, info)
