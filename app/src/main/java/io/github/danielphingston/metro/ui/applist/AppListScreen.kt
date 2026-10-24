@@ -363,8 +363,8 @@ private fun AppRow(
         Box(Modifier.size(IconBox).background(Metro.colors.accent), contentAlignment = Alignment.Center) {
             val px = with(LocalDensity.current) { 28.dp.roundToPx() }
             val cached = icons.peek(app, px, monochrome)
-            val icon by produceState<TileIcon?>(cached, app.key, monochrome) {
-                if (value == null) value = withContext(Dispatchers.Default) { icons.load(app, px, monochrome) }
+            val icon by produceState<TileIcon?>(cached, app.key, monochrome, icons.generation) {
+                value = icons.peek(app, px, monochrome) ?: withContext(Dispatchers.Default) { icons.load(app, px, monochrome) }
             }
             icon?.let { Image(it.bitmap, contentDescription = null, modifier = Modifier.size(28.dp)) }
         }

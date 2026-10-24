@@ -168,8 +168,9 @@ private fun Back(
 @Composable
 internal fun rememberIcon(icons: IconCache, app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
     val cached = icons.peek(app, sizePx, monochrome)
-    val loaded by produceState(cached, app.key, sizePx, monochrome) {
-        if (value == null) value = withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }
+    val loaded by produceState(cached, app.key, sizePx, monochrome, icons.generation) {
+        // Keep showing the previous icon until the new one is ready.
+        value = icons.peek(app, sizePx, monochrome) ?: withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }
     }
     return loaded
 }

@@ -82,6 +82,7 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.MediaSource
+import io.github.danielphingston.metro.live.NotificationHub
 import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.tiles.FolderTile
@@ -188,7 +189,12 @@ fun StartScreen(
     val events by remember(needsCalendar) {
         if (needsCalendar) CalendarSource.upcoming(context) else flowOf(emptyList())
     }.collectAsStateWithLifecycle(emptyList())
-    val nowPlaying by remember { MediaSource.nowPlaying(context) }.collectAsStateWithLifecycle(emptyMap())
+    // Media sessions need notification access; skip the listener entirely without it or without app tiles.
+    val listenerConnected by NotificationHub.connected.collectAsStateWithLifecycle()
+    val needsMedia = listenerConnected && appPackages.isNotEmpty()
+    val nowPlaying by remember(needsMedia) {
+        if (needsMedia) MediaSource.nowPlaying(context) else flowOf(emptyMap())
+    }.collectAsStateWithLifecycle(emptyMap())
     val is24Hour = remember(clock) { android.text.format.DateFormat.is24HourFormat(context) }
 
     fun liveFor(tile: ResolvedTile): LiveContent? {

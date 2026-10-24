@@ -8,6 +8,9 @@ import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.os.Build
 import android.util.LruCache
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.createBitmap
@@ -30,7 +33,15 @@ class IconCache(private val context: Context) {
             if (field == value) return
             field = value
             cache.evictAll()
+            generation++
         }
+
+    /**
+     * Bumped whenever cached icons become stale (icon pack switched or updated). Snapshot
+     * state, so composables that read it reload their icons.
+     */
+    var generation by mutableIntStateOf(0)
+        private set
 
     private val cache = object : LruCache<String, TileIcon>(24 * 1024 * 1024) {
         override fun sizeOf(key: String, value: TileIcon) = value.bitmap.width * value.bitmap.height * 4
@@ -54,7 +65,10 @@ class IconCache(private val context: Context) {
     /** Drops what is known about icon pack [packageName]; called when that package changed. */
     fun invalidatePack(packageName: String) {
         iconPacks.invalidate(packageName)
-        if (iconPack == packageName) cache.evictAll()
+        if (iconPack == packageName) {
+            cache.evictAll()
+            generation++
+        }
     }
 
     private fun cacheKey(app: AppInfo, sizePx: Int, monochrome: Boolean) =
