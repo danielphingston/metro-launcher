@@ -30,6 +30,8 @@ no battery.
   transparency slider and an "accent colour from my background" option go with them. The photo
   comes from the system photo picker, so no media permission is needed.
 - **App list**: a "recently added" group (up to 3 apps from the last 5 days) above the letters.
+- **Turnstile**: launching an app swings the visible tiles or rows away about the left edge (the tapped one
+  last) and they swing back in on return; skipped when animations are off.
 - **Settings**: "Metro settings" in the app list. Also sets Metro as the default home app.
 
 ## Battery design
@@ -44,6 +46,8 @@ no battery.
   unless the "wallpaper" start background is chosen. Photo backgrounds hold one downsampled
   bitmap and animate nothing: parallax is a draw-only offset of the scroll position.
 - Icons are rendered once and cached in memory.
+- The turnstile runs one frame callback for about 280ms per launch and per return, drawing only
+  (no recomposition); nothing runs while idle.
 
 ## Building
 
@@ -70,6 +74,5 @@ Requires JDK 17+ and the Android SDK (platform 36).
 ## Roadmap
 
 - Weather tile (Open-Meteo via WorkManager, 30–60 min), photo and music tiles
-- Turnstile page animations
 - Pinned shortcuts from apps (Android's version of secondary tiles)
 - Hosting Android widgets inside tiles, icon packs, tile folders

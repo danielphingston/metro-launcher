@@ -77,6 +77,8 @@ import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.metroTilt
+import io.github.danielphingston.metro.ui.start.LocalTurnstile
+import io.github.danielphingston.metro.ui.start.turnstile
 import io.github.danielphingston.metro.ui.theme.LocalStartBackdrop
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
@@ -253,7 +255,7 @@ internal fun AppListContent(
                         "recently added",
                         MetroType.caption,
                         color = Metro.colors.subtle,
-                        modifier = Modifier.padding(top = 12.dp, bottom = 6.dp),
+                        modifier = Modifier.turnstile(LocalTurnstile.current, "recent").padding(top = 12.dp, bottom = 6.dp),
                     )
                     is AppListRow.App -> AppRow(
                         app = row.app,
@@ -283,6 +285,7 @@ private fun SearchBox(query: String, onQueryChange: (String) -> Unit, onSubmit: 
         keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
         modifier = Modifier
             .fillMaxWidth()
+            .turnstile(LocalTurnstile.current, "search")
             .padding(start = ListStart, end = 12.dp, top = 12.dp, bottom = 8.dp)
             .onFocusChanged { focused = it.isFocused },
         decorationBox = { field ->
@@ -324,6 +327,7 @@ private fun LetterTile(group: String, onClick: () -> Unit) {
     val colors = Metro.colors
     Box(
         Modifier
+            .turnstile(LocalTurnstile.current, group)
             .padding(top = 12.dp, bottom = 6.dp)
             .size(IconBox)
             .metroTilt()
@@ -349,6 +353,7 @@ private fun AppRow(
         Modifier
             .fillMaxWidth()
             .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .turnstile(LocalTurnstile.current, app.key) { bounds }
             .metroTilt(maxDegrees = 6f)
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },

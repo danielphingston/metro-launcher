@@ -151,7 +151,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _calendarGranted.value = CalendarSource.hasPermission(getApplication())
     }
 
-    fun launch(app: AppInfo, bounds: Rect?, options: Bundle?) = metro.apps.launch(app, bounds, options)
+    fun launch(app: AppInfo, bounds: Rect?, options: Bundle?): Boolean = metro.apps.launch(app, bounds, options)
     fun openAppInfo(app: AppInfo) = metro.apps.openAppInfo(app)
     fun uninstall(app: AppInfo) = metro.apps.uninstall(app)
 

@@ -28,12 +28,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -70,6 +74,9 @@ import io.github.danielphingston.metro.ui.start.FolderRegion
 import io.github.danielphingston.metro.ui.start.LiveContent
 import io.github.danielphingston.metro.ui.start.TileFace
 import io.github.danielphingston.metro.ui.start.TileGrid
+import io.github.danielphingston.metro.ui.start.TurnstilePhase
+import io.github.danielphingston.metro.ui.start.TurnstileState
+import io.github.danielphingston.metro.ui.start.turnstile
 import io.github.danielphingston.metro.ui.theme.LocalStartBackdrop
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroTheme
@@ -136,6 +143,13 @@ class StartScreenshotTest {
 
     @Test
     fun startMoreTiles() = capture("start_more_tiles", ThemeMode.DARK, 6, accent = 0xFF008A00.toInt())
+
+    /** A frozen frame of the turnstile exit: the left column is gone, the right is mid-swing. */
+    @Test
+    fun startTurnstile() {
+        val frozen = TurnstileState().apply { seek(TurnstilePhase.OUT, 110f) }
+        capture("start_turnstile", ThemeMode.DARK, 4, turnstile = frozen)
+    }
 
     @Test
     fun startEditing() = capture("start_editing", ThemeMode.DARK, 4, editing = true)
@@ -207,6 +221,7 @@ class StartScreenshotTest {
         background: StartBackground = StartBackground.SOLID,
         transparency: Int? = null,
         editing: Boolean = false,
+        turnstile: TurnstileState? = null,
     ) {
         captureRoboImage("build/outputs/roborazzi/$name.png") {
             MetroTheme(LauncherSettings(theme = theme, accent = accent, columns = columns)) {
@@ -214,7 +229,7 @@ class StartScreenshotTest {
                     val settings = LauncherSettings(background = background, tileTransparency = transparency)
                     StartBackdrop.of(settings, if (settings.showsPhoto) photo() else null) { 0f }
                 }
-                StartPreview(samples(), columns, backdrop, editing)
+                StartPreview(samples(), columns, backdrop, editing, turnstile)
             }
         }
     }
@@ -284,10 +299,17 @@ class StartScreenshotTest {
     }
 
     @Composable
-    private fun StartPreview(samples: List<Sample>, columns: Int, backdrop: StartBackdrop, editing: Boolean = false) {
+    private fun StartPreview(
+        samples: List<Sample>,
+        columns: Int,
+        backdrop: StartBackdrop,
+        editing: Boolean = false,
+        turnstile: TurnstileState? = null,
+    ) {
         val context = LocalContext.current
         val icons = remember { IconCache(context) }
         val density = LocalDensity.current
+        val bounds = remember { mutableStateMapOf<Int, Rect>() }
         CompositionLocalProvider(LocalStartBackdrop provides backdrop) {
             Box(Modifier.fillMaxSize().startBackdrop(backdrop, Metro.colors.background)) {
                 BoxWithConstraints(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 52.dp)) {
@@ -304,7 +326,9 @@ class StartScreenshotTest {
                                     scaleX = if (deemphasised) 0.94f else 1f
                                     scaleY = scaleX
                                     alpha = if (deemphasised) 0.6f else 1f
-                                },
+                                }
+                                .onGloballyPositioned { bounds[index] = it.boundsInRoot() }
+                                .then(if (turnstile != null) Modifier.turnstile(turnstile, index) { bounds[index] } else Modifier),
                         ) {
                             TileFace(sample.app, sample.size, sample.live, sample.flipped, true, icons, cell)
                         }

@@ -586,6 +586,7 @@ private fun TileHost(
                 this.alpha = alpha
             }
             .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .turnstile(LocalTurnstile.current, id) { bounds }
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
                     if (folder != null) append("${tile.label}, folder, ${tile.children.size} items") else append(tile.label)
