@@ -24,7 +24,7 @@ object DefaultLayout {
             // Prefer the personal profile's copy of the app.
             val app = apps.filter { it.key.packageName == pkg }.minByOrNull { it.key.userSerial }
                 ?: return@mapNotNull null
-            TileSpec(id++, app.key, size)
+            TileSpec(id++, size, TileContent.App(app.key))
         }
     }
 }

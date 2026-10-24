@@ -19,6 +19,8 @@ data class LauncherSettings(
     val columns: Int = 4,
     val monochromeIcons: Boolean = true,
     val showNotificationContent: Boolean = true,
+    /** Package of the selected icon pack, or null for the apps' own icons. */
+    val iconPack: String? = null,
 ) {
     companion object {
         const val DEFAULT_ACCENT = 0xFF1BA1E2.toInt() // cyan
@@ -34,6 +36,7 @@ class SettingsRepository(private val context: Context) {
         val columns = intPreferencesKey("columns")
         val monochrome = booleanPreferencesKey("monochrome_icons")
         val notificationContent = booleanPreferencesKey("notification_content")
+        val iconPack = stringPreferencesKey("icon_pack")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -46,6 +49,7 @@ class SettingsRepository(private val context: Context) {
             columns = this[Keys.columns] ?: defaults.columns,
             monochromeIcons = this[Keys.monochrome] ?: defaults.monochromeIcons,
             showNotificationContent = this[Keys.notificationContent] ?: defaults.showNotificationContent,
+            iconPack = this[Keys.iconPack]?.takeIf { it.isNotEmpty() },
         )
     }
 
@@ -53,6 +57,9 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAccent(color: Int) = context.metroDataStore.edit { it[Keys.accent] = color }
     suspend fun setColumns(columns: Int) = context.metroDataStore.edit { it[Keys.columns] = columns }
     suspend fun setMonochromeIcons(enabled: Boolean) = context.metroDataStore.edit { it[Keys.monochrome] = enabled }
+    suspend fun setIconPack(packageName: String?) =
+        context.metroDataStore.edit { it[Keys.iconPack] = packageName.orEmpty() }
+
     suspend fun setShowNotificationContent(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.notificationContent] = enabled }
 }

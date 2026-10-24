@@ -13,4 +13,12 @@
         <item name="android:windowShowWallpaper">false</item>
         <item name="android:windowNoTitle">true</item>
     </style>
+
+    <!-- Transparent host for confirmation dialogs drawn in Compose. -->
+    <style name="Theme.Metro.Dialog">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+    </style>
 </resources>

@@ -64,6 +64,8 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroAccents
 import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.theme.MetroType
+import io.github.danielphingston.metro.ui.tiles.PhotosSettingsSection
+import io.github.danielphingston.metro.ui.tiles.WeatherSettingsSection
 import kotlinx.coroutines.launch
 
 class SettingsActivity : ComponentActivity() {
@@ -202,6 +204,8 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
             description = "White icons on tiles for apps that provide them",
         )
 
+        IconPackSettingsSection(settings, repository)
+
         Section("live tiles")
         MetroText(
             "Live tiles read your notifications on this phone to show counts and the latest " +
@@ -232,6 +236,9 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
             })
         }
 
+        WeatherSettingsSection()
+        PhotosSettingsSection()
+
         Section("battery")
         MetroText(
             "Metro does no background work: live tiles update from notifications as they arrive " +
@@ -253,8 +260,9 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
     }
 }
 
+/** A settings section heading; feature sections reuse it. */
 @Composable
-private fun Section(title: String) {
+internal fun Section(title: String) {
     Spacer(Modifier.height(28.dp))
     MetroText(title, MetroType.sectionTitle, modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp))
 }

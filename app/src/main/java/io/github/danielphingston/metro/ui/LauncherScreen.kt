@@ -1,7 +1,10 @@
 package io.github.danielphingston.metro.ui
 
 import android.app.ActivityOptions
+import android.content.Intent
 import android.graphics.Rect
+import android.os.Bundle
+import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -24,9 +27,29 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-/** Launches an app with the system "reveal from the tapped element" transition. */
-fun interface AppLauncher {
-    fun launch(app: AppInfo, boundsInRoot: ComposeRect?)
+/** Starts activities from launcher UI with the system "reveal from the tapped element" transition. */
+class AppLauncher(private val view: View, private val viewModel: LauncherViewModel) {
+    /** Screen-space source bounds and ActivityOptions for a launch from [boundsInRoot]. */
+    fun transition(boundsInRoot: ComposeRect?): Pair<Rect?, Bundle?> {
+        val rect = boundsInRoot?.let {
+            Rect(it.left.roundToInt(), it.top.roundToInt(), it.right.roundToInt(), it.bottom.roundToInt())
+        } ?: return null to null
+        val options = ActivityOptions.makeClipRevealAnimation(view, rect.left, rect.top, rect.width(), rect.height())
+        val origin = IntArray(2).also(view::getLocationOnScreen)
+        return Rect(rect).apply { offset(origin[0], origin[1]) } to options.toBundle()
+    }
+
+    fun launch(app: AppInfo, boundsInRoot: ComposeRect?) {
+        val (bounds, options) = transition(boundsInRoot)
+        viewModel.launch(app, bounds, options)
+    }
+
+    /** Starts any intent (e.g. a tile's target app) with the same transition. */
+    fun start(intent: Intent, boundsInRoot: ComposeRect?) {
+        val (bounds, options) = transition(boundsInRoot)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).sourceBounds = bounds
+        runCatching { view.context.startActivity(intent, options) }
+    }
 }
 
 @Composable
@@ -37,25 +60,12 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
     val appListState = remember { AppListState() }
     val view = LocalView.current
 
-    val launcher = remember(view, viewModel) {
-        AppLauncher { app, bounds ->
-            val rect = bounds?.let {
-                Rect(it.left.roundToInt(), it.top.roundToInt(), it.right.roundToInt(), it.bottom.roundToInt())
-            }
-            val options = rect?.let {
-                ActivityOptions.makeClipRevealAnimation(view, it.left, it.top, it.width(), it.height()).toBundle()
-            }
-            val screenRect = rect?.let {
-                val origin = IntArray(2).also(view::getLocationOnScreen)
-                Rect(it).apply { offset(origin[0], origin[1]) }
-            }
-            viewModel.launch(app, screenRect, options)
-        }
-    }
+    val launcher = remember(view, viewModel) { AppLauncher(view, viewModel) }
 
     LaunchedEffect(Unit) {
         viewModel.homePresses.collect { animate ->
             startState.exitEdit()
+            startState.dismissOverlays()
             appListState.reset()
             if (animate) {
                 launch { pager.animateScrollToPage(0) }
@@ -78,6 +88,7 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
     BackHandler {
         when {
             startState.editing -> startState.exitEdit()
+            startState.dismissOverlays() -> Unit
             appListState.handleBack() -> Unit
             pager.currentPage != 0 -> scope.launch { pager.animateScrollToPage(0) }
         }

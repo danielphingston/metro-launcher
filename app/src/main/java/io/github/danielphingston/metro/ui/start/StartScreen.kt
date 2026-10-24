@@ -14,7 +14,10 @@ import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -73,7 +76,23 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import io.github.danielphingston.metro.data.DefaultApps
+import io.github.danielphingston.metro.data.IconCache
+import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.live.MediaSource
+import io.github.danielphingston.metro.ui.components.MetroMenu
+import io.github.danielphingston.metro.ui.tiles.FolderTile
+import io.github.danielphingston.metro.ui.tiles.PeopleTile
+import io.github.danielphingston.metro.ui.tiles.PeopleTiles
+import io.github.danielphingston.metro.ui.tiles.PhotosTile
+import io.github.danielphingston.metro.ui.tiles.PhotosTiles
+import io.github.danielphingston.metro.ui.tiles.ShortcutTile
+import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
+import io.github.danielphingston.metro.ui.tiles.WeatherTile
+import io.github.danielphingston.metro.ui.tiles.WeatherTiles
+import io.github.danielphingston.metro.ui.tiles.WidgetPicker
+import io.github.danielphingston.metro.ui.tiles.WidgetTile
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.ClockSource
 import io.github.danielphingston.metro.live.ClockState
@@ -108,10 +127,26 @@ class StartState(val scroll: ScrollState) {
         selectedId = id
     }
 
+    /** Folder currently expanded on the start screen, if any. */
+    var openFolderId by mutableStateOf<Long?>(null)
+
+    /** The "add a tile" menu and the widget picker it can open. */
+    var addMenuOpen by mutableStateOf(false)
+    var widgetPickerOpen by mutableStateOf(false)
+
     fun exitEdit() {
         editing = false
         selectedId = null
         dragId = null
+    }
+
+    /** Closes transient UI; returns true if anything was open. */
+    fun dismissOverlays(): Boolean {
+        val any = addMenuOpen || widgetPickerOpen || openFolderId != null
+        addMenuOpen = false
+        widgetPickerOpen = false
+        openFolderId = null
+        return any
     }
 }
 
@@ -142,22 +177,26 @@ fun StartScreen(
 
     // Live sources run only when a tile needs them and only while the launcher is visible
     // (collectAsStateWithLifecycle stops collecting below STARTED).
-    val needsClock = tiles.any { it.app.key.packageName.let { p -> p == defaults.clock || p == defaults.calendar } }
-    val needsCalendar = calendarGranted && tiles.any { it.app.key.packageName == defaults.calendar }
+    val appPackages = tiles.mapNotNull { it.spec.appKey?.packageName }
+    val needsClock = appPackages.any { it == defaults.clock || it == defaults.calendar }
+    val needsCalendar = calendarGranted && defaults.calendar in appPackages
     val clock by remember(needsClock) {
         if (needsClock) ClockSource.minutes(context) else flowOf(null)
     }.collectAsStateWithLifecycle(null as ClockState?)
     val events by remember(needsCalendar) {
         if (needsCalendar) CalendarSource.upcoming(context) else flowOf(emptyList())
     }.collectAsStateWithLifecycle(emptyList())
+    val nowPlaying by remember { MediaSource.nowPlaying(context) }.collectAsStateWithLifecycle(emptyMap())
     val is24Hour = remember(clock) { android.text.format.DateFormat.is24HourFormat(context) }
 
     fun liveFor(tile: ResolvedTile): LiveContent? {
-        val pkg = tile.app.key.packageName
+        val key = tile.spec.appKey ?: return null
+        val pkg = key.packageName
+        nowPlaying[key.notificationKey]?.let { return LiveContent.NowPlaying(it) }
         return when {
             pkg == defaults.clock -> LiveContent.Clock(clock ?: ClockState(System.currentTimeMillis(), null), is24Hour)
             pkg == defaults.calendar -> LiveContent.Calendar(clock?.now ?: System.currentTimeMillis(), events, is24Hour)
-            else -> notifications[tile.app.key.notificationKey]?.let {
+            else -> notifications[key.notificationKey]?.let {
                 LiveContent.Notifications(it, settings.showNotificationContent)
             }
         }
@@ -183,8 +222,11 @@ fun StartScreen(
         // Which live tiles are on screen: only those may flip.
         val liveTiles by rememberUpdatedState(
             tiles.zip(placements).mapNotNull { (tile, placement) ->
-                val live = liveFor(tile) ?: return@mapNotNull null
-                if (live.hasBack(tile.spec.size)) tile.spec.id to placement else null
+                val flips = when (tile.spec.content) {
+                    TileContent.Weather, TileContent.Photos, TileContent.People -> tile.spec.size != TileSize.SMALL
+                    else -> liveFor(tile)?.hasBack(tile.spec.size) == true
+                }
+                if (flips) tile.spec.id to placement else null
             },
         )
         val visibleLiveIds by remember {
@@ -269,7 +311,7 @@ fun StartScreen(
                             flipped = flipped[tile.spec.id] == true && !state.editing,
                             monochromeIcons = settings.monochromeIcons,
                             viewModel = viewModel,
-                            onLaunch = { bounds -> launcher.launch(tile.app, bounds) },
+                            onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state) },
                             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
                             onDragMove = {
                                 val center = state.dragTopLeft + Offset(
@@ -301,8 +343,31 @@ fun StartScreen(
                 }
             }
 
-            AllAppsArrow(onShowApps, Modifier.align(Alignment.End).padding(SidePadding, 20.dp))
+            Row(
+                Modifier.fillMaxWidth().padding(SidePadding, 20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                AddTileButton(onClick = { state.addMenuOpen = true })
+                AllAppsArrow(onShowApps)
+            }
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+        }
+
+        if (state.addMenuOpen) {
+            AddTileMenu(
+                onAdd = { content, size ->
+                    state.addMenuOpen = false
+                    viewModel.addTile(content, size)
+                },
+                onWidgets = {
+                    state.addMenuOpen = false
+                    state.widgetPickerOpen = true
+                },
+                onDismiss = { state.addMenuOpen = false },
+            )
+        }
+        if (state.widgetPickerOpen) {
+            WidgetPicker(viewModel, onDismiss = { state.widgetPickerOpen = false })
         }
     }
 }
@@ -372,7 +437,7 @@ private fun TileHost(
             .onGloballyPositioned { bounds = it.boundsInRoot() }
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
-                    append(tile.app.label)
+                    append(tile.label)
                     (live as? LiveContent.Notifications)?.let { append(", ${it.data.count} new") }
                 }
                 onClick { onLaunch(bounds); true }
@@ -418,15 +483,7 @@ private fun TileHost(
             }
             .metroTilt(enabled = !state.editing),
     ) {
-        TileFace(
-            app = tile.app,
-            size = tile.spec.size,
-            live = live,
-            flipped = flipped,
-            monochromeIcons = monochromeIcons,
-            icons = viewModel.icons,
-            cellSize = cell,
-        )
+        TileBody(tile, live, flipped, monochromeIcons, viewModel.icons, cell, state.openFolderId == id)
     }
 }
 
@@ -471,6 +528,98 @@ private fun EditBadges(placement: Placement, cellPx: Float, gapPx: Float, onUnpi
                 drawLine(colors.foreground, a, b, stroke, StrokeCap.Round)
                 drawLine(colors.foreground, b, b - Offset(head, 0f), stroke, StrokeCap.Round)
                 drawLine(colors.foreground, b, b - Offset(0f, head), stroke, StrokeCap.Round)
+            },
+    )
+}
+
+/** Draws a tile according to its kind. */
+@Composable
+private fun TileBody(
+    tile: ResolvedTile,
+    live: LiveContent?,
+    flipped: Boolean,
+    monochromeIcons: Boolean,
+    icons: IconCache,
+    cell: Dp,
+    folderOpen: Boolean,
+) {
+    when (tile.spec.content) {
+        is TileContent.App -> TileFace(tile.app!!, tile.spec.size, live, flipped, monochromeIcons, icons, cell)
+        is TileContent.Shortcut -> ShortcutTile(tile, cell, icons, monochromeIcons)
+        is TileContent.Widget -> WidgetTile(tile, cell)
+        TileContent.Weather -> WeatherTile(tile, cell, flipped)
+        TileContent.Photos -> PhotosTile(tile, cell, flipped)
+        TileContent.People -> PeopleTile(tile, cell, flipped)
+        is TileContent.Folder -> FolderTile(tile, cell, icons, monochromeIcons, folderOpen)
+    }
+}
+
+/** What tapping a tile does, by kind. */
+private fun activateTile(
+    context: android.content.Context,
+    tile: ResolvedTile,
+    bounds: Rect?,
+    launcher: AppLauncher,
+    defaults: DefaultApps,
+    state: StartState,
+) {
+    when (val content = tile.spec.content) {
+        is TileContent.App -> launcher.launch(tile.app!!, bounds)
+        is TileContent.Shortcut -> {
+            val (screenBounds, options) = launcher.transition(bounds)
+            ShortcutTiles.launch(context, content, screenBounds, options)
+        }
+        is TileContent.Widget -> Unit // The hosted widget handles its own taps.
+        TileContent.Weather -> WeatherTiles.intent(context)?.let { launcher.start(it, bounds) }
+        TileContent.Photos -> PhotosTiles.intent(context, defaults)?.let { launcher.start(it, bounds) }
+        TileContent.People -> PeopleTiles.intent(context)?.let { launcher.start(it, bounds) }
+        is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
+    }
+}
+
+/** Menu for tiles that don't come from the app list. */
+@Composable
+private fun AddTileMenu(
+    onAdd: (TileContent, TileSize) -> Unit,
+    onWidgets: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Metro.colors.background.copy(alpha = 0.6f))
+            .clickable(onClickLabel = "close", onClick = onDismiss),
+    ) {
+        MetroMenu(
+            items = listOf(
+                "weather" to { onAdd(TileContent.Weather, TileSize.WIDE) },
+                "photos" to { onAdd(TileContent.Photos, TileSize.WIDE) },
+                "people" to { onAdd(TileContent.People, TileSize.MEDIUM) },
+                "widgets" to onWidgets,
+            ),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+        )
+    }
+}
+
+/** Circled plus that opens [AddTileMenu]. */
+@Composable
+private fun AddTileButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val color = Metro.colors.foreground
+    Box(
+        modifier
+            .size(44.dp)
+            .metroTilt()
+            .border(2.dp, color, CircleShape)
+            .clickable(onClickLabel = "add a tile", onClick = onClick)
+            .drawBehind {
+                val stroke = 2.dp.toPx()
+                val c = size.width / 2
+                val arm = size.width * 0.2f
+                drawLine(color, Offset(c - arm, c), Offset(c + arm, c), stroke, StrokeCap.Round)
+                drawLine(color, Offset(c, c - arm), Offset(c, c + arm), stroke, StrokeCap.Round)
             },
     )
 }

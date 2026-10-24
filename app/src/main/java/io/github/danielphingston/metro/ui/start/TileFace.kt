@@ -21,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +36,8 @@ import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarEvent
 import io.github.danielphingston.metro.live.ClockState
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.tiles.NowPlayingBack
+import io.github.danielphingston.metro.ui.tiles.NowPlayingFront
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.Dispatchers
@@ -51,12 +54,14 @@ sealed interface LiveContent {
     data class Clock(val state: ClockState, val is24Hour: Boolean) : LiveContent
     data class Calendar(val now: Long, val events: List<CalendarEvent>, val is24Hour: Boolean) : LiveContent
     data class Notifications(val data: AppNotifications, val showContent: Boolean) : LiveContent
+    data class NowPlaying(val info: io.github.danielphingston.metro.live.NowPlaying) : LiveContent
 
     /** Whether the tile has a second face to flip to. Small tiles never flip. */
     fun hasBack(size: TileSize): Boolean = size != TileSize.SMALL && when (this) {
         is Clock -> state.nextAlarm != null
         is Calendar -> events.isNotEmpty()
         is Notifications -> showContent && data.previews.isNotEmpty()
+        is NowPlaying -> true
     }
 }
 
@@ -64,7 +69,7 @@ sealed interface LiveContent {
  * Tile typography is sized to the tile, not the user's font scale: tiles have a fixed size
  * and text that grows with font scale would just be clipped.
  */
-private class TileMetrics(val cellSize: Dp, private val density: androidx.compose.ui.unit.Density) {
+internal class TileMetrics(val cellSize: Dp, private val density: androidx.compose.ui.unit.Density) {
     private val scale = cellSize.value / 96f
     fun text(base: Float): TextUnit = with(density) { (base * scale).dp.toSp() }
     fun dp(base: Float): Dp = (base * scale).dp
@@ -81,28 +86,44 @@ fun TileFace(
     cellSize: Dp,
 ) {
     val metrics = TileMetrics(cellSize, LocalDensity.current)
-    val showBack = flipped && live?.hasBack(size) == true
+    FlipCard(
+        showBack = flipped && live?.hasBack(size) == true,
+        front = { Front(app, size, live, monochromeIcons, icons, metrics) },
+        back = { Back(app, size, live!!, monochromeIcons, icons, metrics) },
+    )
+}
+
+/**
+ * A tile surface that flips around its horizontal axis between two faces, the Windows Phone
+ * live tile animation. Any tile kind can use it.
+ */
+@Composable
+fun FlipCard(
+    showBack: Boolean,
+    modifier: Modifier = Modifier,
+    background: Color = Metro.colors.accent,
+    front: @Composable () -> Unit,
+    back: @Composable () -> Unit,
+) {
     val rotation by animateFloatAsState(
         targetValue = if (showBack) 180f else 0f,
         animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
         label = "tileFlip",
     )
     Box(
-        Modifier
+        modifier
             .fillMaxSize()
             .graphicsLayer {
                 rotationX = rotation
                 cameraDistance = 16f * density
             }
-            .background(Metro.colors.accent),
+            .background(background),
     ) {
         if (rotation <= 90f) {
-            Front(app, size, live, monochromeIcons, icons, metrics)
+            front()
         } else {
             // Counter-rotate so the back face isn't drawn mirrored.
-            Box(Modifier.fillMaxSize().graphicsLayer { rotationX = 180f }) {
-                Back(app, size, live!!, monochromeIcons, icons, metrics)
-            }
+            Box(Modifier.fillMaxSize().graphicsLayer { rotationX = 180f }) { back() }
         }
     }
 }
@@ -119,6 +140,7 @@ private fun Front(
     when (live) {
         is LiveContent.Clock -> ClockFront(app, size, live, m)
         is LiveContent.Calendar -> CalendarFront(app, size, live, m)
+        is LiveContent.NowPlaying -> NowPlayingFront(app, size, live.info, m)
         else -> IconFront(app, size, (live as? LiveContent.Notifications)?.data?.count ?: 0, monochromeIcons, icons, m)
     }
 }
@@ -136,11 +158,12 @@ private fun Back(
         is LiveContent.Clock -> ClockBack(app, live, m)
         is LiveContent.Calendar -> CalendarBack(app, size, live, m)
         is LiveContent.Notifications -> NotificationsBack(app, size, live.data, monochromeIcons, icons, m)
+        is LiveContent.NowPlaying -> NowPlayingBack(app, size, live.info, m)
     }
 }
 
 @Composable
-private fun rememberIcon(icons: IconCache, app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
+internal fun rememberIcon(icons: IconCache, app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
     val cached = icons.peek(app, sizePx, monochrome)
     val loaded by produceState(cached, app.key, sizePx, monochrome) {
         if (value == null) value = withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }
@@ -149,7 +172,7 @@ private fun rememberIcon(icons: IconCache, app: AppInfo, sizePx: Int, monochrome
 }
 
 @Composable
-private fun AppIcon(app: AppInfo, icons: IconCache, size: Dp, monochrome: Boolean, modifier: Modifier = Modifier) {
+internal fun AppIcon(app: AppInfo, icons: IconCache, size: Dp, monochrome: Boolean, modifier: Modifier = Modifier) {
     val px = with(LocalDensity.current) { size.roundToPx() }
     val icon = rememberIcon(icons, app, px, monochrome)
     Box(modifier.size(size)) {
@@ -158,7 +181,7 @@ private fun AppIcon(app: AppInfo, icons: IconCache, size: Dp, monochrome: Boolea
 }
 
 @Composable
-private fun TileLabel(text: String, m: TileMetrics, modifier: Modifier = Modifier) {
+internal fun TileLabel(text: String, m: TileMetrics, modifier: Modifier = Modifier) {
     MetroText(
         text,
         MetroType.style(m.text(12.5f)),

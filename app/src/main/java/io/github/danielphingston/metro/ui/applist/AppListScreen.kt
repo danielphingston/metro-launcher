@@ -57,7 +57,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.IconCache
+import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileIcon
+import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.ui.tiles.rememberAppShortcutItems
 import io.github.danielphingston.metro.ui.AppLauncher
 import io.github.danielphingston.metro.ui.LauncherViewModel
 import io.github.danielphingston.metro.ui.components.MetroMenu
@@ -190,6 +193,7 @@ fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: A
                 onPin = { state.menu = null; viewModel.pin(app) },
                 onUninstall = { state.menu = null; viewModel.uninstall(app) },
                 onAppInfo = { state.menu = null; viewModel.openAppInfo(app) },
+                onPinShortcut = { state.menu = null; viewModel.addTile(it, TileSize.MEDIUM) },
                 onDismiss = { state.menu = null },
             )
         }
@@ -329,10 +333,13 @@ private fun AppMenu(
     onPin: () -> Unit,
     onUninstall: () -> Unit,
     onAppInfo: () -> Unit,
+    onPinShortcut: (TileContent.Shortcut) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val shortcutItems = rememberAppShortcutItems(app, onPin = onPinShortcut)
     val items = buildList {
         if (!pinned) add("pin to start" to onPin)
+        addAll(shortcutItems)
         if (app.isUninstallable) add("uninstall" to onUninstall)
         add("app info" to onAppInfo)
     }

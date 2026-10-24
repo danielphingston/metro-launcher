@@ -9,6 +9,9 @@ import io.github.danielphingston.metro.live.NotificationAccess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /** Process-wide singletons. The launcher process is long-lived, so these are created once. */
 class MetroApplication : Application() {
@@ -33,5 +36,8 @@ class MetroApplication : Application() {
             icons.evict(pkg)
         }, onPackageChanged = { pkg -> icons.evict(pkg) })
         NotificationAccess.rebindIfNeeded(this)
+        appScope.launch {
+            settings.settings.map { it.iconPack }.distinctUntilChanged().collect { icons.iconPack = it }
+        }
     }
 }

@@ -21,6 +21,17 @@ class TileIcon(val bitmap: ImageBitmap, val isMonochrome: Boolean)
  * touch PackageManager. Monochrome ("themed") icon layers give the flat white Metro look.
  */
 class IconCache(private val context: Context) {
+    private val iconPacks = IconPacks(context)
+
+    /** Package of the active icon pack; changing it drops every cached icon. */
+    @Volatile
+    var iconPack: String? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            cache.evictAll()
+        }
+
     private val cache = object : LruCache<String, TileIcon>(24 * 1024 * 1024) {
         override fun sizeOf(key: String, value: TileIcon) = value.bitmap.width * value.bitmap.height * 4
     }
@@ -41,10 +52,15 @@ class IconCache(private val context: Context) {
     }
 
     private fun cacheKey(app: AppInfo, sizePx: Int, monochrome: Boolean) =
-        "${app.key.serialize()}@$sizePx${if (monochrome) "m" else "c"}"
+        "${app.key.serialize()}@$sizePx${if (monochrome) "m" else "c"}${iconPack.orEmpty()}"
 
     private fun render(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon {
         val density = context.resources.displayMetrics.densityDpi
+        iconPack?.let { pack ->
+            iconPacks.drawable(pack, app.component, density)?.let {
+                return TileIcon(it.toBitmap(sizePx, sizePx).asImageBitmap(), isMonochrome = false)
+            }
+        }
         if (monochrome && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val adaptive = app.loadIcon(density, false) as? AdaptiveIconDrawable
             val mono = adaptive?.monochrome?.mutate()
