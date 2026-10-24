@@ -64,6 +64,7 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroAccents
 import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.theme.MetroType
+import io.github.danielphingston.metro.ui.tiles.PeopleSettingsSection
 import io.github.danielphingston.metro.ui.tiles.PhotosSettingsSection
 import io.github.danielphingston.metro.ui.tiles.WeatherSettingsSection
 import kotlinx.coroutines.launch
@@ -238,6 +239,7 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
 
         WeatherSettingsSection()
         PhotosSettingsSection()
+        PeopleSettingsSection()
 
         Section("battery")
         MetroText(
