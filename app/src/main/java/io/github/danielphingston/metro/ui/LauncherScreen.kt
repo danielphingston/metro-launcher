@@ -81,9 +81,10 @@ class AppLauncher(
 
     /**
      * Plays the turnstile exit (at most about 350ms, skipped when animations are off), then runs
-     * [start]; if the system refuses the launch the elements come straight back.
+     * [start]; if the system refuses the launch the elements come straight back. [start] gets
+     * screen-space source bounds and ActivityOptions and returns whether the launch happened.
      */
-    private fun open(boundsInRoot: ComposeRect?, start: (Rect?, Bundle?) -> Boolean) {
+    fun open(boundsInRoot: ComposeRect?, start: (Rect?, Bundle?) -> Boolean) {
         if (turnstile.busy) return
         scope.launch {
             val swung = turnstile.exit(boundsInRoot)

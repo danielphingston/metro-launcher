@@ -745,8 +745,7 @@ private fun activateTile(
 ) {
     when (val content = tile.spec.content) {
         is TileContent.App -> launcher.launch(tile.app!!, bounds)
-        is TileContent.Shortcut -> {
-            val (screenBounds, options) = launcher.transition(bounds)
+        is TileContent.Shortcut -> launcher.open(bounds) { screenBounds, options ->
             ShortcutTiles.launch(context, content, screenBounds, options)
         }
         is TileContent.Widget -> Unit // The hosted widget handles its own taps.

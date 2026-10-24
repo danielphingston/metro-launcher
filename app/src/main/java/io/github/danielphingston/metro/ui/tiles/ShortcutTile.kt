@@ -62,8 +62,11 @@ object ShortcutTiles {
 
     private const val MAX_ITEMS = 4
 
-    /** Starts the shortcut; shows a toast when it was disabled or removed since it was pinned. */
-    fun launch(context: Context, shortcut: TileContent.Shortcut, bounds: Rect?, options: Bundle?) {
+    /**
+     * Starts the shortcut and returns whether it started; shows a toast when it was disabled or
+     * removed since it was pinned.
+     */
+    fun launch(context: Context, shortcut: TileContent.Shortcut, bounds: Rect?, options: Bundle?): Boolean {
         val user = userFor(context, shortcut.userSerial)
         val started = user != null && try {
             context.getSystemService(LauncherApps::class.java)
@@ -73,6 +76,7 @@ object ShortcutTiles {
             false
         }
         if (!started) Toast.makeText(context, "this shortcut isn't available", Toast.LENGTH_SHORT).show()
+        return started
     }
 
     /**
