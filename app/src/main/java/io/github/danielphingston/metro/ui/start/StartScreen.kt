@@ -65,6 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
@@ -156,7 +157,19 @@ class StartState(val scroll: ScrollState) {
         mergeTargetId = null
     }
 
-    /** Closes transient UI; returns true if anything was open. */
+    /** Whether a flyout is over the start screen; the pager must not swipe it away. */
+    val flyoutOpen: Boolean get() = addMenuOpen || widgetPickerOpen || renamingFolderId != null
+
+    /** Closes the flyouts (add-tile menu, widget picker, rename field); returns true if one was open. */
+    fun dismissFlyouts(): Boolean {
+        val any = flyoutOpen
+        addMenuOpen = false
+        widgetPickerOpen = false
+        renamingFolderId = null
+        return any
+    }
+
+    /** Closes all transient UI, the open folder included; returns true if anything was open. */
     fun dismissOverlays(): Boolean {
         val any = addMenuOpen || widgetPickerOpen || openFolderId != null || renamingFolderId != null
         addMenuOpen = false
@@ -592,8 +605,13 @@ private fun TileHost(
                     if (folder != null) append("${tile.label}, folder, ${tile.children.size} items") else append(tile.label)
                     (live as? LiveContent.Notifications)?.let { append(", ${it.data.count} new") }
                 }
-                onClick { onLaunch(bounds); true }
-                onLongClick { state.select(id); true }
+                onClick {
+                    // Assistive launches skip the tap handler that normally ends edit mode.
+                    state.exitEdit()
+                    onLaunch(bounds)
+                    true
+                }
+                onLongClick("edit") { state.select(id); true }
                 customActions = buildList {
                     if (folder != null) {
                         add(CustomAccessibilityAction(if (folderOpen) "Close" else "Open") {
@@ -623,13 +641,21 @@ private fun TileHost(
                         currentPlacement.y * cellPx,
                     )
                     state.dragId = id
-                    val completed = drag(start.id) { change ->
-                        state.dragTopLeft += change.positionChange()
-                        change.consume()
-                        currentOnDragMove()
+                    try {
+                        val completed = drag(start.id) { change ->
+                            state.dragTopLeft += change.positionChange()
+                            change.consume()
+                            currentOnDragMove()
+                        }
+                        currentOnDrop(completed)
+                    } finally {
+                        // Also when the tile leaves the screen mid-drag (e.g. its app is uninstalled):
+                        // a stuck dragId would keep the auto-scroll loop running every frame.
+                        if (state.dragId == id) {
+                            state.dragId = null
+                            state.mergeCandidateId = null
+                        }
                     }
-                    currentOnDrop(completed)
-                    state.dragId = null
                 }
             }
             .pointerInput(id, cellPx) {
@@ -705,7 +731,8 @@ private fun EditBadge(
             .size(EditBadgeSize)
             .background(colors.foreground, CircleShape)
             .border(2.dp, colors.background, CircleShape)
-            .clickable(onClickLabel = label, onClick = onClick)
+            .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label }
             .drawBehind { glyph(colors.background, 1.5.dp.toPx()) },
     )
 }
@@ -791,7 +818,8 @@ private fun RoundGlyphButton(
             .size(40.dp)
             .metroTilt()
             .border(1.5.dp, color, CircleShape)
-            .clickable(onClickLabel = label, onClick = onClick)
+            .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label }
             .drawBehind { glyph(color, 1.5.dp.toPx()) },
     )
 }

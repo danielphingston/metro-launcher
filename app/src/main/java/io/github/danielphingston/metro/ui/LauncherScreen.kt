@@ -137,10 +137,13 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
     // A launcher never finishes on back: back only unwinds launcher UI state.
     BackHandler {
         when {
+            // The app list's own overlays, then the way back to start.
+            pager.currentPage != 0 ->
+                if (!appListState.handleBack()) scope.launch { pager.animateScrollToPage(0) }
+            // On start: flyouts sit on top of everything, then edit mode, then the open folder.
+            startState.dismissFlyouts() -> Unit
             startState.editing -> startState.exitEdit()
             startState.dismissOverlays() -> Unit
-            appListState.handleBack() -> Unit
-            pager.currentPage != 0 -> scope.launch { pager.animateScrollToPage(0) }
         }
     }
 
@@ -156,7 +159,7 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
             CompositionLocalProvider(LocalTurnstile provides turnstile) {
                 HorizontalPager(
                     state = pager,
-                    userScrollEnabled = !startState.editing,
+                    userScrollEnabled = !startState.editing && !startState.flyoutOpen && !appListState.overlayOpen,
                     beyondViewportPageCount = 1,
                     key = { it },
                 ) { page ->
@@ -167,7 +170,11 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
                                 state = startState,
                                 isCurrentPage = pager.currentPage == 0,
                                 launcher = launcher,
-                                onShowApps = { scope.launch { pager.animateScrollToPage(1) } },
+                                onShowApps = {
+                                    // The pager is locked while editing; don't carry edit mode over to the list.
+                                    startState.exitEdit()
+                                    scope.launch { pager.animateScrollToPage(1) }
+                                },
                             )
                             else -> AppListScreen(viewModel, appListState, launcher)
                         }

@@ -94,6 +94,9 @@ class AppListState {
     var jumpListOpen by mutableStateOf(false)
     var menu by mutableStateOf<Pair<AppInfo, Rect>?>(null)
 
+    /** Whether the jump grid or an app's menu is open; the pager must not swipe away from it. */
+    val overlayOpen: Boolean get() = jumpListOpen || menu != null
+
     fun reset() {
         query = ""
         jumpListOpen = false

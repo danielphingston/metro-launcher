@@ -1,6 +1,9 @@
 package io.github.danielphingston.metro.ui
 
+import android.app.WallpaperColors
+import android.app.WallpaperManager
 import android.content.Intent
+import android.graphics.PixelFormat
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.WindowManager
@@ -11,6 +14,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.StartBackground
@@ -22,6 +27,9 @@ import io.github.danielphingston.metro.ui.theme.MetroTheme
 class MainActivity : ComponentActivity() {
     private val viewModel: LauncherViewModel by viewModels()
 
+    /** Bumped on every resume so the bar icons follow a wallpaper that changed meanwhile. */
+    private var resumes by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -29,7 +37,8 @@ class MainActivity : ComponentActivity() {
             MetroTheme(settings) {
                 val colors = Metro.colors
                 val wallpaper = settings.background == StartBackground.SYSTEM_WALLPAPER
-                LaunchedEffect(colors, wallpaper) { applyWindowColors(colors, wallpaper) }
+                val resumed = resumes
+                LaunchedEffect(colors, wallpaper, resumed) { applyWindowColors(colors, wallpaper) }
                 LauncherScreen(viewModel)
             }
         }
@@ -37,18 +46,29 @@ class MainActivity : ComponentActivity() {
 
     /**
      * The window is opaque, which is the cheapest to draw, except in wallpaper mode: then it is
-     * transparent and asks the system to composite the wallpaper behind it.
+     * transparent and asks the system to composite the wallpaper behind it. The status and
+     * navigation bar icons follow the page colour, or in wallpaper mode the wallpaper's own
+     * brightness, since the theme says nothing about what is behind the bars.
      */
     private fun applyWindowColors(colors: MetroColors, wallpaper: Boolean) {
         val transparent = android.graphics.Color.TRANSPARENT
-        val style = if (colors.isDark) SystemBarStyle.dark(transparent) else SystemBarStyle.light(transparent, transparent)
+        val darkIcons = if (wallpaper) wallpaperSupportsDarkIcons() else !colors.isDark
+        val style = if (darkIcons) SystemBarStyle.light(transparent, transparent) else SystemBarStyle.dark(transparent)
         enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
         window.setBackgroundDrawable(ColorDrawable(if (wallpaper) transparent else colors.background.toArgb()))
+        // Make sure the surface itself is not opaque, so the wallpaper behind it can show.
+        window.setFormat(if (wallpaper) PixelFormat.TRANSLUCENT else PixelFormat.OPAQUE)
         if (wallpaper) {
             window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
         }
+    }
+
+    /** Whether the system wallpaper is light enough for dark status bar icons; no permission needed. */
+    private fun wallpaperSupportsDarkIcons(): Boolean {
+        val colors = getSystemService(WallpaperManager::class.java)?.getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
+        return colors != null && colors.colorHints and WallpaperColors.HINT_SUPPORTS_DARK_TEXT != 0
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -62,6 +82,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumes++
         viewModel.refreshPermissions()
         NotificationAccess.rebindIfNeeded(this)
     }

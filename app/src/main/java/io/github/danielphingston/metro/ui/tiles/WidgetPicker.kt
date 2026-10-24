@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -111,6 +112,10 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
         pending?.let { host.deleteAppWidgetId(it.id) }
         pending = null
     }
+
+    // Home or Back while the system's bind or configure screen is up drops the picker and its
+    // result callback with it; free the id that would otherwise stay allocated.
+    DisposableEffect(Unit) { onDispose(::cancel) }
 
     fun pin(widget: PendingWidget) {
         val provider = widget.entry.info.provider.flattenToString()
