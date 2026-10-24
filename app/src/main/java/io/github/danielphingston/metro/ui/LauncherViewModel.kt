@@ -16,6 +16,7 @@ import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpec
+import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
 import io.github.danielphingston.metro.ui.tiles.WidgetTiles
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarSource
@@ -133,6 +134,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun unpin(id: Long) {
         val removed = metro.tiles.unpin(id) ?: return
         (removed.content as? TileContent.Widget)?.let { WidgetTiles.release(getApplication(), it.appWidgetId) }
+        (removed.content as? TileContent.Shortcut)?.let { ShortcutTiles.release(getApplication(), it) }
     }
     fun resize(id: Long) = metro.tiles.resize(id)
     fun move(id: Long, targetId: Long) = metro.tiles.move(id, targetId)
