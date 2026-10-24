@@ -120,9 +120,9 @@ class AppRepository(
 
     fun serialOf(user: UserHandle): Long = userManager.getSerialNumberForUser(user)
 
-    fun launch(app: AppInfo, sourceBounds: Rect?, options: Bundle?) {
-        runCatching { launcherApps.startMainActivity(app.component, app.user, sourceBounds, options) }
-    }
+    /** Returns false if the system refused. */
+    fun launch(app: AppInfo, sourceBounds: Rect?, options: Bundle?): Boolean =
+        runCatching { launcherApps.startMainActivity(app.component, app.user, sourceBounds, options) }.isSuccess
 
     fun openAppInfo(app: AppInfo) {
         runCatching { launcherApps.startAppDetailsActivity(app.component, app.user, null, null) }

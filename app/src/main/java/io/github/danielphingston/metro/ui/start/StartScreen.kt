@@ -443,6 +443,7 @@ private fun TileHost(
                 this.alpha = alpha
             }
             .onGloballyPositioned { bounds = it.boundsInRoot() }
+            .turnstile(LocalTurnstile.current, id) { bounds }
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
                     append(tile.label)
