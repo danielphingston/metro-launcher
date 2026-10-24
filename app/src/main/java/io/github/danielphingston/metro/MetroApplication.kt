@@ -6,6 +6,7 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.live.NotificationAccess
+import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,9 +33,13 @@ class MetroApplication : Application() {
         tiles = TileRepository(this, appScope)
         icons = IconCache(this)
         apps = AppRepository(this, appScope, onPackageRemoved = { pkg, serial ->
-            tiles.removePackage(pkg, serial)
+            val removed = tiles.removePackage(pkg, serial)
+            appScope.launch { releaseTileResources(this@MetroApplication, removed) }
             icons.evict(pkg)
-        }, onPackageChanged = { pkg -> icons.evict(pkg) })
+        }, onPackageChanged = { pkg ->
+            icons.evict(pkg)
+            icons.invalidatePack(pkg)
+        })
         NotificationAccess.rebindIfNeeded(this)
         appScope.launch {
             settings.settings.map { it.iconPack }.distinctUntilChanged().collect { icons.iconPack = it }

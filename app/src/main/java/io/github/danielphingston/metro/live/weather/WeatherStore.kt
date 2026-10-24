@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 
 /** The user's weather settings and the last downloaded forecast ([forecastJson] is the raw response). */
 data class StoredWeather(
@@ -33,9 +34,17 @@ object WeatherStore {
     private val forecast = stringPreferencesKey("weather_forecast")
     private val fetchedAt = longPreferencesKey("weather_fetched_at")
 
+    /**
+     * The last value read or written, for callers that can't wait for DataStore (e.g. choosing
+     * what a tap opens on the main thread). Null until the first read.
+     */
+    @Volatile
+    var latest: StoredWeather? = null
+        private set
+
     /** Emits only when a weather value changes, not for unrelated settings in the same file. */
     fun stored(context: Context): Flow<StoredWeather> =
-        context.metroDataStore.data.map { it.toStored() }.distinctUntilChanged()
+        context.metroDataStore.data.map { it.toStored() }.onEach { latest = it }.distinctUntilChanged()
 
     suspend fun read(context: Context): StoredWeather = stored(context).first()
 
@@ -52,6 +61,7 @@ object WeatherStore {
 
     /** Sets the location and drops the forecast, which belongs to the old one. */
     suspend fun setPlace(context: Context, place: WeatherPlace) {
+        latest = latest?.copy(place = place, forecastJson = null, fetchedAt = 0)
         context.metroDataStore.edit {
             it[name] = place.name
             it[detail] = place.detail

@@ -49,7 +49,11 @@ class PinWidgetActivity : ComponentActivity() {
         fun add() {
             val host = WidgetTiles.host(this)
             val id = host.allocateAppWidgetId()
-            val accepted = request.accept(Bundle().apply { putInt(AppWidgetManager.EXTRA_APPWIDGET_ID, id) })
+            val accepted = try {
+                request.accept(Bundle().apply { putInt(AppWidgetManager.EXTRA_APPWIDGET_ID, id) })
+            } catch (_: RuntimeException) {
+                false
+            }
             if (accepted) {
                 val (cols, rows) = WidgetTiles.cellsOf(this, info)
                 val serial = getSystemService(UserManager::class.java).getSerialNumberForUser(info.profile)

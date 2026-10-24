@@ -51,6 +51,12 @@ class IconCache(private val context: Context) {
         cache.snapshot().keys.filter { it.startsWith("$packageName/") }.forEach { cache.remove(it) }
     }
 
+    /** Drops what is known about icon pack [packageName]; called when that package changed. */
+    fun invalidatePack(packageName: String) {
+        iconPacks.invalidate(packageName)
+        if (iconPack == packageName) cache.evictAll()
+    }
+
     private fun cacheKey(app: AppInfo, sizePx: Int, monochrome: Boolean) =
         "${app.key.serialize()}@$sizePx${if (monochrome) "m" else "c"}${iconPack.orEmpty()}"
 

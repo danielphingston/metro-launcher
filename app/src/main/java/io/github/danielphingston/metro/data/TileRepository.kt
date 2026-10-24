@@ -1,5 +1,6 @@
 package io.github.danielphingston.metro.data
 
+import android.content.ComponentName
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -138,16 +139,28 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
         list.toMutableList().apply { add(to, removeAt(from)) }
     }
 
-    fun removePackage(packageName: String, userSerial: Long) = _tiles.update { list ->
-        fun TileSpec.belongsToPackage(): Boolean = when (val c = content) {
-            is TileContent.App -> c.app.packageName == packageName && c.app.userSerial == userSerial
-            is TileContent.Shortcut -> c.packageName == packageName && c.userSerial == userSerial
-            else -> false
+    /** Removes the tiles of an uninstalled package, including those in folders, and returns them. */
+    fun removePackage(packageName: String, userSerial: Long): List<TileSpec> {
+        var removed: List<TileSpec> = emptyList()
+        _tiles.update { list ->
+            val gone = mutableListOf<TileSpec>()
+            fun TileSpec.belongsToPackage(): Boolean = when (val c = content) {
+                is TileContent.App -> c.app.packageName == packageName && c.app.userSerial == userSerial
+                is TileContent.Shortcut -> c.packageName == packageName && c.userSerial == userSerial
+                is TileContent.Widget ->
+                    ComponentName.unflattenFromString(c.provider)?.packageName == packageName && c.userSerial == userSerial
+                else -> false
+            }
+            fun List<TileSpec>.withoutPackage() = filterNot { spec -> spec.belongsToPackage().also { if (it) gone += spec } }
+            val updated = list?.withoutPackage()?.map { spec ->
+                val folder = spec.content as? TileContent.Folder ?: return@map spec
+                spec.copy(content = folder.copy(children = folder.children.withoutPackage()))
+            }
+            // update may run its block again, so only the last run counts.
+            removed = gone
+            updated
         }
-        list?.filterNot { it.belongsToPackage() }?.map { spec ->
-            val folder = spec.content as? TileContent.Folder ?: return@map spec
-            spec.copy(content = folder.copy(children = folder.children.filterNot { it.belongsToPackage() }))
-        }
+        return removed
     }
 
     private fun encode(tiles: List<TileSpec>): String = TileJson.encode(tiles).toString()

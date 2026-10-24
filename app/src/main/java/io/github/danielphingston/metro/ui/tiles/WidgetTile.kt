@@ -154,7 +154,13 @@ fun WidgetTile(
                 WidgetFrame(ctx, hostView) { currentOnLongPress() }
             },
             modifier = Modifier.fillMaxSize(),
-            update = { it.hostView.updateAppWidgetSize(Bundle(), listOf(size)) },
+            update = { frame ->
+                // Only tell the widget when its size changed, not on every recomposition.
+                if (frame.appliedSize != size) {
+                    frame.appliedSize = size
+                    frame.hostView.updateAppWidgetSize(Bundle(), listOf(size))
+                }
+            },
         )
         if (editing) {
             Box(Modifier.fillMaxSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } })
@@ -174,6 +180,9 @@ private class WidgetFrame(
     val hostView: AppWidgetHostView,
     private val onLongPress: () -> Unit,
 ) : FrameLayout(context) {
+    /** The last size passed to the widget, so an unchanged size isn't sent again. */
+    var appliedSize: SizeF? = null
+
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private var downX = 0f
     private var downY = 0f

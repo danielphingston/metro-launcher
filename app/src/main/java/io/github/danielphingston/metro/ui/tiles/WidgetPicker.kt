@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.ui.LauncherViewModel
+import io.github.danielphingston.metro.ui.WidgetConfigActivity
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
@@ -128,8 +129,8 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
         val optional = info.widgetFeatures and AppWidgetProviderInfo.WIDGET_FEATURE_CONFIGURATION_OPTIONAL != 0
         val activity = info.configure
         if (activity == null || optional) return pin(widget)
-        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
-            .setComponent(activity)
+        // The trampoline starts it through the host, which handles unexported activities and work profiles.
+        val intent = Intent(context, WidgetConfigActivity::class.java)
             .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widget.id)
         runCatching { configure.launch(intent) }.onFailure { cancel() }
     }

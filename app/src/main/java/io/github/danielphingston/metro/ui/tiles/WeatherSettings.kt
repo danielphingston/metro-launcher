@@ -134,6 +134,14 @@ fun WeatherSettingsSection() {
     status?.let { MetroText(it, MetroType.caption, color = colors.subtle, modifier = Modifier.padding(top = 8.dp)) }
     Spacer(Modifier.height(10.dp))
 
+    MetroText(
+        "\"Use my location\" sends your approximate location, rounded to about 1 km, to open-meteo.com " +
+            "to get the forecast, and again about once an hour to keep it current. " +
+            "Searching for a city sends what you type to open-meteo.com.",
+        MetroType.caption,
+        color = colors.subtle,
+    )
+    Spacer(Modifier.height(8.dp))
     MetroButton("use my location", onClick = {
         if (DeviceLocation.hasPermission(context)) locate() else locationRequest.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
     })

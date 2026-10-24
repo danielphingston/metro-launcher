@@ -13,15 +13,16 @@ object WeatherApi {
     private const val GEOCODING = "https://geocoding-api.open-meteo.com/v1/search"
 
     /** The raw forecast response for [place], in °F when [fahrenheit]. */
-    fun forecast(place: WeatherPlace, fahrenheit: Boolean): String {
+    fun forecast(place: WeatherPlace, fahrenheit: Boolean): String = get(forecastUrl(place, fahrenheit))
+
+    /** Coordinates are rounded to 2 decimals (about 1 km): enough for a forecast, and less precise than the fix. */
+    internal fun forecastUrl(place: WeatherPlace, fahrenheit: Boolean): String {
         val units = if (fahrenheit) "&temperature_unit=fahrenheit" else ""
-        return get(
-            String.format(
-                Locale.US,
-                "%s?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code,is_day" +
-                    "&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=4%s",
-                FORECAST, place.latitude, place.longitude, units,
-            ),
+        return String.format(
+            Locale.US,
+            "%s?latitude=%.2f&longitude=%.2f&current=temperature_2m,weather_code,is_day" +
+                "&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=4%s",
+            FORECAST, place.latitude, place.longitude, units,
         )
     }
 

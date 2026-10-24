@@ -49,9 +49,7 @@ import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import java.io.FileNotFoundException
 
 object PhotosTiles {
     /**
@@ -59,9 +57,8 @@ object PhotosTiles {
      * app, the default one if known.
      */
     fun intent(context: Context, defaults: DefaultApps): Intent? {
-        // A quick read of an already-loaded DataStore; the tile only exists once settings did.
-        val hasPhotos = runBlocking { PhotoSource.current(context) }.isNotEmpty()
-        if (!hasPhotos) return Intent(context, SettingsActivity::class.java)
+        // The tile collects the photo list while shown, which keeps this copy current.
+        if (PhotoSource.latest.isEmpty()) return Intent(context, SettingsActivity::class.java)
         return defaults.gallery?.let { context.packageManager.getLaunchIntentForPackage(it) }
             ?: Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_GALLERY)
     }
@@ -107,7 +104,8 @@ private fun PhotoStack(
     val slide = remember { Animatable(1f) }
     val unreadable = remember { mutableSetOf<String>() }
 
-    LaunchedEffect(uris) {
+    // The tile's size is part of the key, so resizing reloads the photo at the new resolution.
+    LaunchedEffect(uris, widthPx, heightPx) {
         val first = loadFrom(context, uris, cursor, widthPx, heightPx, unreadable)
         first?.let {
             cursor = it.index
@@ -154,7 +152,7 @@ private class LoadedPhoto(val index: Int, val bitmap: ImageBitmap)
 
 /**
  * Decodes the first readable photo at or after [from], wrapping around. Photos that fail are
- * skipped; those whose access is gone are added to [unreadable].
+ * skipped; those whose access is gone (see [PhotoSource.isAccessLost]) are added to [unreadable].
  */
 private suspend fun loadFrom(
     context: Context,
@@ -170,12 +168,9 @@ private suspend fun loadFrom(
         if (uri in unreadable) continue
         try {
             return@withContext LoadedPhoto(index, ImageDecode.decode(context, Uri.parse(uri), widthPx, heightPx).asImageBitmap())
-        } catch (_: SecurityException) {
-            unreadable += uri
-        } catch (_: FileNotFoundException) {
-            unreadable += uri
-        } catch (_: Exception) {
-            // Corrupt or transiently unreadable: skip it this time.
+        } catch (e: Exception) {
+            // Only lost access forgets the photo; a missing file or I/O error may be temporary.
+            if (PhotoSource.isAccessLost(e)) unreadable += uri
         }
     }
     null
@@ -202,11 +197,14 @@ fun PhotosSettingsSection() {
             fun release(uri: Uri) = runCatching {
                 resolver.releasePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            picked.forEach {
-                runCatching { resolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            // A photo whose grant can't be kept would stop loading later, so don't save it.
+            val chosen = PhotoSource.keepPersisted(picked.map { it.toString() }) {
+                runCatching {
+                    resolver.takePersistableUriPermission(Uri.parse(it), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }.isSuccess
             }
+            if (chosen.isEmpty()) return@launch
             val previous = PhotoSource.current(context)
-            val chosen = picked.map { it.toString() }
             PhotoSource.save(context, chosen)
             (previous - chosen.toSet()).forEach { release(Uri.parse(it)) }
         }

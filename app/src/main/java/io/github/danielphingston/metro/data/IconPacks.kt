@@ -8,6 +8,7 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
+import java.io.FileNotFoundException
 import java.util.concurrent.ConcurrentHashMap
 
 data class IconPackInfo(val packageName: String, val label: String)
@@ -17,7 +18,10 @@ data class IconPackInfo(val packageName: String, val label: String)
  * `res/xml` or assets) mapping each app's component to a drawable name in the pack.
  */
 class IconPacks(private val context: Context) {
-    /** Parsed `appfilter.xml` per pack package; an empty map for a pack that has none or fails to parse. */
+    /**
+     * Parsed `appfilter.xml` per pack package; an empty map for a pack that has none. A pack that
+     * failed to load is left out, so the next lookup tries again (see [invalidate]).
+     */
     private val filters = ConcurrentHashMap<String, Map<ComponentName, String>>()
 
     /** Installed icon packs, sorted by label. Blocking: call off the main thread. */
@@ -32,7 +36,8 @@ class IconPacks(private val context: Context) {
 
     /** The pack's icon for [component], or null if the pack has none. Called off the main thread. */
     fun drawable(packPackage: String, component: ComponentName, density: Int): Drawable? = try {
-        val name = filters.getOrPut(packPackage) { loadFilter(packPackage) }[component]
+        val filter = filters[packPackage] ?: loadFilter(packPackage)?.also { filters[packPackage] = it }
+        val name = filter?.get(component)
         if (name == null) {
             null
         } else {
@@ -45,7 +50,13 @@ class IconPacks(private val context: Context) {
         null
     }
 
-    private fun loadFilter(pack: String): Map<ComponentName, String> = try {
+    /** Forgets the parsed filter of [packageName], e.g. after the pack was updated. */
+    fun invalidate(packageName: String) {
+        filters.remove(packageName)
+    }
+
+    /** Null when loading failed, which must not be remembered. */
+    private fun loadFilter(pack: String): Map<ComponentName, String>? = try {
         val resources = context.packageManager.getResourcesForApplication(pack)
         val id = resources.getIdentifier("appfilter", "xml", pack)
         if (id != 0) {
@@ -55,8 +66,11 @@ class IconPacks(private val context: Context) {
                 parseAppFilter(Xml.newPullParser().apply { setInput(input, null) })
             }
         }
-    } catch (_: Exception) {
+    } catch (_: FileNotFoundException) {
+        // The pack has no appfilter.xml at all.
         emptyMap()
+    } catch (_: Exception) {
+        null
     }
 
     @Suppress("DEPRECATION")

@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
@@ -44,6 +45,7 @@ import io.github.danielphingston.metro.ui.start.AppIcon
 import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.theme.Metro
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
@@ -207,10 +209,10 @@ fun ShortcutTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome:
     val px = with(LocalDensity.current) { iconSize.roundToPx() }
     val key = remember(shortcut, px, monochrome) { ShortcutIconCache.key(shortcut, px, monochrome) }
     val icon by produceState(ShortcutIcon(ShortcutIconCache.peek(key), settled = false), key) {
-        if (value.bitmap == null) {
-            val bitmap = withContext(Dispatchers.Default) { ShortcutIconCache.load(context, shortcut, px, monochrome) }
-            value = ShortcutIcon(bitmap, settled = true)
-        }
+        // The key changed (size or monochrome), so the value may be for the old one: always reload.
+        val cached = ShortcutIconCache.peek(key)
+        val bitmap = cached ?: withContext(Dispatchers.Default) { ShortcutIconCache.load(context, shortcut, px, monochrome) }
+        value = ShortcutIcon(bitmap, settled = true)
     }
     val bitmap = icon.bitmap
     if (bitmap == null && icon.settled) {
@@ -236,16 +238,21 @@ fun ShortcutTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome:
 @Composable
 fun rememberAppShortcutItems(app: AppInfo, onPin: (TileContent.Shortcut) -> Unit): List<Pair<String, () -> Unit>> {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val shortcuts by produceState(emptyList<ShortcutInfo>(), app.key) {
         value = withContext(Dispatchers.Default) { ShortcutTiles.query(context, app) }
     }
     return shortcuts.map { info ->
         val label = info.shortLabel?.toString()?.takeIf { it.isNotBlank() } ?: info.id
         "pin “$label”" to {
-            val serial = ShortcutTiles.serialOf(context, info.userHandle)
-            val content = TileContent.Shortcut(info.`package`, info.id, serial, label)
-            ShortcutTiles.pin(context, content)
-            onPin(content)
+            // Binder calls stay off the main thread; the system must pin it before the tile exists.
+            scope.launch {
+                val content = withContext(Dispatchers.Default) {
+                    val serial = ShortcutTiles.serialOf(context, info.userHandle)
+                    TileContent.Shortcut(info.`package`, info.id, serial, label).also { ShortcutTiles.pin(context, it) }
+                }
+                onPin(content)
+            }
         }
     }
 }

@@ -129,6 +129,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Opens a widget's configuration activity on the picker's behalf. -->
+        <activity
+            android:name=".ui.WidgetConfigActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <service
             android:name=".live.MetroNotificationListener"
             android:exported="true"

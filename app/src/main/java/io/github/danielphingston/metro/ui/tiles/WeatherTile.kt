@@ -31,6 +31,7 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.weather.DayForecast
 import io.github.danielphingston.metro.live.weather.Forecast
 import io.github.danielphingston.metro.live.weather.WeatherParser
+import io.github.danielphingston.metro.live.weather.WeatherLocation
 import io.github.danielphingston.metro.live.weather.WeatherPlace
 import io.github.danielphingston.metro.live.weather.WeatherRefresh
 import io.github.danielphingston.metro.live.weather.WeatherStore
@@ -43,8 +44,8 @@ import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.time.format.TextStyle
 import java.util.Locale
 
@@ -56,8 +57,8 @@ object WeatherTiles {
      * Weather if installed, else a web forecast for the place.
      */
     fun intent(context: Context): Intent? {
-        // DataStore has the value in memory after the first read, so this does not block for long.
-        val place = runBlocking(Dispatchers.IO) { WeatherStore.read(context) }.place
+        // The tile keeps this up to date while it is shown, so a tap never waits for DataStore.
+        val place = WeatherStore.latest?.place
             ?: return Intent(context, SettingsActivity::class.java)
         context.packageManager.getLaunchIntentForPackage(SAMSUNG_WEATHER)?.let { return it }
         // A plain "weather" search uses the searcher's own location.
@@ -87,6 +88,8 @@ fun WeatherTile(tile: ResolvedTile, cellSize: Dp, flipped: Boolean) {
         // Each time the launcher comes back to the front, top up an old forecast.
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             if (latest?.let(WeatherRefresh::isStale) == true) WeatherRefresh.refreshNow(context)
+            // The device location moves; the new place restarts this effect, so finish the update first.
+            withContext(NonCancellable) { WeatherLocation.refreshIfDue(context) }
         }
     }
 
