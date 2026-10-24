@@ -14,12 +14,27 @@ android {
         // Newer APIs (themed icons on 13+) are used behind runtime checks.
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI passes the tag (e.g. 0.2.0) and the run number; local builds use the defaults.
+        versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
+        versionName = providers.gradleProperty("versionName").orNull ?: "0.2.0"
+    }
+
+    signingConfigs {
+        // Release signing comes from the environment (CI secrets). Without it, release builds
+        // are signed with the debug key: installable for testing, not accepted by Google Play.
+        System.getenv("METRO_KEYSTORE_PATH")?.let { path ->
+            create("release") {
+                storeFile = file(path)
+                storePassword = System.getenv("METRO_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("METRO_KEY_ALIAS")
+                keyPassword = System.getenv("METRO_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
