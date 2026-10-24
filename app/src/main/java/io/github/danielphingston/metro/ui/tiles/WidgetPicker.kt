@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.ui.LauncherViewModel
+import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
@@ -94,7 +95,7 @@ private fun loadWidgets(context: Context): List<WidgetGroup> {
         .sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.appLabel })
 }
 
-/** Full-screen overlay to choose a widget and pin it as a tile. */
+/** Flyout panel to choose a widget and pin it as a tile. */
 @Composable
 fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
@@ -163,23 +164,23 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     }
 
     BackHandler(onBack = onDismiss)
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Metro.colors.background)
-            // Keeps taps from reaching the start screen underneath.
-            .clickable(enabled = false, onClick = {}),
-    ) {
+    MetroFlyout(onDismiss) {
         val list = groups
         LazyColumn(
-            Modifier.fillMaxSize(),
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 24.dp)
+                .fillMaxWidth()
+                .background(Metro.colors.chrome)
+                // Keeps taps on the panel from dismissing it.
+                .clickable(enabled = false, onClick = {}),
             contentPadding = PaddingValues(
-                top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 16.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp,
+                top = 20.dp,
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
             ),
         ) {
             item {
-                MetroText("widgets", MetroType.pageTitle, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+                MetroText("widgets", MetroType.pageTitle, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
             }
             if (list != null) {
                 list.forEach { group ->
@@ -188,7 +189,8 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
                             group.appLabel,
                             MetroType.sectionTitle,
                             color = Metro.colors.accent,
-                            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 8.dp),
+                            maxLines = 1,
+                            modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 4.dp),
                         )
                     }
                     items(group.widgets, key = { "${group.appLabel}:${it.userSerial}:${it.info.provider.flattenToString()}" }) { entry ->
@@ -218,11 +220,11 @@ private fun WidgetRow(entry: WidgetEntry, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(width = 96.dp, height = 72.dp).background(Metro.colors.chrome), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(width = 96.dp, height = 72.dp).background(Metro.colors.control), contentAlignment = Alignment.Center) {
             preview?.let { Image(it, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize().padding(4.dp)) }
         }
         Column(Modifier.weight(1f)) {
-            MetroText(entry.label, MetroType.body, maxLines = 2)
+            MetroText(entry.label, MetroType.listItem, maxLines = 2)
             MetroText("${entry.cols} × ${entry.rows}", MetroType.caption, color = Metro.colors.subtle)
         }
     }

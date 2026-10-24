@@ -31,6 +31,8 @@ class AppInfo(
     val user: UserHandle,
     val component: ComponentName,
     val isUninstallable: Boolean,
+    /** When the app was first installed, in epoch millis; 0 if unknown. */
+    val installTime: Long = 0L,
     /** Loads the raw icon at a screen density; `badged` adds the work-profile badge. */
     internal val loadIcon: (density: Int, badged: Boolean) -> Drawable,
 ) {
@@ -44,6 +46,8 @@ class AppInfo(
                 component = info.componentName,
                 isUninstallable = flags and ApplicationInfo.FLAG_SYSTEM == 0 ||
                     flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0,
+                // The same value as PackageInfo.firstInstallTime, and it also works for the work profile.
+                installTime = info.firstInstallTime,
                 loadIcon = { density, badged -> if (badged) info.getBadgedIcon(density) else info.getIcon(density) },
             )
         }

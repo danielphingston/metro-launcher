@@ -12,6 +12,21 @@ import kotlinx.coroutines.flow.map
 
 enum class ThemeMode { DARK, LIGHT, SYSTEM }
 
+/** What shows behind the tiles on the start screen. */
+enum class StartBackground {
+    /** The plain black or white page. */
+    SOLID,
+
+    /** Windows Phone 8.1: each tile is a window onto one photo fixed to the screen. */
+    PHOTO_TILES,
+
+    /** Windows 10 Mobile: the photo fills the start screen, tiles are translucent accent. */
+    PHOTO_FULL,
+
+    /** The phone's own wallpaper, composited by the system behind a transparent window. */
+    SYSTEM_WALLPAPER,
+}
+
 data class LauncherSettings(
     val theme: ThemeMode = ThemeMode.DARK,
     val accent: Int = DEFAULT_ACCENT,
@@ -21,9 +36,32 @@ data class LauncherSettings(
     val showNotificationContent: Boolean = true,
     /** Package of the selected icon pack, or null for the apps' own icons. */
     val iconPack: String? = null,
+    val background: StartBackground = StartBackground.SOLID,
+    /** Persisted URI of the photo picked for the photo backgrounds. */
+    val backgroundPhoto: String? = null,
+    /** Vivid colour derived from [backgroundPhoto] when it was picked. */
+    val backgroundAccent: Int? = null,
+    /** Percent of the tiles' accent layer that lets the background through; null means the mode's default. */
+    val tileTransparency: Int? = null,
+    /** Use [backgroundAccent] instead of [accent] while a photo background is on. */
+    val accentFromBackground: Boolean = false,
 ) {
+    /** Whether the start screen shows the picked photo. */
+    val showsPhoto: Boolean get() = background == StartBackground.PHOTO_TILES || background == StartBackground.PHOTO_FULL
+
+    /** The accent in use: the one derived from the photo when asked for, else the chosen one. */
+    val effectiveAccent: Int
+        get() = if (showsPhoto && accentFromBackground && backgroundAccent != null) backgroundAccent else accent
+
+    /** 0..1: how much of the background shows through the tiles. */
+    val transparencyFraction: Float
+        get() = (tileTransparency ?: if (background == StartBackground.SOLID) 0 else DEFAULT_PHOTO_TRANSPARENCY) / 100f
+
     companion object {
         const val DEFAULT_ACCENT = 0xFF1BA1E2.toInt() // cyan
+
+        /** Photo and wallpaper backgrounds need some transparency to be seen at all. */
+        const val DEFAULT_PHOTO_TRANSPARENCY = 45
     }
 }
 
@@ -37,6 +75,11 @@ class SettingsRepository(private val context: Context) {
         val monochrome = booleanPreferencesKey("monochrome_icons")
         val notificationContent = booleanPreferencesKey("notification_content")
         val iconPack = stringPreferencesKey("icon_pack")
+        val background = stringPreferencesKey("start_background")
+        val backgroundPhoto = stringPreferencesKey("background_photo")
+        val backgroundAccent = intPreferencesKey("background_accent")
+        val tileTransparency = intPreferencesKey("tile_transparency")
+        val accentFromBackground = booleanPreferencesKey("accent_from_background")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -50,6 +93,12 @@ class SettingsRepository(private val context: Context) {
             monochromeIcons = this[Keys.monochrome] ?: defaults.monochromeIcons,
             showNotificationContent = this[Keys.notificationContent] ?: defaults.showNotificationContent,
             iconPack = this[Keys.iconPack]?.takeIf { it.isNotEmpty() },
+            background = this[Keys.background]?.let { runCatching { StartBackground.valueOf(it) }.getOrNull() }
+                ?: defaults.background,
+            backgroundPhoto = this[Keys.backgroundPhoto]?.takeIf { it.isNotEmpty() },
+            backgroundAccent = this[Keys.backgroundAccent],
+            tileTransparency = this[Keys.tileTransparency],
+            accentFromBackground = this[Keys.accentFromBackground] ?: defaults.accentFromBackground,
         )
     }
 
@@ -62,4 +111,25 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setShowNotificationContent(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.notificationContent] = enabled }
+
+    suspend fun setBackground(mode: StartBackground) = context.metroDataStore.edit { it[Keys.background] = mode.name }
+
+    /** Stores the picked photo with the accent derived from it; null [uri] clears both. */
+    suspend fun setBackgroundPhoto(uri: String?, accent: Int?) = context.metroDataStore.edit {
+        it[Keys.backgroundPhoto] = uri.orEmpty()
+        if (accent != null) it[Keys.backgroundAccent] = accent else it.remove(Keys.backgroundAccent)
+    }
+
+    suspend fun setTileTransparency(percent: Int) =
+        context.metroDataStore.edit { it[Keys.tileTransparency] = percent.coerceIn(0, 100) }
+
+    suspend fun setAccentFromBackground(enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.accentFromBackground] = enabled }
+
+    /** The photo can't be read any more: forget it and go back to the plain background. */
+    suspend fun clearUnreadablePhoto() = context.metroDataStore.edit {
+        it[Keys.backgroundPhoto] = ""
+        it.remove(Keys.backgroundAccent)
+        it[Keys.background] = StartBackground.SOLID.name
+    }
 }

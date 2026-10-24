@@ -12,6 +12,7 @@ import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
+import io.github.danielphingston.metro.ui.theme.tileSurface
 
 /** Tile typography and spacing scaled to the grid cell; see [TileMetrics]. */
 @Composable
@@ -21,7 +22,7 @@ internal fun rememberTileMetrics(cellSize: Dp): TileMetrics = TileMetrics(cellSi
 @Composable
 fun PlaceholderTile(tile: ResolvedTile, cellSize: Dp) {
     val m = rememberTileMetrics(cellSize)
-    Box(Modifier.fillMaxSize().background(Metro.colors.accent)) {
+    Box(Modifier.fillMaxSize().tileSurface()) {
         TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
     }
 }

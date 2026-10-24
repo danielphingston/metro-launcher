@@ -54,6 +54,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -81,6 +82,7 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.MediaSource
+import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.tiles.FolderTile
 import io.github.danielphingston.metro.ui.tiles.PeopleTile
@@ -156,8 +158,8 @@ fun rememberStartState(): StartState {
     return remember(scroll) { StartState(scroll) }
 }
 
-private val SidePadding = 12.dp
-private val TileGap = 8.dp
+private val SidePadding = 8.dp
+private val TileGap = 4.dp
 
 @Composable
 fun StartScreen(
@@ -344,7 +346,7 @@ fun StartScreen(
             }
 
             Row(
-                Modifier.fillMaxWidth().padding(SidePadding, 20.dp),
+                Modifier.fillMaxWidth().padding(SidePadding + 4.dp, 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 AddTileButton(onClick = { state.addMenuOpen = true })
@@ -405,13 +407,13 @@ private fun TileHost(
     val selected = state.selectedId == id
     val scale by animateFloatAsState(
         when {
-            dragging -> 1.06f
-            state.editing && !selected -> 0.9f
+            dragging -> 1.04f
+            state.editing && !selected -> 0.94f
             else -> 1f
         },
         label = "tileScale",
     )
-    val alpha by animateFloatAsState(if (state.editing && !selected) 0.65f else 1f, label = "tileAlpha")
+    val alpha by animateFloatAsState(if (state.editing && !selected) 0.6f else 1f, label = "tileAlpha")
     var bounds by remember { mutableStateOf<Rect?>(null) }
 
     val currentPlacement by rememberUpdatedState(placement)
@@ -492,47 +494,55 @@ private fun TileHost(
 }
 
 @Composable
-private fun EditBadges(placement: Placement, cellPx: Float, gapPx: Float, onUnpin: () -> Unit, onResize: () -> Unit) {
-    val density = LocalDensity.current
-    val badge = 34.dp
-    val badgePx = with(density) { badge.toPx() }
+internal fun EditBadges(placement: Placement, cellPx: Float, gapPx: Float, onUnpin: () -> Unit, onResize: () -> Unit) {
+    val badgePx = with(LocalDensity.current) { EditBadgeSize.toPx() }
     val right = (placement.x + placement.width) * cellPx - gapPx
     val bottom = (placement.y + placement.height) * cellPx - gapPx
     val top = placement.y * cellPx
-    val colors = Metro.colors
     // Unpin: top-right corner.
-    Box(
-        Modifier
-            .offset { IntOffset((right - badgePx * 0.7f).roundToInt(), (top - badgePx * 0.3f).roundToInt()) }
-            .size(badge)
-            .background(colors.background, CircleShape)
-            .border(2.dp, colors.foreground, CircleShape)
-            .clickable(onClickLabel = "unpin", onClick = onUnpin)
-            .drawBehind {
-                val inset = size.minDimension * 0.32f
-                val stroke = 2.dp.toPx()
-                drawLine(colors.foreground, Offset(inset, inset), Offset(size.width - inset, size.height - inset), stroke, StrokeCap.Round)
-                drawLine(colors.foreground, Offset(size.width - inset, inset), Offset(inset, size.height - inset), stroke, StrokeCap.Round)
-            },
-    )
+    EditBadge(
+        label = "unpin",
+        onClick = onUnpin,
+        modifier = Modifier.offset { IntOffset((right - badgePx * 0.85f).roundToInt(), (top - badgePx * 0.3f).roundToInt()) },
+    ) { color, stroke ->
+        val inset = size.minDimension * 0.3f
+        drawLine(color, Offset(inset, inset), Offset(size.width - inset, size.height - inset), stroke, StrokeCap.Round)
+        drawLine(color, Offset(size.width - inset, inset), Offset(inset, size.height - inset), stroke, StrokeCap.Round)
+    }
     // Resize: bottom-right corner, arrow pointing to the next size.
+    EditBadge(
+        label = "resize",
+        onClick = onResize,
+        modifier = Modifier.offset { IntOffset((right - badgePx * 0.85f).roundToInt(), (bottom - badgePx * 0.7f).roundToInt()) },
+    ) { color, stroke ->
+        val inset = size.minDimension * 0.3f
+        val a = Offset(inset, inset)
+        val b = Offset(size.width - inset, size.height - inset)
+        val head = size.minDimension * 0.2f
+        drawLine(color, a, b, stroke, StrokeCap.Round)
+        drawLine(color, b, b - Offset(head, 0f), stroke, StrokeCap.Round)
+        drawLine(color, b, b - Offset(0f, head), stroke, StrokeCap.Round)
+    }
+}
+
+private val EditBadgeSize = 30.dp
+
+/** A filled circle with a thin ring in the page colour, so it stands out from any tile; [glyph] draws on it. */
+@Composable
+private fun EditBadge(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    glyph: DrawScope.(color: Color, stroke: Float) -> Unit,
+) {
+    val colors = Metro.colors
     Box(
-        Modifier
-            .offset { IntOffset((right - badgePx * 0.7f).roundToInt(), (bottom - badgePx * 0.7f).roundToInt()) }
-            .size(badge)
-            .background(colors.background, CircleShape)
-            .border(2.dp, colors.foreground, CircleShape)
-            .clickable(onClickLabel = "resize", onClick = onResize)
-            .drawBehind {
-                val inset = size.minDimension * 0.3f
-                val stroke = 2.dp.toPx()
-                val a = Offset(inset, inset)
-                val b = Offset(size.width - inset, size.height - inset)
-                val head = size.minDimension * 0.18f
-                drawLine(colors.foreground, a, b, stroke, StrokeCap.Round)
-                drawLine(colors.foreground, b, b - Offset(head, 0f), stroke, StrokeCap.Round)
-                drawLine(colors.foreground, b, b - Offset(0f, head), stroke, StrokeCap.Round)
-            },
+        modifier
+            .size(EditBadgeSize)
+            .background(colors.foreground, CircleShape)
+            .border(2.dp, colors.background, CircleShape)
+            .clickable(onClickLabel = label, onClick = onClick)
+            .drawBehind { glyph(colors.background, 1.5.dp.toPx()) },
     )
 }
 
@@ -590,12 +600,7 @@ private fun AddTileMenu(
     onWidgets: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Metro.colors.background.copy(alpha = 0.6f))
-            .clickable(onClickLabel = "close", onClick = onDismiss),
-    ) {
+    MetroFlyout(onDismiss) {
         MetroMenu(
             items = listOf(
                 "weather" to { onAdd(TileContent.Weather, TileSize.WIDE) },
@@ -610,45 +615,41 @@ private fun AddTileMenu(
     }
 }
 
+/** A thin circle under the tiles holding a hairline glyph; kept quiet so the tiles stay the focus. */
+@Composable
+private fun RoundGlyphButton(
+    label: String,
+    onClick: () -> Unit,
+    glyph: DrawScope.(color: Color, stroke: Float) -> Unit,
+) {
+    val color = Metro.colors.foreground.copy(alpha = 0.6f)
+    Box(
+        Modifier
+            .size(40.dp)
+            .metroTilt()
+            .border(1.5.dp, color, CircleShape)
+            .clickable(onClickLabel = label, onClick = onClick)
+            .drawBehind { glyph(color, 1.5.dp.toPx()) },
+    )
+}
+
 /** Circled plus that opens [AddTileMenu]. */
 @Composable
-private fun AddTileButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val color = Metro.colors.foreground
-    Box(
-        modifier
-            .size(44.dp)
-            .metroTilt()
-            .border(2.dp, color, CircleShape)
-            .clickable(onClickLabel = "add a tile", onClick = onClick)
-            .drawBehind {
-                val stroke = 2.dp.toPx()
-                val c = size.width / 2
-                val arm = size.width * 0.2f
-                drawLine(color, Offset(c - arm, c), Offset(c + arm, c), stroke, StrokeCap.Round)
-                drawLine(color, Offset(c, c - arm), Offset(c, c + arm), stroke, StrokeCap.Round)
-            },
-    )
+private fun AddTileButton(onClick: () -> Unit) = RoundGlyphButton("add a tile", onClick) { color, stroke ->
+    val c = size.width / 2
+    val arm = size.width * 0.18f
+    drawLine(color, Offset(c - arm, c), Offset(c + arm, c), stroke, StrokeCap.Round)
+    drawLine(color, Offset(c, c - arm), Offset(c, c + arm), stroke, StrokeCap.Round)
 }
 
 /** The circled arrow under the tiles that opens the app list. */
 @Composable
-private fun AllAppsArrow(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val color = Metro.colors.foreground
-    Box(
-        modifier
-            .size(44.dp)
-            .metroTilt()
-            .border(2.dp, color, CircleShape)
-            .clickable(onClickLabel = "all apps", onClick = onClick)
-            .drawBehind {
-                val stroke = 2.dp.toPx()
-                val y = size.height / 2
-                val l = size.width * 0.3f
-                val r = size.width * 0.7f
-                val head = size.width * 0.16f
-                drawLine(color, Offset(l, y), Offset(r, y), stroke, StrokeCap.Round)
-                drawLine(color, Offset(r, y), Offset(r - head, y - head), stroke, StrokeCap.Round)
-                drawLine(color, Offset(r, y), Offset(r - head, y + head), stroke, StrokeCap.Round)
-            },
-    )
+private fun AllAppsArrow(onClick: () -> Unit) = RoundGlyphButton("all apps", onClick) { color, stroke ->
+    val y = size.height / 2
+    val l = size.width * 0.3f
+    val r = size.width * 0.7f
+    val head = size.width * 0.15f
+    drawLine(color, Offset(l, y), Offset(r, y), stroke, StrokeCap.Round)
+    drawLine(color, Offset(r, y), Offset(r - head, y - head), stroke, StrokeCap.Round)
+    drawLine(color, Offset(r, y), Offset(r - head, y + head), stroke, StrokeCap.Round)
 }

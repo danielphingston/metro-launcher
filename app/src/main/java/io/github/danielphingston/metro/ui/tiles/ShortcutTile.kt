@@ -43,6 +43,7 @@ import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.start.AppIcon
 import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.theme.Metro
+import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -199,9 +200,9 @@ fun ShortcutTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome:
     val m = rememberTileMetrics(cellSize)
     val size = tile.spec.size
     val iconSize = when (size) {
-        TileSize.SMALL -> m.dp(50f)
-        TileSize.LARGE -> m.dp(96f)
-        else -> m.dp(78f)
+        TileSize.SMALL -> m.dp(40f)
+        TileSize.LARGE -> m.dp(80f)
+        else -> m.dp(64f)
     }
     val context = LocalContext.current
     val px = with(LocalDensity.current) { iconSize.roundToPx() }
@@ -217,7 +218,7 @@ fun ShortcutTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome:
         PlaceholderTile(tile, cellSize)
         return
     }
-    Box(Modifier.fillMaxSize().background(Metro.colors.accent)) {
+    Box(Modifier.fillMaxSize().tileSurface()) {
         bitmap?.let {
             Image(it, contentDescription = null, modifier = Modifier.align(Alignment.Center).size(iconSize))
         }

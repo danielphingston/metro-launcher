@@ -45,6 +45,7 @@ import io.github.danielphingston.metro.ui.settings.Section
 import io.github.danielphingston.metro.ui.settings.SettingsActivity
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
+import io.github.danielphingston.metro.ui.theme.tileSurface
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -79,7 +80,7 @@ fun PhotosTile(tile: ResolvedTile, cellSize: Dp, flipped: Boolean) {
     val uris by remember(context) { PhotoSource.uris(context) as Flow<List<String>?> }
         .collectAsStateWithLifecycle<List<String>?>(initialValue = null)
     when {
-        uris == null -> Box(Modifier.fillMaxSize().background(Metro.colors.accent))
+        uris == null -> Box(Modifier.fillMaxSize().tileSurface())
         uris!!.isEmpty() -> HintFace(tile.label, "choose photos in settings", size, m)
         else -> PhotoStack(tile.label, uris!!, size, cellSize, flipped, m)
     }

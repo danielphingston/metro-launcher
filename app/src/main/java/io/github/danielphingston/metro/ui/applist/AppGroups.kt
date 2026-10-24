@@ -1,5 +1,6 @@
 package io.github.danielphingston.metro.ui.applist
 
+import io.github.danielphingston.metro.data.AppInfo
 import java.text.Normalizer
 import java.util.Locale
 
@@ -14,6 +15,21 @@ object AppGroups {
         if (first.isDigit()) return SYMBOLS
         val base = fold(first.toString()).firstOrNull() ?: return OTHER
         return if (base in 'a'..'z') base.toString() else OTHER
+    }
+
+    /** How many apps the "recently added" group shows, and how recent counts as recent. */
+    const val RECENT_COUNT = 3
+    const val RECENT_DAYS = 5L
+
+    /**
+     * Apps installed in the last [RECENT_DAYS] days, newest first, at most [RECENT_COUNT].
+     * Preinstalled system apps are left out: on a new phone they would all be "recent".
+     */
+    fun recentlyAdded(apps: List<AppInfo>, now: Long): List<AppInfo> {
+        val since = now - RECENT_DAYS * 24 * 60 * 60 * 1000
+        return apps.filter { it.isUninstallable && it.installTime in since..now }
+            .sortedByDescending { it.installTime }
+            .take(RECENT_COUNT)
     }
 
     fun matches(label: String, query: String): Boolean {

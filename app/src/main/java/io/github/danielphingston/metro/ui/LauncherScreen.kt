@@ -6,24 +6,30 @@ import android.graphics.Rect
 import android.os.Bundle
 import android.view.View
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.platform.LocalView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
+import io.github.danielphingston.metro.data.BackgroundPhoto
 import io.github.danielphingston.metro.ui.applist.AppListScreen
 import io.github.danielphingston.metro.ui.applist.AppListState
 import io.github.danielphingston.metro.ui.start.StartScreen
 import io.github.danielphingston.metro.ui.start.rememberStartState
+import io.github.danielphingston.metro.ui.theme.LocalStartBackdrop
 import io.github.danielphingston.metro.ui.theme.Metro
+import io.github.danielphingston.metro.ui.theme.StartBackdrop
+import io.github.danielphingston.metro.ui.theme.startBackdrop
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -94,22 +100,31 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
-        HorizontalPager(
-            state = pager,
-            userScrollEnabled = !startState.editing,
-            beyondViewportPageCount = 1,
-            key = { it },
-        ) { page ->
-            when (page) {
-                0 -> StartScreen(
-                    viewModel = viewModel,
-                    state = startState,
-                    isCurrentPage = pager.currentPage == 0,
-                    launcher = launcher,
-                    onShowApps = { scope.launch { pager.animateScrollToPage(1) } },
-                )
-                else -> AppListScreen(viewModel, appListState, launcher)
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val image by viewModel.backdropImage.collectAsStateWithLifecycle()
+    // Read in the draw phase only, so scrolling the start screen never recomposes.
+    val backdrop = remember(settings.background, settings.backgroundPhoto, settings.transparencyFraction, image, startState) {
+        StartBackdrop.of(settings, image) { startState.scroll.value * BackgroundPhoto.PARALLAX }
+    }
+
+    CompositionLocalProvider(LocalStartBackdrop provides backdrop) {
+        Box(Modifier.fillMaxSize().startBackdrop(backdrop, Metro.colors.background)) {
+            HorizontalPager(
+                state = pager,
+                userScrollEnabled = !startState.editing,
+                beyondViewportPageCount = 1,
+                key = { it },
+            ) { page ->
+                when (page) {
+                    0 -> StartScreen(
+                        viewModel = viewModel,
+                        state = startState,
+                        isCurrentPage = pager.currentPage == 0,
+                        launcher = launcher,
+                        onShowApps = { scope.launch { pager.animateScrollToPage(1) } },
+                    )
+                    else -> AppListScreen(viewModel, appListState, launcher)
+                }
             }
         }
     }

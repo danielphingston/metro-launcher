@@ -22,6 +22,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -40,6 +41,7 @@ import io.github.danielphingston.metro.ui.tiles.NowPlayingBack
 import io.github.danielphingston.metro.ui.tiles.NowPlayingFront
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
+import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -95,13 +97,14 @@ fun TileFace(
 
 /**
  * A tile surface that flips around its horizontal axis between two faces, the Windows Phone
- * live tile animation. Any tile kind can use it.
+ * live tile animation. Any tile kind can use it. Without a [background] the surface is the
+ * shared [tileSurface]: accent over the start background, with the user's transparency.
  */
 @Composable
 fun FlipCard(
     showBack: Boolean,
     modifier: Modifier = Modifier,
-    background: Color = Metro.colors.accent,
+    background: Color = Color.Unspecified,
     front: @Composable () -> Unit,
     back: @Composable () -> Unit,
 ) {
@@ -117,7 +120,7 @@ fun FlipCard(
                 rotationX = rotation
                 cameraDistance = 16f * density
             }
-            .background(background),
+            .then(if (background.isSpecified) Modifier.background(background) else Modifier.tileSurface()),
     ) {
         if (rotation <= 90f) {
             front()
@@ -184,10 +187,10 @@ internal fun AppIcon(app: AppInfo, icons: IconCache, size: Dp, monochrome: Boole
 internal fun TileLabel(text: String, m: TileMetrics, modifier: Modifier = Modifier) {
     MetroText(
         text,
-        MetroType.style(m.text(12.5f)),
+        MetroType.style(m.text(12f)),
         color = Metro.colors.onAccent,
         maxLines = 1,
-        modifier = modifier.padding(start = m.dp(7f), bottom = m.dp(5f), end = m.dp(7f)),
+        modifier = modifier.padding(start = m.dp(8f), bottom = m.dp(6f), end = m.dp(8f)),
     )
 }
 
@@ -196,25 +199,25 @@ private fun IconFront(app: AppInfo, size: TileSize, count: Int, monochrome: Bool
     val white = Metro.colors.onAccent
     Box(Modifier.fillMaxSize()) {
         if (size == TileSize.SMALL) {
-            AppIcon(app, icons, m.dp(50f), monochrome, Modifier.align(Alignment.Center))
+            AppIcon(app, icons, m.dp(40f), monochrome, Modifier.align(Alignment.Center))
             if (count > 0) {
                 MetroText(
                     count.coerceAtMost(99).toString(),
-                    MetroType.style(m.text(13f), FontWeight.SemiBold),
+                    MetroType.style(m.text(12f), FontWeight.SemiBold),
                     color = white,
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = m.dp(5f), bottom = m.dp(2f)),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(end = m.dp(6f), bottom = m.dp(3f)),
                 )
             }
             return@Box
         }
-        val iconSize = if (size == TileSize.LARGE) m.dp(96f) else m.dp(78f)
+        val iconSize = if (size == TileSize.LARGE) m.dp(80f) else m.dp(64f)
         Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
             AppIcon(app, icons, iconSize, monochrome)
             if (count > 0) {
-                Spacer(Modifier.width(m.dp(4f)))
+                Spacer(Modifier.width(m.dp(8f)))
                 MetroText(
                     count.coerceAtMost(99).toString(),
-                    MetroType.style(m.text(if (size == TileSize.LARGE) 56f else 42f), FontWeight.Light),
+                    MetroType.style(m.text(if (size == TileSize.LARGE) 48f else 36f), FontWeight.Light),
                     color = white,
                 )
             }

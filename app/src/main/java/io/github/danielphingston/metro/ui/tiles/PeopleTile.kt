@@ -46,6 +46,7 @@ import io.github.danielphingston.metro.ui.settings.SettingsActivity
 import io.github.danielphingston.metro.ui.start.FlipCard
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
+import io.github.danielphingston.metro.ui.theme.tileSurface
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlin.random.Random
 
@@ -79,7 +80,7 @@ fun PeopleTile(tile: ResolvedTile, cellSize: Dp, flipped: Boolean) {
     }
     val pool = contacts
     when {
-        pool == null -> Box(Modifier.fillMaxSize().background(Metro.colors.accent))
+        pool == null -> Box(Modifier.fillMaxSize().tileSurface())
         pool.isEmpty() -> HintFace(tile.label, "allow contacts in settings", size, m)
         else -> MosaicTile(tile.label, pool, size, cellSize, flipped, m)
     }
@@ -158,6 +159,7 @@ private fun MosaicTile(
 private fun ContactCell(cell: CellState) {
     FlipCard(
         showBack = cell.showBack,
+        background = Metro.colors.accent, // Photos stay opaque: nothing shows through them.
         front = { cell.front?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) } },
         back = { cell.back?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) } },
     )

@@ -57,6 +57,7 @@ import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.ui.components.MetroButton
+import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.MetroToggle
 import io.github.danielphingston.metro.ui.components.metroTilt
@@ -124,11 +125,10 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
             .verticalScroll(rememberScrollState())
             .statusBarsPadding()
             .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
-        MetroText("METRO SETTINGS", MetroType.appName)
+        MetroText("METRO SETTINGS", MetroType.appName, color = colors.subtle)
         MetroText("start+theme", MetroType.pageTitle, maxLines = 1)
-        Spacer(Modifier.height(12.dp))
 
         if (!isDefaultHome) {
             Section("default home app")
@@ -143,54 +143,23 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
             })
         }
 
-        Section("background")
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Section("theme")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ThemeMode.entries.forEach { mode ->
-                val label = mode.name.lowercase()
-                val selected = settings.theme == mode
-                Box(
-                    Modifier
-                        .metroTilt()
-                        .border(2.dp, if (selected) colors.accent else colors.foreground)
-                        .background(if (selected) colors.accent else colors.background)
-                        .clickable(role = Role.RadioButton) { scope.launch { repository.setTheme(mode) } }
-                        .semantics { this.selected = selected }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    MetroText(label, MetroType.body, color = if (selected) colors.onAccent else colors.foreground)
-                }
+                MetroChoice(
+                    mode.name.lowercase(),
+                    settings.theme == mode,
+                    { scope.launch { repository.setTheme(mode) } },
+                    Modifier.weight(1f),
+                )
             }
         }
 
         Section("accent colour")
         val accentName = MetroAccents.firstOrNull { it.second.toArgb() == settings.accent }?.first ?: "custom"
         MetroText(accentName, MetroType.caption, color = colors.accent)
-        Spacer(Modifier.height(8.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetroAccents.chunked(5).forEach { line ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    line.forEach { (name, color) ->
-                        val selected = color.toArgb() == settings.accent
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .aspectRatio(1f)
-                                .metroTilt()
-                                .then(if (selected) Modifier.border(3.dp, colors.foreground) else Modifier)
-                                .padding(if (selected) 5.dp else 0.dp)
-                                .background(color)
-                                .clickable(role = Role.RadioButton) {
-                                    scope.launch { repository.setAccent(color.toArgb()) }
-                                }
-                                .semantics {
-                                    contentDescription = name
-                                    this.selected = selected
-                                },
-                        )
-                    }
-                }
-            }
-        }
+        Spacer(Modifier.height(10.dp))
+        AccentGrid(settings.accent) { scope.launch { repository.setAccent(it) } }
 
         Section("start screen")
         MetroToggle(
@@ -207,6 +176,8 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
 
         IconPackSettingsSection(settings, repository)
 
+        BackgroundSettingsSection(settings, repository)
+
         Section("live tiles")
         MetroText(
             "Live tiles read your notifications on this phone to show counts and the latest " +
@@ -214,7 +185,7 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
             MetroType.caption,
             color = colors.subtle,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
         if (notificationAccess) {
             MetroText("Notification access is on", MetroType.body)
         } else {
@@ -265,6 +236,35 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
 /** A settings section heading; feature sections reuse it. */
 @Composable
 internal fun Section(title: String) {
-    Spacer(Modifier.height(28.dp))
-    MetroText(title, MetroType.sectionTitle, modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp))
+    Spacer(Modifier.height(36.dp))
+    MetroText(title, MetroType.sectionTitle, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+}
+
+/** The twenty accent colours, five to a row; the chosen one gets a ring. */
+@Composable
+internal fun AccentGrid(selectedAccent: Int, onPick: (Int) -> Unit) {
+    val colors = Metro.colors
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MetroAccents.chunked(5).forEach { line ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                line.forEach { (name, color) ->
+                    val selected = color.toArgb() == selectedAccent
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .metroTilt()
+                            .then(if (selected) Modifier.border(2.dp, colors.foreground) else Modifier)
+                            .padding(if (selected) 4.dp else 0.dp)
+                            .background(color)
+                            .clickable(role = Role.RadioButton) { onPick(color.toArgb()) }
+                            .semantics {
+                                contentDescription = name
+                                this.selected = selected
+                            },
+                    )
+                }
+            }
+        }
+    }
 }
