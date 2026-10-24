@@ -483,7 +483,11 @@ private fun TileHost(
             }
             .metroTilt(enabled = !state.editing),
     ) {
-        TileBody(tile, live, flipped, monochromeIcons, viewModel.icons, cell, state.openFolderId == id)
+        TileBody(
+            tile, live, flipped, monochromeIcons, viewModel.icons, cell, state.openFolderId == id,
+            editing = state.editing,
+            onWidgetLongPress = { onLongPress(); state.select(id) },
+        )
     }
 }
 
@@ -542,11 +546,13 @@ private fun TileBody(
     icons: IconCache,
     cell: Dp,
     folderOpen: Boolean,
+    editing: Boolean,
+    onWidgetLongPress: () -> Unit,
 ) {
     when (tile.spec.content) {
         is TileContent.App -> TileFace(tile.app!!, tile.spec.size, live, flipped, monochromeIcons, icons, cell)
         is TileContent.Shortcut -> ShortcutTile(tile, cell, icons, monochromeIcons)
-        is TileContent.Widget -> WidgetTile(tile, cell)
+        is TileContent.Widget -> WidgetTile(tile, cell, editing, onWidgetLongPress)
         TileContent.Weather -> WeatherTile(tile, cell, flipped)
         TileContent.Photos -> PhotosTile(tile, cell, flipped)
         TileContent.People -> PeopleTile(tile, cell, flipped)
