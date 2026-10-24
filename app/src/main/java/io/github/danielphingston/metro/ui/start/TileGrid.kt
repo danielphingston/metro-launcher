@@ -1,11 +1,17 @@
 package io.github.danielphingston.metro.ui.start
 
 import io.github.danielphingston.metro.data.TileSize
+import kotlin.math.abs
 
 /** A tile's position on the start grid, in small-tile cells. */
 data class Placement(val x: Int, val y: Int, val width: Int, val height: Int) {
     fun contains(cellX: Float, cellY: Float) =
         cellX >= x && cellX < x + width && cellY >= y && cellY < y + height
+
+    /** Whether the point is within the middle [fraction] of the tile on both axes. */
+    fun inMiddle(cellX: Float, cellY: Float, fraction: Float = 0.5f): Boolean =
+        abs(cellX - (x + width / 2f)) <= width * fraction / 2 &&
+            abs(cellY - (y + height / 2f)) <= height * fraction / 2
 }
 
 object TileGrid {

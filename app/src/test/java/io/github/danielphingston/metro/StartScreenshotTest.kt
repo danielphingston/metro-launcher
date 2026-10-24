@@ -45,11 +45,14 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.data.ThemeMode
+import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarEvent
 import io.github.danielphingston.metro.live.ClockState
 import io.github.danielphingston.metro.live.NotificationPreview
+import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.applist.AppListContent
 import io.github.danielphingston.metro.ui.applist.appListRows
 import io.github.danielphingston.metro.ui.components.MetroButton
@@ -62,6 +65,8 @@ import io.github.danielphingston.metro.ui.components.MetroToggle
 import io.github.danielphingston.metro.ui.settings.AccentGrid
 import io.github.danielphingston.metro.ui.settings.Section
 import io.github.danielphingston.metro.ui.start.EditBadges
+import io.github.danielphingston.metro.ui.start.FolderLayout
+import io.github.danielphingston.metro.ui.start.FolderRegion
 import io.github.danielphingston.metro.ui.start.LiveContent
 import io.github.danielphingston.metro.ui.start.TileFace
 import io.github.danielphingston.metro.ui.start.TileGrid
@@ -71,12 +76,15 @@ import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.StartBackdrop
 import io.github.danielphingston.metro.ui.theme.startBackdrop
+import io.github.danielphingston.metro.ui.tiles.FolderTile
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.Calendar
+import kotlin.math.roundToInt
 
 /**
  * Renders a representative start screen, app list and settings controls on the JVM so the look
@@ -147,6 +155,16 @@ class StartScreenshotTest {
     fun startSolidTranslucent() = capture("start_solid_translucent", ThemeMode.DARK, 4, transparency = 100)
 
     @Test
+    fun startFolderClosed() = captureFolders("start_folder_closed", ThemeMode.DARK, openFolder = null)
+
+    @Test
+    fun startFolderOpen() = captureFolders("start_folder_open", ThemeMode.DARK, openFolder = GAMES_ID)
+
+    @Test
+    fun startFolderOpenLight() =
+        captureFolders("start_folder_open_light", ThemeMode.LIGHT, openFolder = GAMES_ID, accent = 0xFF0050EF.toInt())
+
+    @Test
     fun appList() = captureRoboImage("build/outputs/roborazzi/app_list.png") {
         MetroTheme(LauncherSettings()) { AppListPreview() }
     }
@@ -200,6 +218,36 @@ class StartScreenshotTest {
             }
         }
     }
+
+    private fun captureFolders(name: String, theme: ThemeMode, openFolder: Long?, accent: Int = LauncherSettings.DEFAULT_ACCENT) {
+        captureRoboImage("build/outputs/roborazzi/$name.png") {
+            MetroTheme(LauncherSettings(theme = theme, accent = accent, columns = 4)) {
+                FolderPreview(openFolder)
+            }
+        }
+    }
+
+    private val folderIcons by lazy { IconCache(RuntimeEnvironment.getApplication()) }
+
+    /**
+     * Icons load on a background thread and the capture doesn't wait for it, so render the ones the
+     * folder screens need up front: the sizes tiles ask for at this cell size.
+     */
+    private fun warmIcons(icons: IconCache, tiles: List<ResolvedTile>) {
+        val cell = (395 + 4) / 4f
+        for (tile in tiles) for (base in listOf(32f, 64f, 40f, 20f)) {
+            val px = (base * cell / 96f * 3f).roundToInt()
+            tile.app?.let { icons.load(it, px, true) }
+        }
+    }
+
+    private fun appTile(id: Long, label: String, size: TileSize): ResolvedTile {
+        val app = app(label)
+        return ResolvedTile(TileSpec(id, size, TileContent.App(app.key)), app, label)
+    }
+
+    private fun folderTile(id: Long, name: String, size: TileSize, children: List<ResolvedTile>) =
+        ResolvedTile(TileSpec(id, size, TileContent.Folder(name, children.map { it.spec })), null, name, children)
 
     /** A sunset behind hills: a bright sky, dark foreground and one strong hue. */
     private fun photo(): ImageBitmap {
@@ -263,6 +311,66 @@ class StartScreenshotTest {
                     }
                     if (editing) {
                         EditBadges(placements[1], with(density) { cell.toPx() }, with(density) { gap.toPx() }, {}, {})
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * The start screen with two folders; [openFolder] expands one of them the way the real screen
+     * does, by laying the tiles out with [FolderLayout] and drawing the children in a [FolderRegion].
+     */
+    @Composable
+    private fun FolderPreview(openFolder: Long?) {
+        val icons = folderIcons
+        val columns = 4
+        val unread = LiveContent.Notifications(AppNotifications(5, emptyList()), true)
+        val games = folderTile(
+            GAMES_ID, "games", TileSize.MEDIUM,
+            listOf(
+                appTile(11, "Xbox", TileSize.MEDIUM), appTile(12, "Chess", TileSize.MEDIUM), appTile(13, "Cards", TileSize.SMALL),
+                appTile(14, "Racing", TileSize.SMALL), appTile(15, "Puzzle", TileSize.SMALL), appTile(16, "Poker", TileSize.SMALL),
+                appTile(17, "Trivia", TileSize.WIDE), appTile(18, "Arcade", TileSize.MEDIUM),
+            ),
+        )
+        val work = folderTile(
+            WORK_ID, "work", TileSize.WIDE,
+            listOf("Docs", "Sheets", "Slides", "Drive", "Meet", "Notes", "Tasks", "Keep", "Gmail", "Maps", "Files")
+                .mapIndexed { i, label -> appTile(30L + i, label, TileSize.MEDIUM) },
+        )
+        val tiles = listOf(
+            appTile(1, "Phone", TileSize.MEDIUM), games, work,
+            appTile(2, "Clock", TileSize.MEDIUM), appTile(3, "Music", TileSize.MEDIUM), appTile(4, "Camera", TileSize.WIDE),
+        )
+        warmIcons(icons, tiles + tiles.flatMap { it.children })
+        val open = tiles.firstOrNull { it.spec.id == openFolder }
+        val layout = FolderLayout.compute(
+            tiles.map { it.spec.size }, tiles.indexOfFirst { it === open }.takeIf { it >= 0 },
+            open?.children.orEmpty().map { it.spec.size }, columns,
+        )
+        val backdrop = StartBackdrop.Solid
+        CompositionLocalProvider(LocalStartBackdrop provides backdrop) {
+            Box(Modifier.fillMaxSize().startBackdrop(backdrop, Metro.colors.background)) {
+                BoxWithConstraints(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 52.dp)) {
+                    val gap = 4.dp
+                    val cell = (maxWidth + gap) / columns
+                    @Composable
+                    fun Tile(tile: ResolvedTile, p: io.github.danielphingston.metro.ui.start.Placement) {
+                        Box(Modifier.offset(cell * p.x, cell * p.y).size(cell * p.width - gap, cell * p.height - gap)) {
+                            if (tile.spec.content is TileContent.Folder) {
+                                FolderTile(tile, cell, icons, true, open = tile === open)
+                            } else {
+                                val live = if (tile.label == "Chess") unread else null
+                                TileFace(tile.app!!, tile.spec.size, live, false, true, icons, cell)
+                            }
+                        }
+                    }
+                    tiles.zip(layout.tiles).forEach { (tile, p) -> Tile(tile, p) }
+                    val region = layout.region
+                    if (region != null) {
+                        FolderRegion(region, layout.tiles[tiles.indexOf(open)], columns, cell, gap, 8.dp)
+                        open!!.children.zip(layout.children).forEach { (tile, p) -> Tile(tile, p) }
                     }
                 }
             }
@@ -341,6 +449,11 @@ class StartScreenshotTest {
             Section("accent colour")
             AccentGrid(0xFF0050EF.toInt()) {}
         }
+    }
+
+    private companion object {
+        const val GAMES_ID = 100L
+        const val WORK_ID = 101L
     }
 
     private fun app(label: String, installTime: Long = 0L, uninstallable: Boolean = true) = AppInfo(

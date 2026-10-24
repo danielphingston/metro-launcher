@@ -116,12 +116,12 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
     /** Replaces the whole list through [transform]; for features that need multi-step edits (folders). */
     fun edit(transform: (List<TileSpec>) -> List<TileSpec>) = _tiles.update { it?.let(transform) }
 
-    /** Removes a tile and returns it, so callers can release resources (e.g. widget ids). */
+    /** Removes a tile, also from inside a folder, and returns it so callers can release resources (e.g. widget ids). */
     fun unpin(id: Long): TileSpec? {
         var removed: TileSpec? = null
         _tiles.update { list ->
-            removed = list?.firstOrNull { it.id == id }
-            list?.filterNot { tile -> tile.id == id }
+            removed = list?.flatten()?.firstOrNull { it.id == id }
+            list?.let { TileFolders.remove(it, id) }
         }
         return removed
     }
@@ -137,6 +137,31 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
         val to = list.indexOfFirst { it.id == targetId }
         if (from < 0 || to < 0 || from == to) return@update list
         list.toMutableList().apply { add(to, removeAt(from)) }
+    }
+
+    /**
+     * Drops tile [id] onto [targetId]: both become a new folder, or [id] joins the target folder.
+     * Returns the folder's id, or null when the two can't merge.
+     */
+    fun mergeIntoFolder(id: Long, targetId: Long): Long? {
+        var folderId: Long? = null
+        _tiles.update { list ->
+            val merged = list?.let { TileFolders.merge(it, id, targetId, nextId(it)) }
+            folderId = merged?.folderId
+            merged?.tiles ?: list
+        }
+        return folderId
+    }
+
+    /** Puts a folder's child back on the start screen after the folder; see [TileFolders.removeFromFolder]. */
+    fun removeFromFolder(folderId: Long, childId: Long) = _tiles.update { list ->
+        list?.let { TileFolders.removeFromFolder(it, folderId, childId) }
+    }
+
+    fun renameFolder(id: Long, name: String) = _tiles.update { list -> list?.let { TileFolders.rename(it, id, name) } }
+
+    fun moveInFolder(folderId: Long, id: Long, targetId: Long) = _tiles.update { list ->
+        list?.let { TileFolders.moveInFolder(it, folderId, id, targetId) }
     }
 
     /** Removes the tiles of an uninstalled package, including those in folders, and returns them. */
@@ -155,7 +180,7 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
             val updated = list?.withoutPackage()?.map { spec ->
                 val folder = spec.content as? TileContent.Folder ?: return@map spec
                 spec.copy(content = folder.copy(children = folder.children.withoutPackage()))
-            }
+            }?.let(TileFolders::tidy)
             // update may run its block again, so only the last run counts.
             removed = gone
             updated

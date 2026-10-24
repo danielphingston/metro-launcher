@@ -175,4 +175,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun resize(id: Long) = metro.tiles.resize(id)
     fun move(id: Long, targetId: Long) = metro.tiles.move(id, targetId)
+
+    /** Drops tile [id] onto [targetId] to make or fill a folder; returns the folder's id, or null if they can't merge. */
+    fun mergeIntoFolder(id: Long, targetId: Long): Long? = metro.tiles.mergeIntoFolder(id, targetId)
+    fun removeFromFolder(folderId: Long, childId: Long) = metro.tiles.removeFromFolder(folderId, childId)
+    fun renameFolder(id: Long, name: String) = metro.tiles.renameFolder(id, name)
+    fun moveInFolder(folderId: Long, id: Long, targetId: Long) = metro.tiles.moveInFolder(folderId, id, targetId)
 }

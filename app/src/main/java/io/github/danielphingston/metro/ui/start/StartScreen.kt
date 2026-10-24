@@ -80,6 +80,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.TileFolders
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.MediaSource
 import io.github.danielphingston.metro.live.NotificationHub
@@ -109,6 +110,7 @@ import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -137,18 +139,30 @@ class StartState(val scroll: ScrollState) {
     var addMenuOpen by mutableStateOf(false)
     var widgetPickerOpen by mutableStateOf(false)
 
+    /** Folder whose name is being edited. */
+    var renamingFolderId by mutableStateOf<Long?>(null)
+
+    /** Tile the dragged one is held over the middle of, and the same once held long enough to drop into it. */
+    var mergeCandidateId by mutableStateOf<Long?>(null)
+        internal set
+    var mergeTargetId by mutableStateOf<Long?>(null)
+        internal set
+
     fun exitEdit() {
         editing = false
         selectedId = null
         dragId = null
+        mergeCandidateId = null
+        mergeTargetId = null
     }
 
     /** Closes transient UI; returns true if anything was open. */
     fun dismissOverlays(): Boolean {
-        val any = addMenuOpen || widgetPickerOpen || openFolderId != null
+        val any = addMenuOpen || widgetPickerOpen || openFolderId != null || renamingFolderId != null
         addMenuOpen = false
         widgetPickerOpen = false
         openFolderId = null
+        renamingFolderId = null
         return any
     }
 }
@@ -161,6 +175,16 @@ fun rememberStartState(): StartState {
 
 private val SidePadding = 8.dp
 private val TileGap = 4.dp
+
+/** How long a dragged tile must rest over another's middle before dropping would merge them. */
+private const val MERGE_DWELL_MILLIS = 600L
+
+/** The bottom strip of a folder tile, as a fraction of a cell, that renames the folder when tapped in edit mode. */
+private const val FOLDER_NAME_STRIP = 0.32f
+
+/** The centre of the dragged tile, in grid cells. */
+private fun dragCenterCell(state: StartState, placement: Placement, cellPx: Float): Offset =
+    (state.dragTopLeft + Offset(placement.width * cellPx / 2, placement.height * cellPx / 2)) / cellPx
 
 @Composable
 fun StartScreen(
@@ -180,7 +204,10 @@ fun StartScreen(
 
     // Live sources run only when a tile needs them and only while the launcher is visible
     // (collectAsStateWithLifecycle stops collecting below STARTED).
-    val appPackages = tiles.mapNotNull { it.spec.appKey?.packageName }
+    val openFolder = tiles.firstOrNull { it.spec.id == state.openFolderId && it.spec.content is TileContent.Folder }
+    val openChildren = openFolder?.children.orEmpty()
+    // An open folder's children are live tiles like any other; a closed folder shows only icons.
+    val appPackages = (tiles + openChildren).mapNotNull { it.spec.appKey?.packageName }
     val needsClock = appPackages.any { it == defaults.clock || it == defaults.calendar }
     val needsCalendar = calendarGranted && defaults.calendar in appPackages
     val clock by remember(needsClock) {
@@ -211,9 +238,11 @@ fun StartScreen(
     }
 
     val columns = settings.columns
-    val placements = remember(tiles.map { it.spec.size }, columns) {
-        TileGrid.pack(tiles.map { it.spec.size }, columns)
+    val openIndex = tiles.indexOfFirst { it === openFolder }.takeIf { it >= 0 }
+    val layout = remember(tiles.map { it.spec.size }, openIndex, openChildren.map { it.spec.size }, columns) {
+        FolderLayout.compute(tiles.map { it.spec.size }, openIndex, openChildren.map { it.spec.size }, columns)
     }
+    val placements = layout.tiles
     val flipped = remember { mutableStateMapOf<Long, Boolean>() }
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
@@ -225,11 +254,36 @@ fun StartScreen(
         val gapPx = with(density) { TileGap.toPx() }
         val viewportPx = with(density) { maxHeight.toPx() }
         val topInsetPx = WindowInsets.statusBars.getTop(density) + with(density) { 28.dp.toPx() }
-        val rows = TileGrid.rows(placements)
+        val navInsetPx = WindowInsets.navigationBars.getBottom(density)
+        val rows = layout.rows
+
+        // A folder that was unpinned or dissolved while open no longer has anything to show.
+        LaunchedEffect(openFolder, loadedTiles) {
+            if (loadedTiles != null && openFolder == null) state.openFolderId = null
+        }
+        // Opening a folder near the bottom scrolls its children into view.
+        LaunchedEffect(openFolder?.spec?.id) {
+            val region = layout.region ?: return@LaunchedEffect
+            val inset = navInsetPx + with(density) { 16.dp.toPx() }
+            val folderTop = topInsetPx + placements[openIndex!!].y * cellPx
+            val target = (topInsetPx + (region.y + region.height) * cellPx + inset - viewportPx).coerceAtMost(folderTop).toInt()
+            if (target <= state.scroll.value) return@LaunchedEffect
+            // The grid grows on the next layout pass; wait for room to scroll into.
+            withTimeoutOrNull(500) { snapshotFlow { state.scroll.maxValue }.first { it >= target } }
+            state.scroll.animateScrollTo(target)
+        }
+        // Holding a dragged tile over another one's middle arms the drop into it.
+        LaunchedEffect(state.mergeCandidateId) {
+            state.mergeTargetId = null
+            val candidate = state.mergeCandidateId ?: return@LaunchedEffect
+            delay(MERGE_DWELL_MILLIS)
+            state.mergeTargetId = candidate
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
 
         // Which live tiles are on screen: only those may flip.
         val liveTiles by rememberUpdatedState(
-            tiles.zip(placements).mapNotNull { (tile, placement) ->
+            (tiles.zip(placements) + openChildren.zip(layout.children)).mapNotNull { (tile, placement) ->
                 val flips = when (tile.spec.content) {
                     TileContent.Weather, TileContent.Photos, TileContent.People -> tile.spec.size != TileSize.SMALL
                     else -> liveFor(tile)?.hasBack(tile.spec.size) == true
@@ -286,7 +340,9 @@ fun StartScreen(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(state.scroll)
-                .pointerInput(Unit) { detectTapGestures { if (state.editing) state.exitEdit() } },
+                .pointerInput(Unit) {
+                    detectTapGestures { if (state.editing) state.exitEdit() else state.openFolderId = null }
+                },
         ) {
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
             Spacer(Modifier.height(28.dp))
@@ -321,23 +377,77 @@ fun StartScreen(
                             viewModel = viewModel,
                             onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state) },
                             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                            mergeTarget = state.mergeTargetId == tile.spec.id,
                             onDragMove = {
-                                val center = state.dragTopLeft + Offset(
-                                    placement.width * cellPx / 2,
-                                    placement.height * cellPx / 2,
-                                )
-                                val cx = center.x / cellPx
-                                val cy = center.y / cellPx
+                                val (cx, cy) = dragCenterCell(state, placement, cellPx)
                                 val target = tiles.indices.firstOrNull { i ->
                                     tiles[i].spec.id != tile.spec.id && placements[i].contains(cx, cy)
                                 }
-                                target?.let { viewModel.move(tile.spec.id, tiles[it].spec.id) }
+                                // Dwelling in the middle of a tile it can join arms a merge instead of reordering.
+                                val joins = target != null && placements[target].inMiddle(cx, cy) &&
+                                    TileFolders.canMerge(tile.spec, tiles[target].spec)
+                                state.mergeCandidateId = if (joins) tiles[target!!].spec.id else null
+                                if (!joins) target?.let { viewModel.move(tile.spec.id, tiles[it].spec.id) }
+                            },
+                            onDrop = { completed ->
+                                val into = state.mergeTargetId
+                                state.mergeCandidateId = null
+                                if (completed && into != null) {
+                                    viewModel.mergeIntoFolder(tile.spec.id, into)?.let(state::select)
+                                }
+                            },
+                        )
+                    }
+                }
+                val folderPlacement = openIndex?.let { placements[it] }
+                if (layout.region != null && folderPlacement != null) {
+                    FolderRegion(layout.region, folderPlacement, columns, cell, TileGap, SidePadding)
+                }
+                val appearFrom = folderPlacement?.let {
+                    IntOffset((it.x * cellPx).roundToInt(), (it.y * cellPx).roundToInt())
+                }
+                openChildren.forEachIndexed { index, child ->
+                    val placement = layout.children[index]
+                    androidx.compose.runtime.key(child.spec.id) {
+                        TileHost(
+                            tile = child,
+                            placement = placement,
+                            cellPx = cellPx,
+                            gapPx = gapPx,
+                            cell = cell,
+                            state = state,
+                            live = liveFor(child),
+                            flipped = flipped[child.spec.id] == true && !state.editing,
+                            monochromeIcons = settings.monochromeIcons,
+                            viewModel = viewModel,
+                            onLaunch = { bounds -> activateTile(context, child, bounds, launcher, defaults, state) },
+                            onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                            appearFrom = appearFrom,
+                            onRemoveFromFolder = { viewModel.removeFromFolder(openFolder!!.spec.id, child.spec.id) },
+                            onDragMove = {
+                                // Children reorder among themselves; dropping one outside the region takes it out.
+                                val (cx, cy) = dragCenterCell(state, placement, cellPx)
+                                if (layout.region?.contains(cx, cy) == true) {
+                                    val sibling = openChildren.indices.firstOrNull { i ->
+                                        openChildren[i].spec.id != child.spec.id && layout.children[i].contains(cx, cy)
+                                    }
+                                    sibling?.let {
+                                        viewModel.moveInFolder(openFolder!!.spec.id, child.spec.id, openChildren[it].spec.id)
+                                    }
+                                }
+                            },
+                            onDrop = { completed ->
+                                val (cx, cy) = dragCenterCell(state, placement, cellPx)
+                                if (completed && layout.region?.contains(cx, cy) != true) {
+                                    viewModel.removeFromFolder(openFolder!!.spec.id, child.spec.id)
+                                }
                             },
                         )
                     }
                 }
                 val selectedIndex = tiles.indexOfFirst { it.spec.id == state.selectedId }
-                if (state.editing && selectedIndex >= 0 && state.dragId == null) {
+                val selectedChild = openChildren.indexOfFirst { it.spec.id == state.selectedId }
+                if (state.editing && state.dragId == null && selectedIndex >= 0) {
                     EditBadges(
                         placement = placements[selectedIndex],
                         cellPx = cellPx,
@@ -347,6 +457,17 @@ fun StartScreen(
                             state.exitEdit()
                         },
                         onResize = { viewModel.resize(tiles[selectedIndex].spec.id) },
+                    )
+                } else if (state.editing && state.dragId == null && selectedChild >= 0) {
+                    EditBadges(
+                        placement = layout.children[selectedChild],
+                        cellPx = cellPx,
+                        gapPx = gapPx,
+                        onUnpin = {
+                            viewModel.unpin(openChildren[selectedChild].spec.id)
+                            state.exitEdit()
+                        },
+                        onResize = null,
                     )
                 }
             }
@@ -377,6 +498,12 @@ fun StartScreen(
         if (state.widgetPickerOpen) {
             WidgetPicker(viewModel, onDismiss = { state.widgetPickerOpen = false })
         }
+        tiles.firstOrNull { it.spec.id == state.renamingFolderId }?.let { folder ->
+            FolderRename((folder.spec.content as? TileContent.Folder)?.name.orEmpty()) { name ->
+                viewModel.renameFolder(folder.spec.id, name)
+                state.renamingFolderId = null
+            }
+        }
     }
 }
 
@@ -395,10 +522,17 @@ private fun TileHost(
     onLaunch: (Rect?) -> Unit,
     onLongPress: () -> Unit,
     onDragMove: () -> Unit,
+    mergeTarget: Boolean = false,
+    /** Where a folder's child slides out from when the folder opens. */
+    appearFrom: IntOffset? = null,
+    /** Set for the children of an open folder. */
+    onRemoveFromFolder: (() -> Unit)? = null,
+    onDrop: (completed: Boolean) -> Unit = {},
 ) {
     val id = tile.spec.id
+    val folder = tile.spec.content as? TileContent.Folder
     val target = IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt())
-    val position = remember { Animatable(target, IntOffset.VectorConverter) }
+    val position = remember { Animatable(appearFrom ?: target, IntOffset.VectorConverter) }
     val dragging = state.dragId == id
     LaunchedEffect(target, dragging) {
         if (dragging) {
@@ -413,17 +547,26 @@ private fun TileHost(
     val selected = state.selectedId == id
     val scale by animateFloatAsState(
         when {
+            mergeTarget -> 1.08f
+            dragging && state.mergeTargetId != null -> 0.8f
             dragging -> 1.04f
             state.editing && !selected -> 0.94f
             else -> 1f
         },
         label = "tileScale",
     )
-    val alpha by animateFloatAsState(if (state.editing && !selected) 0.6f else 1f, label = "tileAlpha")
+    var shown by remember { mutableStateOf(appearFrom == null) }
+    LaunchedEffect(Unit) { shown = true }
+    val alpha by animateFloatAsState(
+        if (!shown) 0f else if (state.editing && !selected && !mergeTarget) 0.6f else 1f,
+        label = "tileAlpha",
+    )
     var bounds by remember { mutableStateOf<Rect?>(null) }
 
     val currentPlacement by rememberUpdatedState(placement)
     val currentOnDragMove by rememberUpdatedState(onDragMove)
+    val currentOnDrop by rememberUpdatedState(onDrop)
+    val folderOpen = state.openFolderId == id
     val widthDp = cell * placement.width - TileGap
     val heightDp = cell * placement.height - TileGap
 
@@ -445,15 +588,22 @@ private fun TileHost(
             .onGloballyPositioned { bounds = it.boundsInRoot() }
             .semantics(mergeDescendants = true) {
                 contentDescription = buildString {
-                    append(tile.label)
+                    if (folder != null) append("${tile.label}, folder, ${tile.children.size} items") else append(tile.label)
                     (live as? LiveContent.Notifications)?.let { append(", ${it.data.count} new") }
                 }
                 onClick { onLaunch(bounds); true }
                 onLongClick { state.select(id); true }
-                customActions = listOf(
-                    CustomAccessibilityAction("Unpin from start") { viewModel.unpin(id); true },
-                    CustomAccessibilityAction("Resize") { viewModel.resize(id); true },
-                )
+                customActions = buildList {
+                    if (folder != null) {
+                        add(CustomAccessibilityAction(if (folderOpen) "Close" else "Open") {
+                            state.openFolderId = if (folderOpen) null else id
+                            true
+                        })
+                    }
+                    onRemoveFromFolder?.let { add(CustomAccessibilityAction("Remove from folder") { it(); true }) }
+                    add(CustomAccessibilityAction("Unpin from start") { viewModel.unpin(id); true })
+                    if (onRemoveFromFolder == null) add(CustomAccessibilityAction("Resize") { viewModel.resize(id); true })
+                }
             }
             .pointerInput(id) {
                 // Long-press picks a tile up (entering edit mode); in edit mode the selected
@@ -472,18 +622,24 @@ private fun TileHost(
                         currentPlacement.y * cellPx,
                     )
                     state.dragId = id
-                    drag(start.id) { change ->
+                    val completed = drag(start.id) { change ->
                         state.dragTopLeft += change.positionChange()
                         change.consume()
                         currentOnDragMove()
                     }
+                    currentOnDrop(completed)
                     state.dragId = null
                 }
             }
-            .pointerInput(id) {
-                detectTapGestures {
+            .pointerInput(id, cellPx) {
+                detectTapGestures { offset ->
                     if (state.editing) {
-                        if (state.selectedId != id) state.select(id)
+                        // The name strip of a folder opens the rename field.
+                        if (folder != null && offset.y > size.height - cellPx * FOLDER_NAME_STRIP) {
+                            state.renamingFolderId = id
+                        } else if (state.selectedId != id) {
+                            state.select(id)
+                        }
                     } else {
                         onLaunch(bounds)
                     }
@@ -492,15 +648,16 @@ private fun TileHost(
             .metroTilt(enabled = !state.editing),
     ) {
         TileBody(
-            tile, live, flipped, monochromeIcons, viewModel.icons, cell, state.openFolderId == id,
+            tile, live, flipped, monochromeIcons, viewModel.icons, cell, folderOpen,
             editing = state.editing,
             onWidgetLongPress = { onLongPress(); state.select(id) },
         )
+        if (mergeTarget) Box(Modifier.fillMaxSize().border(2.dp, Metro.colors.foreground))
     }
 }
 
 @Composable
-internal fun EditBadges(placement: Placement, cellPx: Float, gapPx: Float, onUnpin: () -> Unit, onResize: () -> Unit) {
+internal fun EditBadges(placement: Placement, cellPx: Float, gapPx: Float, onUnpin: () -> Unit, onResize: (() -> Unit)?) {
     val badgePx = with(LocalDensity.current) { EditBadgeSize.toPx() }
     val right = (placement.x + placement.width) * cellPx - gapPx
     val bottom = (placement.y + placement.height) * cellPx - gapPx
@@ -515,8 +672,8 @@ internal fun EditBadges(placement: Placement, cellPx: Float, gapPx: Float, onUnp
         drawLine(color, Offset(inset, inset), Offset(size.width - inset, size.height - inset), stroke, StrokeCap.Round)
         drawLine(color, Offset(size.width - inset, inset), Offset(inset, size.height - inset), stroke, StrokeCap.Round)
     }
-    // Resize: bottom-right corner, arrow pointing to the next size.
-    EditBadge(
+    // Resize: bottom-right corner, arrow pointing to the next size. Folder children can't be resized.
+    if (onResize != null) EditBadge(
         label = "resize",
         onClick = onResize,
         modifier = Modifier.offset { IntOffset((right - badgePx * 0.85f).roundToInt(), (bottom - badgePx * 0.7f).roundToInt()) },
