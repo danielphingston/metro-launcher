@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="metro_background">#FFFFFFFF</color>
+    <bool name="metro_light_bars">true</bool>
+    <color name="launcher_icon_background">#FF1BA1E2</color>
+</resources>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Metro" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/metro_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">@bool/metro_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/metro_light_bars</item>
+    </style>
+
+    <!-- The home screen keeps an opaque window: no wallpaper compositing, cheapest to draw. -->
+    <style name="Theme.Metro.Launcher">
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>
