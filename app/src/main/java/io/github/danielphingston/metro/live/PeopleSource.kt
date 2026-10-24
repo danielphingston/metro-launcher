@@ -1,0 +1,69 @@
+package io.github.danielphingston.metro.live
+
+import android.Manifest
+import android.content.ContentResolver
+import android.content.Context
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Bundle
+import android.provider.ContactsContract
+import android.util.LruCache
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/** Contact photos for the people tile. Read on demand; no observers, nothing leaves the device. */
+object PeopleSource {
+    const val MAX_CONTACTS = 36
+
+    private const val CACHE_BYTES = 4 * 1024 * 1024
+
+    private val cache = object : LruCache<String, Bitmap>(CACHE_BYTES) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
+
+    fun hasPermission(context: Context) =
+        context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Thumbnail URIs of contacts that have a photo, starred first. Without permission the
+     * result is empty. (The times-contacted columns are reset to 0 by the system on Android 10+,
+     * so name order is the tie-breaker.)
+     */
+    suspend fun photoUris(context: Context): List<String> {
+        if (!hasPermission(context)) return emptyList()
+        return withContext(Dispatchers.IO) {
+            val args = Bundle().apply {
+                putString(
+                    ContentResolver.QUERY_ARG_SQL_SELECTION,
+                    "${ContactsContract.Contacts.PHOTO_THUMBNAIL_URI} IS NOT NULL",
+                )
+                putString(
+                    ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
+                    "${ContactsContract.Contacts.STARRED} DESC, " +
+                        "${ContactsContract.Contacts.DISPLAY_NAME} COLLATE LOCALIZED ASC",
+                )
+                putInt(ContentResolver.QUERY_ARG_LIMIT, MAX_CONTACTS)
+            }
+            runCatching {
+                context.contentResolver.query(
+                    ContactsContract.Contacts.CONTENT_URI,
+                    arrayOf(ContactsContract.Contacts.PHOTO_THUMBNAIL_URI),
+                    args,
+                    null,
+                )?.use { cursor ->
+                    buildList { while (cursor.moveToNext()) cursor.getString(0)?.let(::add) }
+                }
+            }.getOrNull().orEmpty()
+        }
+    }
+
+    /** A thumbnail sized for a [px] square, from the cache when possible. Null if it can't be read. */
+    suspend fun thumbnail(context: Context, uri: String, px: Int): Bitmap? {
+        cache.get(uri)?.let { return it }
+        return withContext(Dispatchers.IO) {
+            runCatching { ImageDecode.decode(context, Uri.parse(uri), px, px) }.getOrNull()
+                ?.also { cache.put(uri, it) }
+        }
+    }
+}
