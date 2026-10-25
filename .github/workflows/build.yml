@@ -26,6 +26,7 @@ on:
 
 permissions:
   contents: write
+  actions: read # to look up this commit's earlier builds
 
 # A newer push supersedes an older build of the same branch. Manual (release) runs and
 # tag builds have their own group and are never cancelled.
@@ -69,13 +70,30 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "METRO_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
+      # Releases (manual runs and tags) skip tests and lint when a push build of this exact
+      # commit already passed them; otherwise they run the full checks themselves.
+      - name: Check for a passing build of this commit
+        id: checked
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/runs?head_sha=$GITHUB_SHA&event=push&status=success" --jq '.total_count' || echo 0)
+          if [ "${passed:-0}" -gt 0 ]; then
+            echo "Push build of $GITHUB_SHA already passed tests and lint; only building release outputs."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No passing push build of $GITHUB_SHA; running the full checks."
+          fi
+
       - name: Test, lint and build
         env:
           METRO_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           METRO_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           METRO_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          CHECKS: ${{ steps.checked.outputs.skip == 'true' && ' ' || 'testDebugUnitTest lintDebug' }}
         run: >
-          ./gradlew testDebugUnitTest lintDebug assembleRelease bundleRelease
+          ./gradlew $CHECKS assembleRelease bundleRelease
           -PversionName=${{ steps.version.outputs.name }}
           -PversionCode=${{ github.run_number }}
 
