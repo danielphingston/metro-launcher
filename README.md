@@ -108,6 +108,7 @@ Signing is optional. Add the repository secrets `KEYSTORE_BASE64` (base64 of the
 
 ## Credits and licences
 
+- Code: [MIT License](LICENSE).
 - Font: [Open Sans](https://fonts.google.com/specimen/Open+Sans) (Light, Regular, SemiBold), SIL Open Font License 1.1, bundled in `res/font` with the licence in `assets/licenses`. Segoe is proprietary, so it is not used.
 - Weather: [Open-Meteo](https://open-meteo.com/), data under CC BY 4.0.
 - Not affiliated with Microsoft; the design is inspired by Windows Phone and Windows 10 Mobile.
