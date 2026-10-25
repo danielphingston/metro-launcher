@@ -99,6 +99,7 @@ Signing is optional. Add the repository secrets `KEYSTORE_BASE64` (base64 of the
 ## Publishing to Google Play
 
 - `minSdk 31`, `targetSdk 36`. Upload the signed `.aab`.
+- Privacy policy: `docs/privacy.html`, served by GitHub Pages from `master` `/docs` at https://danielphingston.github.io/metro-launcher/privacy.html.
 - **Notification listener:** access is opt-in, with an in-app explanation (Play's prominent-disclosure rule). Notification content is used on the device only and never leaves it. Say so in the privacy policy and the Data safety form.
 - **Location and weather:** the approximate location (rounded to about 1 km) and any city name you search for are sent to Open-Meteo, hourly while a weather tile is shown. Declare this in the Data safety form. Open-Meteo's data is CC BY 4.0 and requires attribution; credit it in the store listing.
 - **Contacts and calendar:** read on the device to draw tiles, never uploaded. Declare the permissions and explain them in the listing.
