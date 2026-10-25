@@ -55,11 +55,21 @@ class TilePlacementTest {
     }
 
     @Test
-    fun smallTilesFallARowAtATimeAndBigOnesTwo() {
+    fun tilesOfEverySizeFallToJustUnderTheTileAbove() {
         val placements = layout(tile(1, SMALL, 0, 0), tile(2, SMALL, 0, 5), tile(3, MEDIUM, 2, 0), tile(4, MEDIUM, 2, 5))
         assertEquals(Placement(0, 1, 1, 1), placements[1])
-        // The medium snaps to row 4 and falls two rows at a time, down to just under its neighbour.
         assertEquals(Placement(2, 2, 2, 2), placements[3])
+    }
+
+    @Test
+    fun aTileRisesIntoARowLeftHalfEmptyBySmallTiles() {
+        // Two small tiles beside a wide one leave the cells under them empty: the medium below rises into them.
+        val placements = layout(
+            tile(1, SMALL, 0, 0), tile(2, SMALL, 1, 0), tile(3, WIDE, 2, 0), tile(4, MEDIUM, 0, 2), tile(5, MEDIUM, 0, 4),
+            columns = 6,
+        )
+        assertEquals(Placement(0, 1, 2, 2), placements[3])
+        assertEquals(Placement(0, 3, 2, 2), placements[4])
     }
 
     @Test
@@ -117,14 +127,12 @@ class TilePlacementTest {
             once.forEachIndexed { i, p ->
                 assertTrue(p.x >= 0 && p.y >= 0 && p.x + p.width <= columns)
                 if (p.width >= 2 && p.width % 2 == 0) assertEquals(0, p.x % 2)
-                if (p.height >= 2 && p.height % 2 == 0) assertEquals(0, p.y % 2)
                 for (j in i + 1 until once.size) assertFalse("$p overlaps ${once[j]}", overlap(p, once[j]))
             }
             // Settled: no tile can move up, and laying it out again changes nothing.
             once.forEachIndexed { i, p ->
-                val step = if (p.height >= 2 && p.height % 2 == 0) 2 else 1
-                val free = p.y >= step && once.indices.none { j ->
-                    j != i && overlap(Placement(p.x, p.y - step, p.width, step), once[j])
+                val free = p.y >= 1 && once.indices.none { j ->
+                    j != i && overlap(Placement(p.x, p.y - 1, p.width, 1), once[j])
                 }
                 assertFalse("tile $i could still rise in $once", free)
             }
@@ -147,8 +155,8 @@ class TilePlacementTest {
     }
 
     @Test
-    fun aResizedTileKeepsItsCornerAndSnapsToTheEvenGrid() {
-        // A small at (1, 1) becomes wide: its corner snaps to (0, 0) in four columns.
+    fun aResizedTileKeepsItsCornerAndSnapsToAnEvenColumn() {
+        // A small at (1, 1) becomes wide: its corner snaps to column 0 in four columns, and it rises to row 0.
         val specs = listOf(tile(1, SMALL, 1, 1), tile(2, MEDIUM, 0, 2))
         val resized = TilePlacement.resize(specs, 1, 4)
         assertEquals(GridPos(0, 0), resized.at(1))
@@ -190,7 +198,10 @@ class TilePlacementTest {
             4,
         )
         val after = TilePlacement.resize(before, 4, 4) // medium -> small
-        assertEquals(before.filter { it.id != 4L }.map { it.x to it.y }, after.filter { it.id != 4L }.map { it.x to it.y })
+        // The tiles above and beside it stay put.
+        assertEquals(before.filter { it.id <= 3L }.map { it.x to it.y }, after.filter { it.id <= 3L }.map { it.x to it.y })
+        // The row it freed is filled only by the tiles straight below it rising, never from the side.
+        assertEquals(listOf(0 to 3, 0 to 5), after.filter { it.id >= 5L }.map { it.x to it.y })
     }
 
     @Test
@@ -206,11 +217,11 @@ class TilePlacementTest {
     @Test
     fun aSpanReplacesTheSizeAndOddSpansMayStartOnAnyCell() {
         val specs = listOf(tile(1, MEDIUM, 0, 0), tile(2, WIDE, 1, 1, TileSpan(3, 3)))
-        // Overlapping the medium at (1, 1), the 3x3 is pushed under it, but keeps its odd column and row.
+        // Overlapping the medium at (1, 1), the 3x3 is pushed under it, but keeps its odd column.
         assertEquals(Placement(1, 2, 3, 3), TilePlacement.layout(specs, 6)[1])
-        // An even extent still snaps on its axis: 3 wide may sit on column 1, but 2 high sits on even rows.
-        val snapped = TilePlacement.layout(listOf(tile(1, MEDIUM, 0, 0), tile(2, WIDE, 1, 3, TileSpan(3, 2))), 6)
-        assertEquals(Placement(1, 2, 3, 2), snapped[1])
+        // An even width still snaps to an even column: 3 wide may sit on column 1, 2 wide may not.
+        val snapped = TilePlacement.layout(listOf(tile(1, WIDE, 1, 3, TileSpan(2, 3))), 6)
+        assertEquals(Placement(0, 0, 2, 3), snapped[0])
     }
 
     @Test
@@ -262,8 +273,9 @@ class TilePlacementTest {
     fun dropCellRoundsToTheNearestCellOfTheTilesGranularity() {
         val medium = tile(1, MEDIUM)
         val small = tile(1, SMALL)
-        assertEquals(GridPos(2, 0), TilePlacement.dropCell(medium, 1.4f, 0.6f, 4))
-        assertEquals(GridPos(0, 2), TilePlacement.dropCell(medium, 0.9f, 1.2f, 4))
+        // Even widths round to an even column; rows round to the nearest row for every size.
+        assertEquals(GridPos(2, 1), TilePlacement.dropCell(medium, 1.4f, 0.6f, 4))
+        assertEquals(GridPos(0, 1), TilePlacement.dropCell(medium, 0.9f, 1.2f, 4))
         assertEquals(GridPos(1, 1), TilePlacement.dropCell(small, 1.4f, 0.6f, 4))
         assertEquals(GridPos(2, 0), TilePlacement.dropCell(medium, 5.6f, -3.4f, 4))
         assertEquals(GridPos(0, 4), TilePlacement.dropCell(tile(1, WIDE), 3f, 3.9f, 4))
@@ -294,9 +306,9 @@ class TilePlacementTest {
     fun theDroppedTileWinsEvenAgainstAnEarlierOne() {
         val specs = listOf(tile(1, MEDIUM, 0, 0), tile(2, MEDIUM, 2, 0), tile(3, SMALL, 0, 2))
         val result = TilePlacement.moveTo(specs, 3, GridPos(1, 0), 4)
-        // The small lands on (1, 0), inside the first medium, which goes below it.
+        // The small lands on (1, 0), inside the first medium, which goes to the row just below it.
         assertEquals(GridPos(1, 0), result.at(3))
-        assertEquals(GridPos(0, 2), result.at(1))
+        assertEquals(GridPos(0, 1), result.at(1))
     }
 
     @Test
@@ -349,7 +361,7 @@ class TilePlacementTest {
     }
 
     @Test
-    fun newWideTilesStartOnAnEvenRowBelowTheBottom() {
+    fun newWideTilesStartOnTheFirstRowBelowTheBottom() {
         val placements = layout(tile(1, SMALL, 0, 0), tile(2, SMALL, 0, 1), tile(3, WIDE))
         assertEquals(Placement(0, 2, 4, 2), placements[2])
     }

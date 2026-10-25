@@ -16,9 +16,10 @@ data class TileMove(val id: Long, val to: GridPos)
  * a tile sideways, so changing one tile cannot send others into unrelated gaps.
  *
  * Footprints are in small-tile cells: [TileSpec.width] clamped to the column count and
- * [TileSpec.height] to 1..[TileSpan.MAX_HEIGHT]. On each axis, a footprint with an even extent of
- * 2 or more snaps to even cells (columns 0, 2, 4, rows 0, 2, 4), so medium, wide and large tiles
- * line up with clusters of small ones. Odd extents (1, 3, 5, 7) may start on any cell.
+ * [TileSpec.height] to 1..[TileSpan.MAX_HEIGHT]. A footprint with an even width of 2 or more
+ * snaps to even columns (0, 2, 4), so medium, wide and large tiles line up with clusters of small
+ * ones; odd widths may start on any column. Rows don't snap: any tile may start on any row, so a
+ * tile rises into a row left half empty, such as under a pair of small tiles.
  *
  * [layout] is idempotent: feeding a settled layout back in changes nothing, which is what lets
  * the screen draw straight from the stored positions.
@@ -45,7 +46,7 @@ object TilePlacement {
         for (slot in fixed.sortedWith(compareBy<Slot>({ it.spec.id != first }, { it.y }, { it.x }, { it.index }))) {
             while (true) {
                 val hit = placed.firstOrNull { slot.overlaps(it) } ?: break
-                slot.y = slot.ceilY(hit.y + hit.height)
+                slot.y = hit.y + hit.height
             }
             placed += slot
         }
@@ -79,13 +80,13 @@ object TilePlacement {
 
     /**
      * The cell where [spec]'s top-left corner snaps when it is at [cellX], [cellY] (pixels divided
-     * by the cell size): the nearest cell, or the nearest even cell on an axis that snaps to even
-     * ones, and not outside the columns.
+     * by the cell size): the nearest cell, or the nearest even column for an even width, and not
+     * outside the columns.
      */
     fun dropCell(spec: TileSpec, cellX: Float, cellY: Float, columns: Int): GridPos {
         val slot = Slot(0, spec, columns)
-        fun nearest(v: Float, even: Boolean) = if (even) (v / 2).roundToInt() * 2 else v.roundToInt()
-        return GridPos(slot.snapX(nearest(cellX, slot.evenX)), slot.snapY(nearest(cellY, slot.evenY)))
+        val x = if (slot.evenX) (cellX / 2).roundToInt() * 2 else cellX.roundToInt()
+        return GridPos(slot.snapX(x), slot.snapY(cellY.roundToInt()))
     }
 
     /** [specs] with [id] moved to [to] and nothing else settled; for [layout] with `first = id`, to preview a drag. */
@@ -130,24 +131,21 @@ object TilePlacement {
         val width = spec.width.coerceIn(1, columns)
         val height = spec.height.coerceIn(1, TileSpan.MAX_HEIGHT)
         val evenX = width >= 2 && width % 2 == 0
-        val evenY = height >= 2 && height % 2 == 0
         private val maxX = (columns - width).let { if (evenX) it / 2 * 2 else it }
         var x = 0
         var y = 0
 
         fun snapX(v: Int) = v.coerceIn(0, maxX).let { if (evenX) it / 2 * 2 else it }
-        fun snapY(v: Int) = v.coerceAtLeast(0).let { if (evenY) it / 2 * 2 else it }
-        fun ceilY(v: Int) = if (evenY) (v + 1) / 2 * 2 else v
+        fun snapY(v: Int) = v.coerceAtLeast(0)
 
         fun overlaps(o: Slot) = overlaps(x, y, o)
 
         private fun overlaps(atX: Int, atY: Int, o: Slot) =
             atX < o.x + o.width && o.x < atX + width && atY < o.y + o.height && o.y < atY + height
 
-        /** Slides up while the rows above are free in [settled]: a row at a time, or two for even heights. */
+        /** Slides up a row at a time while the row above is free in [settled]. */
         fun fall(settled: List<Slot>) {
-            val step = if (evenY) 2 else 1
-            while (y >= step && settled.none { overlapsRows(it, y - step, step) }) y -= step
+            while (y >= 1 && settled.none { overlapsRows(it, y - 1, 1) }) y -= 1
         }
 
         /** Whether [o] is in the [rows] rows starting at [top], over this tile's columns. */
@@ -174,7 +172,7 @@ object TilePlacement {
                         if (settled.none { overlaps(cx, row, it) }) return GridPos(cx, row)
                     }
                 }
-                row += if (small || evenY) 2 else 1
+                row += if (small) 2 else 1
             }
         }
     }

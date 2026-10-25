@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
@@ -79,7 +80,7 @@ private fun DrawScope.drawPhoto(image: ImageBitmap, rootW: Float, rootH: Float, 
 
 /**
  * The start screen's background: the plain page colour, the full-screen photo under a scrim, or
- * nothing at all so the system wallpaper shows through the transparent window.
+ * cleared to transparent so the system wallpaper shows through the transparent window.
  */
 fun Modifier.startBackdrop(backdrop: StartBackdrop, page: Color): Modifier = drawBehind {
     when (backdrop.mode) {
@@ -89,7 +90,10 @@ fun Modifier.startBackdrop(backdrop: StartBackdrop, page: Color): Modifier = dra
             backdrop.image?.let { drawPhoto(it, size.width, size.height, backdrop.offsetFor(size.height)) }
             drawRect(page.copy(alpha = FULL_PHOTO_SCRIM))
         }
-        StartBackground.SYSTEM_WALLPAPER -> Unit
+        // The window starts opaque and only turns transparent at run time, and the renderer can
+        // keep drawing it as opaque, which skips clearing between frames. Clear explicitly, or
+        // each frame is drawn over the last and moving content leaves trails.
+        StartBackground.SYSTEM_WALLPAPER -> drawRect(Color.Transparent, blendMode = BlendMode.Clear)
     }
 }
 

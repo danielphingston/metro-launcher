@@ -17,7 +17,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 
 **Start screen**
 - Small, medium, wide and large tiles; small tiles cluster in 2x2 blocks like Windows Phone. Four columns, or six with "Show more tiles".
-- Tiles keep the place you give them and only ever slide straight up into free space, never sideways into gaps; resizing or dropping a tile pushes the ones in its way down. New tiles go at the bottom.
+- Tiles keep the place you give them and only ever slide straight up into free space, never sideways into gaps; resizing or dropping a tile pushes the ones in its way down. Any tile can rise one row into a row left half empty, such as under a pair of small tiles. New tiles go at the bottom.
 - Press and hold a tile to edit: drag to move, the corner badges unpin or resize. Back, Home or a tap on empty space leaves edit mode.
 - "+" under the tiles adds weather, photos, people and widget tiles; the arrow opens the app list. TalkBack gets custom actions (open folder, remove from folder, unpin, resize) as an alternative to dragging.
 
