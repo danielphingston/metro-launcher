@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.util.LruCache
+import io.github.danielphingston.metro.data.trimTo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -21,6 +22,9 @@ object PeopleSource {
     private val cache = object : LruCache<String, Bitmap>(CACHE_BYTES) {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
+
+    /** Gives memory back, keeping the [keep] (0..1) share of the photos used last. */
+    fun trimMemory(keep: Float) = cache.trimTo(keep)
 
     fun hasPermission(context: Context) =
         context.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED

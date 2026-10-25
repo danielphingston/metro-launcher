@@ -115,23 +115,59 @@ object WidgetTiles {
     }.also { host = it }
 
     /** Frees the app widget id when its tile is unpinned. */
-    fun release(context: Context, appWidgetId: Int) = host(context).deleteAppWidgetId(appWidgetId)
+    fun release(context: Context, appWidgetId: Int) {
+        try {
+            host(context).deleteAppWidgetId(appWidgetId)
+        } catch (_: RuntimeException) {
+            // The widget service is gone (rethrown as a RuntimeException); the id stays allocated until the app's data is cleared.
+        }
+    }
 
     /** The widget's provider, or null if the id is invalid or the provider is gone. */
-    internal fun providerInfo(context: Context, appWidgetId: Int): AppWidgetProviderInfo? =
+    internal fun providerInfo(context: Context, appWidgetId: Int): AppWidgetProviderInfo? = try {
         AppWidgetManager.getInstance(context).getAppWidgetInfo(appWidgetId)
+    } catch (_: RuntimeException) {
+        null // The widget service didn't answer: the tile shows its placeholder.
+    }
 
     /**
      * Widgets only update while the host listens, which costs a binder callback per update.
      * So it listens while at least one widget tile is on a STARTED screen. Listening again after
      * a stop makes the system send every widget's latest views, so they are fresh on return.
+     *
+     * Both calls are binder transactions that the host turns into a RuntimeException on failure,
+     * and startListening carries every widget's views at once: a few large bitmaps in them are
+     * enough for a TransactionTooLargeException. That must not crash the launcher; the widgets
+     * just keep what they last showed until the next start.
      */
     internal fun startListening(context: Context) {
-        if (listeners++ == 0) host(context).startListening()
+        if (listeners++ == 0) {
+            try {
+                host(context).startListening()
+            } catch (_: RuntimeException) {
+                // See above.
+            }
+        }
     }
 
     internal fun stopListening(context: Context) {
-        if (listeners > 0 && --listeners == 0) host(context).stopListening()
+        if (listeners > 0 && --listeners == 0) {
+            try {
+                host(context).stopListening()
+            } catch (_: RuntimeException) {
+                // See startListening.
+            }
+        }
+    }
+
+    /**
+     * The host view for a widget tile. A widget whose views the system can't hand over (too large
+     * for a transaction, widget service dying) gets an empty view, so only its tile is blank.
+     */
+    internal fun createView(context: Context, appWidgetId: Int, info: AppWidgetProviderInfo): View = try {
+        host(context).createView(context, appWidgetId, info)
+    } catch (_: RuntimeException) {
+        View(context)
     }
 
     /**
@@ -351,7 +387,7 @@ fun WidgetTile(
     ) {
         AndroidView(
             factory = { ctx ->
-                val hostView = WidgetTiles.host(ctx).createView(ctx, widget.appWidgetId, info)
+                val hostView = WidgetTiles.createView(ctx, widget.appWidgetId, info)
                 // The system's long-press callback only matters if Compose has not already entered edit mode.
                 WidgetFrame(ctx, hostView) { if (!currentEditing) currentOnLongPress() }
             },
@@ -412,7 +448,11 @@ internal class WidgetFrame(
     fun reportSize(size: SizeF) {
         if (appliedSize == size) return
         appliedSize = size
-        (hostView as? AppWidgetHostView)?.updateAppWidgetSize(WidgetTiles.sizeOptions(size), listOf(size))
+        try {
+            (hostView as? AppWidgetHostView)?.updateAppWidgetSize(WidgetTiles.sizeOptions(size), listOf(size))
+        } catch (_: RuntimeException) {
+            // The widget service refused or is gone (e.g. SecurityException for a widget id it no longer knows).
+        }
     }
 
     /**

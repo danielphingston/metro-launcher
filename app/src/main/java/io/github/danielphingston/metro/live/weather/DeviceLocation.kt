@@ -21,15 +21,24 @@ object DeviceLocation {
     suspend fun current(context: Context): Location? {
         if (!hasPermission(context)) return null
         val manager = context.getSystemService(LocationManager::class.java) ?: return null
-        val fresh = withTimeoutOrNull(15_000) {
-            suspendCancellableCoroutine<Location?> { continuation ->
-                val signal = CancellationSignal()
-                continuation.invokeOnCancellation { signal.cancel() }
-                manager.getCurrentLocation(LocationManager.NETWORK_PROVIDER, signal, context.mainExecutor) {
-                    continuation.resume(it)
+        // The permission can be revoked while a fix is awaited (SecurityException), and a phone
+        // without a network provider rejects the call (IllegalArgumentException). This runs from
+        // the weather tile whenever the launcher comes back, so neither may crash it.
+        return try {
+            val fresh = withTimeoutOrNull(15_000) {
+                suspendCancellableCoroutine<Location?> { continuation ->
+                    val signal = CancellationSignal()
+                    continuation.invokeOnCancellation { signal.cancel() }
+                    manager.getCurrentLocation(LocationManager.NETWORK_PROVIDER, signal, context.mainExecutor) {
+                        continuation.resume(it)
+                    }
                 }
             }
+            fresh ?: manager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        } catch (_: SecurityException) {
+            null
+        } catch (_: IllegalArgumentException) {
+            null
         }
-        return fresh ?: manager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
     }
 }

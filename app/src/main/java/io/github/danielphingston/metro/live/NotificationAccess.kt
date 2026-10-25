@@ -16,7 +16,12 @@ object NotificationAccess {
     /** Some OEM battery managers unbind listeners; ask the system to bind us again. */
     fun rebindIfNeeded(context: Context) {
         if (isGranted(context) && !NotificationHub.connected.value) {
-            NotificationListenerService.requestRebind(component(context))
+            try {
+                NotificationListenerService.requestRebind(component(context))
+            } catch (_: RuntimeException) {
+                // The notification service is gone or refuses (a binder failure is rethrown as a
+                // RuntimeException); this runs on every start, so it must not take the app down.
+            }
         }
     }
 

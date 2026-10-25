@@ -49,14 +49,28 @@ class IconCache(private val context: Context) {
 
     fun peek(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? = cache.get(cacheKey(app, sizePx, monochrome))
 
-    /** Blocking: call off the main thread. */
-    fun load(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon {
+    /**
+     * Blocking: call off the main thread. Null when the icon can't be drawn, for instance while
+     * its app is being updated; the next call tries again.
+     */
+    fun load(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
         val key = cacheKey(app, sizePx, monochrome)
         cache.get(key)?.let { return it }
-        val icon = render(app, sizePx, monochrome)
-        cache.put(key, icon)
+        val icon = try {
+            render(app, sizePx, monochrome)
+        } catch (_: RuntimeException) {
+            // The drawable is the app's (or icon pack's) own code and resources: a missing resource
+            // (Resources.NotFoundException), a broken vector or an unsupported size throw here.
+            null
+        } catch (_: OutOfMemoryError) {
+            null // An enormous icon; tiles show no icon rather than the launcher dying.
+        }
+        icon?.let { cache.put(key, it) }
         return icon
     }
+
+    /** Gives memory back, keeping the [keep] (0..1) share of the cache used last; see [CacheTrim]. */
+    fun trimMemory(keep: Float) = cache.trimTo(keep)
 
     fun evict(packageName: String) {
         cache.snapshot().keys.filter { it.startsWith("$packageName/") }.forEach { cache.remove(it) }

@@ -95,9 +95,13 @@ private fun loadWidgets(context: Context): List<WidgetGroup> {
     val pm = context.packageManager
     val entries = launcherApps.profiles.flatMap { user ->
         val serial = userManager.getSerialNumberForUser(user)
-        manager.getInstalledProvidersForProfile(user).map { info ->
-            val label = info.loadLabel(pm)?.trim().orEmpty().ifEmpty { info.provider.packageName }
-            WidgetEntry(info, user, serial, label, WidgetTiles.dimsOf(context, info))
+        try {
+            manager.getInstalledProvidersForProfile(user).map { info ->
+                val label = info.loadLabel(pm)?.trim().orEmpty().ifEmpty { info.provider.packageName }
+                WidgetEntry(info, user, serial, label, WidgetTiles.dimsOf(context, info))
+            }
+        } catch (_: RuntimeException) {
+            emptyList() // A stopped or locked profile (or a provider with broken resources) lists no widgets.
         }
     }
     return entries
@@ -136,7 +140,7 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     var query by remember { mutableStateOf("") }
 
     fun cancel() {
-        pending?.let { host.deleteAppWidgetId(it.id) }
+        pending?.let { WidgetTiles.release(context, it.id) }
         pending = null
     }
 

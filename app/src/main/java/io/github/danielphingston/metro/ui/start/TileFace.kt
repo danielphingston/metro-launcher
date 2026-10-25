@@ -91,7 +91,9 @@ fun TileFace(
     FlipCard(
         showBack = flipped && live?.hasBack(size) == true,
         front = { Front(app, size, live, monochromeIcons, icons, metrics) },
-        back = { Back(app, size, live!!, monochromeIcons, icons, metrics) },
+        // The back face stays on screen while the card flips back, which can outlast the content
+        // (a dismissed notification): the live content is null by then.
+        back = { live?.let { Back(app, size, it, monochromeIcons, icons, metrics) } },
     )
 }
 

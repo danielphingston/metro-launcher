@@ -35,7 +35,13 @@ import io.github.danielphingston.metro.ui.tiles.WidgetTiles
 class PinWidgetActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val request = getSystemService(LauncherApps::class.java).getPinItemRequest(intent)
+        val request = try {
+            getSystemService(LauncherApps::class.java).getPinItemRequest(intent)
+        } catch (_: SecurityException) {
+            null
+        } catch (_: IllegalStateException) {
+            null
+        }
         val info = request?.takeIf { it.requestType == LauncherApps.PinItemRequest.REQUEST_TYPE_APPWIDGET && it.isValid }
             ?.getAppWidgetProviderInfo(this)
         if (request == null || info == null) {
@@ -48,7 +54,11 @@ class PinWidgetActivity : ComponentActivity() {
 
         fun add(columns: Int) {
             val host = WidgetTiles.host(this)
-            val id = host.allocateAppWidgetId()
+            val id = try {
+                host.allocateAppWidgetId()
+            } catch (_: RuntimeException) {
+                return finish() // The widget service is gone (rethrown as a RuntimeException).
+            }
             val accepted = try {
                 request.accept(Bundle().apply { putInt(AppWidgetManager.EXTRA_APPWIDGET_ID, id) })
             } catch (_: RuntimeException) {
@@ -65,7 +75,7 @@ class PinWidgetActivity : ComponentActivity() {
                 )
                 setResult(Activity.RESULT_OK)
             } else {
-                host.deleteAppWidgetId(id)
+                WidgetTiles.release(this, id)
             }
             finish()
         }

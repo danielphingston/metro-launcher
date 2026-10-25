@@ -40,6 +40,7 @@ import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.data.trimTo
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.start.AppIcon
 import io.github.danielphingston.metro.ui.start.TileLabel
@@ -131,6 +132,9 @@ object ShortcutTiles {
             .getShortcutIconDrawable(info, context.resources.displayMetrics.densityDpi)
     }
 
+    /** Gives memory back, keeping the [keep] (0..1) share of the icons used last. */
+    fun trimMemory(keep: Float) = ShortcutIconCache.trimMemory(keep)
+
     internal fun serialOf(context: Context, user: UserHandle): Long =
         context.getSystemService(UserManager::class.java).getSerialNumberForUser(user)
 
@@ -177,10 +181,18 @@ private object ShortcutIconCache {
         cache.get(key)?.let { return it }
         val info = ShortcutTiles.info(context, shortcut) ?: return null
         val drawable = ShortcutTiles.iconDrawable(context, info) ?: return null
-        val bitmap = render(drawable, sizePx, monochrome)
+        val bitmap = try {
+            render(drawable, sizePx, monochrome)
+        } catch (_: RuntimeException) {
+            return null // The app's own drawable failed (e.g. Resources.NotFoundException): show the plain tile.
+        } catch (_: OutOfMemoryError) {
+            return null
+        }
         cache.put(key, bitmap)
         return bitmap
     }
+
+    fun trimMemory(keep: Float) = cache.trimTo(keep)
 
     /** The white themed-icon rendering of [IconCache], for shortcuts that ship a monochrome layer. */
     private fun render(drawable: Drawable, sizePx: Int, monochrome: Boolean): ImageBitmap {

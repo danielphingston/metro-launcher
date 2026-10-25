@@ -86,6 +86,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 null
             } catch (_: Exception) {
                 null // Corrupt or transiently unreadable: plain background for now.
+            } catch (_: OutOfMemoryError) {
+                null // A photo the device can't hold even downsampled: plain background.
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -137,7 +139,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     init {
         viewModelScope.launch {
             val specs = metro.tiles.tiles.filterNotNull().first()
-            val apps = metro.apps.apps.filterNotNull().first()
+            // A load that failed gives an empty list; wait for a real one rather than save an empty first layout.
+            val apps = metro.apps.apps.filterNotNull().first { it.isNotEmpty() }
             if (metro.tiles.isFirstRun && specs.isEmpty()) {
                 metro.tiles.replaceAll(DefaultLayout.build(apps, metro.apps.defaults.value, application.packageName))
             }

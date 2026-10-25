@@ -339,8 +339,9 @@ fun StartScreen(
         // Opening a folder near the bottom scrolls its children into view.
         LaunchedEffect(openFolder?.spec?.id) {
             val region = layout.region ?: return@LaunchedEffect
+            val folder = openIndex?.let(placements::getOrNull) ?: return@LaunchedEffect
             val inset = navInsetPx + with(density) { 16.dp.toPx() }
-            val folderTop = topInsetPx + placements[openIndex!!].y * cellPx
+            val folderTop = topInsetPx + folder.y * cellPx
             val target = (topInsetPx + (region.y + region.height) * cellPx + inset - viewportPx).coerceAtMost(folderTop).toInt()
             if (target <= state.scroll.value) return@LaunchedEffect
             // The grid grows on the next layout pass; wait for room to scroll into.
@@ -913,7 +914,7 @@ private fun TileBody(
     onWidgetLongPress: () -> Unit,
 ) {
     when (tile.spec.content) {
-        is TileContent.App -> TileFace(tile.app!!, tile.spec.size, live, flipped, monochromeIcons, icons, cell)
+        is TileContent.App -> tile.app?.let { TileFace(it, tile.spec.size, live, flipped, monochromeIcons, icons, cell) }
         is TileContent.Shortcut -> ShortcutTile(tile, cell, icons, monochromeIcons)
         is TileContent.Widget -> WidgetTile(tile, cell, editing, onWidgetLongPress)
         TileContent.Weather -> WeatherTile(tile, cell, flipped)
@@ -933,7 +934,7 @@ private fun activateTile(
     state: StartState,
 ) {
     when (val content = tile.spec.content) {
-        is TileContent.App -> launcher.launch(tile.app!!, bounds)
+        is TileContent.App -> tile.app?.let { launcher.launch(it, bounds) }
         is TileContent.Shortcut -> launcher.open(bounds) { screenBounds, options ->
             ShortcutTiles.launch(context, content, screenBounds, options)
         }

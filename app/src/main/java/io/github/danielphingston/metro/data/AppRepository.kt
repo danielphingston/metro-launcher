@@ -97,7 +97,12 @@ class AppRepository(
     }
 
     init {
-        launcherApps.registerCallback(callback, Handler(Looper.getMainLooper()))
+        try {
+            launcherApps.registerCallback(callback, Handler(Looper.getMainLooper()))
+        } catch (_: RuntimeException) {
+            // No live updates then; the list is still loaded now and whenever the app restarts.
+            // This runs at process start, where a failure would repeat on every launch.
+        }
         scope.launch {
             reloadRequests.receiveAsFlow().collect { reload() }
         }
@@ -111,10 +116,20 @@ class AppRepository(
     private suspend fun reload() = withContext(Dispatchers.Default) {
         val collator = Collator.getInstance().apply { strength = Collator.PRIMARY }
         val result = launcherApps.profiles.flatMap { user ->
-            val serial = serialOf(user)
-            launcherApps.getActivityList(null, user).map { AppInfo.from(it, serial) }
+            try {
+                val serial = serialOf(user)
+                launcherApps.getActivityList(null, user).map { AppInfo.from(it, serial) }
+            } catch (_: RuntimeException) {
+                // A profile that is stopped, locked or being removed can refuse (SecurityException,
+                // IllegalStateException, binder failures); the others still load. This runs at start.
+                emptyList()
+            }
         }.sortedWith { a, b -> collator.compare(a.label, b.label) }
-        _defaults.value = DefaultApps.resolve(context)
+        _defaults.value = try {
+            DefaultApps.resolve(context)
+        } catch (_: RuntimeException) {
+            DefaultApps.EMPTY
+        }
         _apps.value = result
     }
 

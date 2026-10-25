@@ -1,9 +1,11 @@
 package io.github.danielphingston.metro.data
 
 import android.content.Context
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -67,7 +69,14 @@ data class LauncherSettings(
     }
 }
 
-internal val Context.metroDataStore by preferencesDataStore(name = "metro")
+/**
+ * A damaged file (a write cut short by a crash or a full disk) starts over with the defaults
+ * instead of throwing on every read, which would crash the launcher on every start.
+ */
+internal val Context.metroDataStore by preferencesDataStore(
+    name = "metro",
+    corruptionHandler = ReplaceFileCorruptionHandler { emptyPreferences() },
+)
 
 class SettingsRepository(private val context: Context) {
     private object Keys {

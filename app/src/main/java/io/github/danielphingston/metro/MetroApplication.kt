@@ -1,12 +1,16 @@
 package io.github.danielphingston.metro
 
 import android.app.Application
+import androidx.work.Configuration
 import io.github.danielphingston.metro.data.AppRepository
+import io.github.danielphingston.metro.data.CacheTrim
 import io.github.danielphingston.metro.data.CrashLog
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.live.NotificationAccess
+import io.github.danielphingston.metro.live.PeopleSource
+import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
 import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +20,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** Process-wide singletons. The launcher process is long-lived, so these are created once. */
-class MetroApplication : Application() {
+class MetroApplication : Application(), Configuration.Provider {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     lateinit var apps: AppRepository
@@ -47,5 +51,28 @@ class MetroApplication : Application() {
         appScope.launch {
             settings.settings.map { it.iconPack }.distinctUntilChanged().collect { icons.iconPack = it }
         }
+    }
+
+    /**
+     * WorkManager (only the weather refresh uses it) starts on first use, not at every process
+     * start. If its database can't be opened it reports that to the handler below, which would
+     * otherwise be an uncaught exception on every start; the weather tile then just stops refreshing.
+     */
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setInitializationExceptionHandler { /* Nothing to do: weather refreshes are dropped. */ }
+            .build()
+
+    /**
+     * The launcher stays in memory while other apps run, so it gives its bitmap caches back as the
+     * system asks (see [CacheTrim]). The start background photo is not a cache and stays.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        val keep = CacheTrim.keepFraction(level)
+        if (keep >= 1f) return
+        icons.trimMemory(keep)
+        PeopleSource.trimMemory(keep)
+        ShortcutTiles.trimMemory(keep)
     }
 }

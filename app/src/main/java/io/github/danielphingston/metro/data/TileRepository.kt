@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 
 enum class TileSize(val width: Int, val height: Int) {
     SMALL(1, 1), MEDIUM(2, 2), WIDE(4, 2), LARGE(4, 4);
@@ -128,7 +129,11 @@ class TileRepository(private val context: Context, scope: CoroutineScope, privat
     @OptIn(FlowPreview::class)
     private suspend fun persistChanges() {
         _tiles.filterNotNull().drop(1).debounce(400).collect { list ->
-            context.metroDataStore.edit { it[key] = encode(list) }
+            try {
+                context.metroDataStore.edit { it[key] = encode(list) }
+            } catch (_: IOException) {
+                // Disk full or unwritable: keep collecting, the next change saves the whole layout again.
+            }
         }
     }
 

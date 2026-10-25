@@ -56,7 +56,18 @@ class MetroNotificationListener : NotificationListenerService() {
             n.category != Notification.CATEGORY_SERVICE
     }
 
-    private fun preview(sbn: StatusBarNotification): NotificationPreview? {
+    /**
+     * The newest text of [sbn], or null if there is none or it can't be read. Another app's extras
+     * are parcelled with its own classes, so reading them can throw (BadParcelableException,
+     * ClassCastException); that skips the preview but must not crash a system callback.
+     */
+    private fun preview(sbn: StatusBarNotification): NotificationPreview? = try {
+        previewOf(sbn)
+    } catch (_: RuntimeException) {
+        null
+    }
+
+    private fun previewOf(sbn: StatusBarNotification): NotificationPreview? {
         val n = sbn.notification
         // Respect apps that mark content as secret on the lock screen.
         if (n.visibility == Notification.VISIBILITY_SECRET) return null

@@ -172,6 +172,8 @@ private suspend fun loadFrom(
         } catch (e: Exception) {
             // Only lost access forgets the photo; a missing file or I/O error may be temporary.
             if (PhotoSource.isAccessLost(e)) unreadable += uri
+        } catch (_: OutOfMemoryError) {
+            // A photo too big to decode even downsampled: skip it, like an unreadable one.
         }
     }
     null
