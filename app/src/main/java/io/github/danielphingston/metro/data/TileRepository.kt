@@ -4,8 +4,11 @@ import android.content.ComponentName
 import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import io.github.danielphingston.metro.ui.start.GridPos
+import io.github.danielphingston.metro.ui.start.TilePlacement
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,17 +53,51 @@ sealed interface TileContent {
     data class Folder(val name: String, val children: List<TileSpec>) : TileContent
 }
 
-data class TileSpec(val id: Long, val size: TileSize, val content: TileContent) {
-    /** The app key for app tiles, else null. */
-    val appKey: AppKey? get() = (content as? TileContent.App)?.app
+/** A custom footprint in small-tile cells that replaces a tile's [TileSize]; see [TileSpec.span]. */
+data class TileSpan(val width: Int, val height: Int) {
+    companion object {
+        const val MAX_HEIGHT = 8
+    }
 }
 
 /**
- * The ordered list of pinned tiles. Order is what the user arranges; the grid position is
- * derived from it by [io.github.danielphingston.metro.ui.start.TileGrid.pack].
+ * A pinned tile. Top-level tiles carry their grid position [x], [y] (top-left, in small-tile
+ * cells); [UNPLACED] means "not placed yet", and [TilePlacement] puts such a tile at the bottom
+ * of the layout. Folder children have no position: they stay list-ordered inside the folder.
  */
-class TileRepository(private val context: Context, scope: CoroutineScope) {
+data class TileSpec(
+    val id: Long,
+    val size: TileSize,
+    val content: TileContent,
+    val x: Int = UNPLACED,
+    val y: Int = UNPLACED,
+    /** When set, replaces [size] with any footprint (width 1..columns, height 1..[TileSpan.MAX_HEIGHT]). */
+    val span: TileSpan? = null,
+) {
+    /** The app key for app tiles, else null. */
+    val appKey: AppKey? get() = (content as? TileContent.App)?.app
+
+    /** Footprint in cells, before clamping to the column count. */
+    val width: Int get() = span?.width ?: size.width
+    val height: Int get() = span?.height ?: size.height
+
+    val isPlaced: Boolean get() = x >= 0 && y >= 0
+
+    companion object {
+        const val UNPLACED = -1
+    }
+}
+
+/**
+ * The pinned tiles. Each top-level tile owns a grid position and [TilePlacement] settles the
+ * layout (upward gravity only) after every change, using the current column count from
+ * [columns]; the first value is read before the saved layout is migrated.
+ */
+class TileRepository(private val context: Context, scope: CoroutineScope, private val columns: Flow<Int>) {
     private val key = stringPreferencesKey("tiles")
+
+    @Volatile
+    private var columnCount = 4
 
     /** Null until loaded. [isFirstRun] tells whether a layout has ever been saved. */
     private val _tiles = MutableStateFlow<List<TileSpec>?>(null)
@@ -71,9 +108,11 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
 
     init {
         scope.launch {
+            columnCount = columns.first()
             val stored = context.metroDataStore.data.first()[key]
             isFirstRun = stored == null
-            _tiles.value = stored?.let(::decode).orEmpty()
+            _tiles.value = stored?.let(::decode)?.let(::migrate).orEmpty()
+            launch { columns.collect { columnCount = it } }
             persistChanges()
         }
     }
@@ -85,14 +124,23 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
         }
     }
 
+    /** Replaces the layout; tiles without a position are packed like a fresh start screen. */
     fun replaceAll(tiles: List<TileSpec>) {
         isFirstRun = false
-        _tiles.value = tiles
+        _tiles.value = migrate(tiles)
+    }
+
+    private fun migrate(tiles: List<TileSpec>): List<TileSpec> =
+        TilePlacement.settle(TilePlacement.migrate(tiles, columnCount), columnCount)
+
+    /** Applies [transform] and settles the result; [first] is the tile that wins overlaps. */
+    private fun change(first: Long? = null, transform: (List<TileSpec>) -> List<TileSpec>) = _tiles.update { list ->
+        list?.let { TilePlacement.settle(transform(it), columnCount, first) }
     }
 
     fun pin(app: AppKey, size: TileSize = TileSize.MEDIUM) = add(TileContent.App(app), size)
 
-    /** Appends a tile unless an identical one (same app or shortcut) is already pinned. */
+    /** Pins a tile at the bottom of the start screen unless an identical one (same app or shortcut) is already pinned. */
     fun add(content: TileContent, size: TileSize): Long? {
         var newId: Long? = null
         _tiles.update { current ->
@@ -100,7 +148,7 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
             if (content !is TileContent.Widget && list.flatten().any { it.content == content }) return@update list
             val id = nextId(list)
             newId = id
-            list + TileSpec(id, size, content)
+            TilePlacement.settle(list + TileSpec(id, size, content), columnCount)
         }
         return newId
     }
@@ -113,31 +161,29 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
 
     fun nextId(list: List<TileSpec>): Long = (list.flatten().maxOfOrNull { it.id } ?: 0) + 1
 
-    /** Replaces the whole list through [transform]; for features that need multi-step edits (folders). */
-    fun edit(transform: (List<TileSpec>) -> List<TileSpec>) = _tiles.update { it?.let(transform) }
+    /** Replaces the whole list through [transform] and settles it; for features that need multi-step edits (folders). */
+    fun edit(transform: (List<TileSpec>) -> List<TileSpec>) = change(transform = transform)
 
     /** Removes a tile, also from inside a folder, and returns it so callers can release resources (e.g. widget ids). */
     fun unpin(id: Long): TileSpec? {
         var removed: TileSpec? = null
         _tiles.update { list ->
             removed = list?.flatten()?.firstOrNull { it.id == id }
-            list?.let { TileFolders.remove(it, id) }
+            list?.let { TilePlacement.settle(TileFolders.remove(it, id), columnCount) }
         }
         return removed
     }
 
-    fun resize(id: Long) = _tiles.update { list ->
-        list?.map { if (it.id == id) it.copy(size = it.size.next()) else it }
-    }
+    /** Steps tile [id] to its next size, keeping its top-left corner; see [TilePlacement.resize]. */
+    fun resize(id: Long) = _tiles.update { list -> list?.let { TilePlacement.resize(it, id, columnCount) } }
 
-    /** Moves tile [id] into the slot of [targetId]; the target and the tiles between shift by one. */
-    fun move(id: Long, targetId: Long) = _tiles.update { list ->
-        if (list == null) return@update null
-        val from = list.indexOfFirst { it.id == id }
-        val to = list.indexOfFirst { it.id == targetId }
-        if (from < 0 || to < 0 || from == to) return@update list
-        list.toMutableList().apply { add(to, removeAt(from)) }
-    }
+    /** Gives tile [id] a custom footprint of [width] x [height] cells; see [TilePlacement.setSpan]. */
+    fun setSpan(id: Long, width: Int, height: Int) =
+        _tiles.update { list -> list?.let { TilePlacement.setSpan(it, id, width, height, columnCount) } }
+
+    /** Drops tile [id] with its top-left corner on cell [x], [y]; see [TilePlacement.moveTo]. */
+    fun moveTo(id: Long, x: Int, y: Int) =
+        _tiles.update { list -> list?.let { TilePlacement.moveTo(it, id, GridPos(x, y), columnCount) } }
 
     /**
      * Drops tile [id] onto [targetId]: both become a new folder, or [id] joins the target folder.
@@ -148,15 +194,13 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
         _tiles.update { list ->
             val merged = list?.let { TileFolders.merge(it, id, targetId, nextId(it)) }
             folderId = merged?.folderId
-            merged?.tiles ?: list
+            merged?.let { TilePlacement.settle(it.tiles, columnCount, it.folderId) } ?: list
         }
         return folderId
     }
 
-    /** Puts a folder's child back on the start screen after the folder; see [TileFolders.removeFromFolder]. */
-    fun removeFromFolder(folderId: Long, childId: Long) = _tiles.update { list ->
-        list?.let { TileFolders.removeFromFolder(it, folderId, childId) }
-    }
+    /** Puts a folder's child back on the start screen as a new tile; see [TileFolders.removeFromFolder]. */
+    fun removeFromFolder(folderId: Long, childId: Long) = change { TileFolders.removeFromFolder(it, folderId, childId) }
 
     fun renameFolder(id: Long, name: String) = _tiles.update { list -> list?.let { TileFolders.rename(it, id, name) } }
 
@@ -180,7 +224,7 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
             val updated = list?.withoutPackage()?.map { spec ->
                 val folder = spec.content as? TileContent.Folder ?: return@map spec
                 spec.copy(content = folder.copy(children = folder.children.withoutPackage()))
-            }?.let(TileFolders::tidy)
+            }?.let(TileFolders::tidy)?.let { TilePlacement.settle(it, columnCount) }
             // update may run its block again, so only the last run counts.
             removed = gone
             updated
@@ -194,12 +238,17 @@ class TileRepository(private val context: Context, scope: CoroutineScope) {
         .getOrDefault(emptyList())
 }
 
-/** JSON form of the start screen. Entries without "type" are app tiles from version 0.1. */
+/**
+ * JSON form of the start screen. Entries without "type" are app tiles from version 0.1; entries
+ * without "x" and "y" predate grid positions and get them from [TilePlacement.migrate].
+ */
 internal object TileJson {
     fun encode(tiles: List<TileSpec>): JSONArray = JSONArray().apply { tiles.forEach { put(encode(it)) } }
 
     private fun encode(tile: TileSpec): JSONObject {
         val obj = JSONObject().put("id", tile.id).put("size", tile.size.name)
+        if (tile.isPlaced) obj.put("x", tile.x).put("y", tile.y)
+        tile.span?.let { obj.put("spanWidth", it.width).put("spanHeight", it.height) }
         when (val c = tile.content) {
             is TileContent.App -> obj.put("type", "app").put("app", c.app.serialize())
             is TileContent.Shortcut -> obj.put("type", "shortcut").put("package", c.packageName)
@@ -232,6 +281,14 @@ internal object TileJson {
             "folder" -> TileContent.Folder(obj.optString("name"), decode(obj.getJSONArray("children")))
             else -> return null
         }
-        return TileSpec(obj.getLong("id"), size, content)
+        val span = if (obj.has("spanWidth") && obj.has("spanHeight")) {
+            TileSpan(obj.getInt("spanWidth"), obj.getInt("spanHeight"))
+        } else {
+            null
+        }
+        return TileSpec(
+            obj.getLong("id"), size, content,
+            x = obj.optInt("x", TileSpec.UNPLACED), y = obj.optInt("y", TileSpec.UNPLACED), span = span,
+        )
     }
 }

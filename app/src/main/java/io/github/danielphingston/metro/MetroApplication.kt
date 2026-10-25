@@ -30,7 +30,7 @@ class MetroApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         settings = SettingsRepository(this)
-        tiles = TileRepository(this, appScope)
+        tiles = TileRepository(this, appScope, settings.settings.map { it.columns }.distinctUntilChanged())
         icons = IconCache(this)
         apps = AppRepository(this, appScope, onPackageRemoved = { pkg, serial ->
             val removed = tiles.removePackage(pkg, serial)

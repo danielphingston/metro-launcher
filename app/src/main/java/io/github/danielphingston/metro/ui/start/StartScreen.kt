@@ -128,6 +128,16 @@ class StartState(val scroll: ScrollState) {
     var dragTopLeft by mutableStateOf(Offset.Zero)
         internal set
 
+    /**
+     * The cell the dragged tile would be dropped on right now, and the move the other tiles are
+     * previewing. The preview trails [dragCell] by a short hold and outlives the drag until the
+     * dropped layout arrives; see [TilePlacement].
+     */
+    var dragCell by mutableStateOf<GridPos?>(null)
+        internal set
+    var preview by mutableStateOf<TileMove?>(null)
+        internal set
+
     fun select(id: Long) {
         editing = true
         selectedId = id
@@ -153,6 +163,8 @@ class StartState(val scroll: ScrollState) {
         editing = false
         selectedId = null
         dragId = null
+        dragCell = null
+        preview = null
         mergeCandidateId = null
         mergeTargetId = null
     }
@@ -191,6 +203,12 @@ private val TileGap = 4.dp
 
 /** How long a dragged tile must rest over another's middle before dropping would merge them. */
 private const val MERGE_DWELL_MILLIS = 600L
+
+/**
+ * How long a dragged tile must stay over a cell before the other tiles move out of its way, so
+ * they don't scatter while it passes over them and a merge target is still there to aim at.
+ */
+private const val PREVIEW_HOLD_MILLIS = 120L
 
 /** The bottom strip of a folder tile, as a fraction of a cell, that renames the folder when tapped in edit mode. */
 private const val FOLDER_NAME_STRIP = 0.32f
@@ -252,10 +270,22 @@ fun StartScreen(
 
     val columns = settings.columns
     val openIndex = tiles.indexOfFirst { it === openFolder }.takeIf { it >= 0 }
-    val layout = remember(tiles.map { it.spec.size }, openIndex, openChildren.map { it.spec.size }, columns) {
-        FolderLayout.compute(tiles.map { it.spec.size }, openIndex, openChildren.map { it.spec.size }, columns)
+    val specs = tiles.map { it.spec }
+    val preview = state.preview?.takeIf { move -> specs.any { it.id == move.id } }
+    // Stored positions settled for this column count; with a drag in progress, as if it were dropped now.
+    val settled = remember(specs, preview, columns) {
+        if (preview == null) {
+            TilePlacement.layout(specs, columns)
+        } else {
+            TilePlacement.layout(TilePlacement.placeAt(specs, preview.id, preview.to), columns, first = preview.id)
+        }
+    }
+    val layout = remember(settled, openIndex, openChildren.map { it.spec.size }, columns) {
+        FolderLayout.compute(settled, openIndex, openChildren.map { it.spec.size }, columns)
     }
     val placements = layout.tiles
+    // The dropped layout has arrived (or the drop was a no-op): stop previewing.
+    LaunchedEffect(specs) { if (state.dragId == null) state.preview = null }
     val flipped = remember { mutableStateMapOf<Long, Boolean>() }
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
@@ -349,6 +379,35 @@ fun StartScreen(
             }
         }
 
+        // Follow a dragged top-level tile (also while the screen scrolls under it): holding it over the
+        // middle of a tile it can join arms a merge, anywhere else it targets the cell its corner snaps to.
+        val currentTiles by rememberUpdatedState(tiles)
+        val currentPlacements by rememberUpdatedState(placements)
+        LaunchedEffect(state.dragId) {
+            val id = state.dragId ?: return@LaunchedEffect
+            snapshotFlow { state.dragTopLeft }.collect { topLeft ->
+                val index = currentTiles.indexOfFirst { it.spec.id == id }
+                if (index < 0) return@collect // A folder child; those are handled by the child's own drag.
+                val (cx, cy) = dragCenterCell(state, currentPlacements[index], cellPx)
+                val target = currentTiles.indices.firstOrNull { i ->
+                    i != index && currentPlacements[i].contains(cx, cy)
+                }
+                val joins = target != null && currentPlacements[target].inMiddle(cx, cy) &&
+                    TileFolders.canMerge(currentTiles[index].spec, currentTiles[target].spec)
+                state.mergeCandidateId = if (joins) currentTiles[target!!].spec.id else null
+                if (!joins) {
+                    state.dragCell = TilePlacement.dropCell(currentTiles[index].spec, topLeft.x / cellPx, topLeft.y / cellPx, columns)
+                }
+            }
+        }
+        // The other tiles make room once the dragged one has rested on a cell for a moment.
+        LaunchedEffect(state.dragCell) {
+            val id = state.dragId ?: return@LaunchedEffect
+            val cell = state.dragCell ?: return@LaunchedEffect
+            delay(PREVIEW_HOLD_MILLIS)
+            state.preview = TileMove(id, cell)
+        }
+
         Column(
             Modifier
                 .fillMaxSize()
@@ -391,22 +450,20 @@ fun StartScreen(
                             onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state) },
                             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
                             mergeTarget = state.mergeTargetId == tile.spec.id,
-                            onDragMove = {
-                                val (cx, cy) = dragCenterCell(state, placement, cellPx)
-                                val target = tiles.indices.firstOrNull { i ->
-                                    tiles[i].spec.id != tile.spec.id && placements[i].contains(cx, cy)
-                                }
-                                // Dwelling in the middle of a tile it can join arms a merge instead of reordering.
-                                val joins = target != null && placements[target].inMiddle(cx, cy) &&
-                                    TileFolders.canMerge(tile.spec, tiles[target].spec)
-                                state.mergeCandidateId = if (joins) tiles[target!!].spec.id else null
-                                if (!joins) target?.let { viewModel.move(tile.spec.id, tiles[it].spec.id) }
-                            },
                             onDrop = { completed ->
                                 val into = state.mergeTargetId
+                                // Over a tile it could join, the tiles still show the earlier preview; drop as shown.
+                                val cell = if (state.mergeCandidateId != null) state.preview?.to ?: state.dragCell else state.dragCell
                                 state.mergeCandidateId = null
+                                state.preview = null
                                 if (completed && into != null) {
                                     viewModel.mergeIntoFolder(tile.spec.id, into)?.let(state::select)
+                                } else if (completed && cell != null) {
+                                    // Keep showing the drop until the stored layout catches up, unless it changes nothing.
+                                    if (TilePlacement.moveTo(specs, tile.spec.id, cell, columns) != specs) {
+                                        state.preview = TileMove(tile.spec.id, cell)
+                                        viewModel.moveTo(tile.spec.id, cell.x, cell.y)
+                                    }
                                 }
                             },
                         )
@@ -534,7 +591,7 @@ private fun TileHost(
     viewModel: LauncherViewModel,
     onLaunch: (Rect?) -> Unit,
     onLongPress: () -> Unit,
-    onDragMove: () -> Unit,
+    onDragMove: () -> Unit = {},
     mergeTarget: Boolean = false,
     /** Where a folder's child slides out from when the folder opens. */
     appearFrom: IntOffset? = null,
@@ -641,6 +698,10 @@ private fun TileHost(
                         currentPlacement.y * cellPx,
                     )
                     state.dragId = id
+                    state.preview = null
+                    // Tiles are placed by grid position, which an open folder's region would shift; close it.
+                    if (onRemoveFromFolder == null) state.openFolderId = null
+                    var dropped = false
                     try {
                         val completed = drag(start.id) { change ->
                             state.dragTopLeft += change.positionChange()
@@ -648,12 +709,16 @@ private fun TileHost(
                             currentOnDragMove()
                         }
                         currentOnDrop(completed)
+                        dropped = true
                     } finally {
                         // Also when the tile leaves the screen mid-drag (e.g. its app is uninstalled):
                         // a stuck dragId would keep the auto-scroll loop running every frame.
                         if (state.dragId == id) {
                             state.dragId = null
+                            state.dragCell = null
                             state.mergeCandidateId = null
+                            // A finished drop keeps its preview until the stored layout catches up.
+                            if (!dropped) state.preview = null
                         }
                     }
                 }

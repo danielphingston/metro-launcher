@@ -12,11 +12,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TileFoldersTest {
-    private fun app(id: Long, size: TileSize = TileSize.MEDIUM) =
-        TileSpec(id, size, TileContent.App(AppKey("com.example.a$id", "Main", 0)))
+    private fun app(id: Long, size: TileSize = TileSize.MEDIUM, x: Int = TileSpec.UNPLACED, y: Int = TileSpec.UNPLACED) =
+        TileSpec(id, size, TileContent.App(AppKey("com.example.a$id", "Main", 0)), x, y)
 
-    private fun folder(id: Long, vararg children: TileSpec, size: TileSize = TileSize.MEDIUM, name: String = "folder") =
-        TileSpec(id, size, TileContent.Folder(name, children.toList()))
+    private fun folder(
+        id: Long, vararg children: TileSpec, size: TileSize = TileSize.MEDIUM, name: String = "folder",
+        x: Int = TileSpec.UNPLACED, y: Int = TileSpec.UNPLACED,
+    ) = TileSpec(id, size, TileContent.Folder(name, children.toList()), x, y)
 
     private fun TileSpec.children() = (content as TileContent.Folder).children.map { it.id }
 
@@ -128,5 +130,41 @@ class TileFoldersTest {
         assertEquals(listOf(4L, 2L, 3L), TileFolders.moveInFolder(list, 1, 4, 2).single().children())
         assertEquals(listOf(3L, 4L, 2L), TileFolders.moveInFolder(list, 1, 2, 4).single().children())
         assertEquals(list, TileFolders.moveInFolder(list, 1, 2, 99))
+    }
+
+    @Test
+    fun aNewFolderTakesTheTargetsGridPosition() {
+        val list = listOf(app(1, x = 0, y = 0), app(2, TileSize.WIDE, x = 0, y = 2), app(3, x = 0, y = 4))
+        val merged = TileFolders.merge(list, draggedId = 3, targetId = 2, newId = 5)!!
+        val created = merged.tiles.single { it.id == 5L }
+        assertEquals(0 to 2, created.x to created.y)
+        // The children have no position of their own, and the other tiles keep theirs.
+        val children = (created.content as TileContent.Folder).children
+        assertTrue(children.none { it.isPlaced })
+        assertEquals(0 to 0, merged.tiles.first().let { it.x to it.y })
+    }
+
+    @Test
+    fun droppingOntoAFolderKeepsItsPosition() {
+        val list = listOf(app(1, x = 0, y = 0), folder(2, app(3), app(4), x = 2, y = 0))
+        val merged = TileFolders.merge(list, draggedId = 1, targetId = 2, newId = 6)!!
+        assertEquals(2 to 0, merged.tiles.single().let { it.x to it.y })
+        assertTrue((merged.tiles.single().content as TileContent.Folder).children.none { it.isPlaced })
+    }
+
+    @Test
+    fun aDissolvedFolderLeavesItsLastChildInItsSpot() {
+        val list = listOf(app(1, x = 0, y = 0), folder(2, app(3), app(4), x = 2, y = 2))
+        val result = TileFolders.removeFromFolder(list, folderId = 2, childId = 3)
+        assertEquals(listOf(1L, 4L, 3L), result.map { it.id })
+        assertEquals(2 to 2, result[1].let { it.x to it.y })
+        // The child that was taken out is a new tile: unplaced, so it lands at the bottom.
+        assertFalse(result[2].isPlaced)
+        // Removing a child while others remain leaves the folder where it was.
+        val kept = TileFolders.removeFromFolder(listOf(folder(2, app(3), app(4), app(5), x = 2, y = 2)), 2, 3)
+        assertEquals(2 to 2, kept.first().let { it.x to it.y })
+        assertFalse(kept.last().isPlaced)
+        // Unpinning a child out of a two-child folder dissolves it the same way.
+        assertEquals(2 to 2, TileFolders.remove(list, 3)[1].let { it.x to it.y })
     }
 }
