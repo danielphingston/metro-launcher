@@ -1,11 +1,13 @@
 package io.github.danielphingston.metro
 
+import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSize.LARGE
 import io.github.danielphingston.metro.data.TileSize.MEDIUM
 import io.github.danielphingston.metro.data.TileSize.SMALL
 import io.github.danielphingston.metro.data.TileSize.WIDE
 import io.github.danielphingston.metro.ui.start.FolderLayout
 import io.github.danielphingston.metro.ui.start.Placement
+import io.github.danielphingston.metro.ui.start.TileGrid
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -13,9 +15,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FolderLayoutTest {
+    private fun packed(vararg sizes: TileSize, columns: Int = 4) = TileGrid.pack(sizes.toList(), columns)
+
     @Test
-    fun closedFolderLeavesThePlainPacking() {
-        val layout = FolderLayout.compute(listOf(MEDIUM, MEDIUM, WIDE), openIndex = null, childSizes = listOf(SMALL), columns = 4)
+    fun closedFolderLeavesTheTilesWhereTheyAre() {
+        val layout = FolderLayout.compute(packed(MEDIUM, MEDIUM, WIDE), openIndex = null, childSizes = listOf(SMALL), columns = 4)
         assertEquals(listOf(Placement(0, 0, 2, 2), Placement(2, 0, 2, 2), Placement(0, 2, 4, 2)), layout.tiles)
         assertNull(layout.region)
         assertEquals(4, layout.rows)
@@ -25,7 +29,7 @@ class FolderLayoutTest {
     fun childrenOpenUnderTheFolderRowsAndPushTheRestDown() {
         // Folder (0,0) and a medium beside it share rows 0-1; the wide below moves down by the region.
         val layout = FolderLayout.compute(
-            sizes = listOf(MEDIUM, MEDIUM, WIDE),
+            base = packed(MEDIUM, MEDIUM, WIDE),
             openIndex = 0,
             childSizes = listOf(MEDIUM, MEDIUM, WIDE),
             columns = 4,
@@ -43,7 +47,7 @@ class FolderLayoutTest {
     fun theRegionOpensBelowATallNeighbour() {
         // On six columns a large tile sits beside the folder down to row 4, so the region can't start at row 2.
         val layout = FolderLayout.compute(
-            sizes = listOf(MEDIUM, LARGE, MEDIUM),
+            base = packed(MEDIUM, LARGE, MEDIUM, columns = 6),
             openIndex = 0,
             childSizes = listOf(MEDIUM),
             columns = 6,
@@ -56,7 +60,7 @@ class FolderLayoutTest {
     fun smallClustersAreNotSplit() {
         // A small folder in a 2x2 cluster: the region starts after the whole cluster.
         val layout = FolderLayout.compute(
-            sizes = listOf(SMALL, SMALL, SMALL, SMALL, MEDIUM),
+            base = packed(SMALL, SMALL, SMALL, SMALL, MEDIUM),
             openIndex = 0,
             childSizes = listOf(SMALL, SMALL),
             columns = 4,
@@ -66,8 +70,17 @@ class FolderLayoutTest {
     }
 
     @Test
+    fun tilesKeepTheirGapsWhenAFolderOpens() {
+        // Positions come from the stored layout, not a repack: the empty cells beside the folder stay empty.
+        val base = listOf(Placement(0, 0, 2, 2), Placement(0, 2, 4, 2), Placement(0, 4, 2, 2))
+        val layout = FolderLayout.compute(base, openIndex = 0, childSizes = listOf(MEDIUM), columns = 4)
+        assertEquals(Placement(0, 2, 4, 2), layout.region)
+        assertEquals(listOf(Placement(0, 0, 2, 2), Placement(0, 4, 4, 2), Placement(0, 6, 2, 2)), layout.tiles)
+    }
+
+    @Test
     fun anOpenFolderWithoutChildrenStaysClosed() {
-        val layout = FolderLayout.compute(listOf(MEDIUM, MEDIUM), openIndex = 0, childSizes = emptyList(), columns = 4)
+        val layout = FolderLayout.compute(packed(MEDIUM, MEDIUM), openIndex = 0, childSizes = emptyList(), columns = 4)
         assertNull(layout.region)
     }
 

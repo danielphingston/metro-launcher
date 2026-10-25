@@ -17,7 +17,7 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.ui.theme.Metro
 
 /**
- * Where everything sits on the start screen. [tiles] are the top-level tiles in order. With a
+ * Where everything sits on the start screen. [tiles] are the top-level tiles in list order. With a
  * folder open, [children] are its children and [region] the cells they fill; the tiles below the
  * folder's rows are [tiles] shifted down by the region's height.
  */
@@ -30,13 +30,13 @@ class StartLayout(
 
 object FolderLayout {
     /**
-     * Packs [sizes] and, when the tile at [openIndex] is an open folder, opens a full-width
-     * region for its [childSizes] right under the rows it occupies. Tiles that start above the
+     * Takes the settled [base] placements (see [TilePlacement.layout]) and, when the tile at
+     * [openIndex] is an open folder, opens a full-width region for its [childSizes] right under
+     * the rows it occupies; the children are packed in list order. Tiles that start above the
      * end of those rows stay put; the cut is pushed down past any tile that straddles it and
      * kept on an even row so small-tile clusters aren't split.
      */
-    fun compute(sizes: List<TileSize>, openIndex: Int?, childSizes: List<TileSize>, columns: Int): StartLayout {
-        val base = TileGrid.pack(sizes, columns)
+    fun compute(base: List<Placement>, openIndex: Int?, childSizes: List<TileSize>, columns: Int): StartLayout {
         if (openIndex == null || openIndex !in base.indices || childSizes.isEmpty()) {
             return StartLayout(base, emptyList(), null, TileGrid.rows(base))
         }

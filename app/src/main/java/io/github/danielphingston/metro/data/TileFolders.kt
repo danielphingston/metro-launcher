@@ -18,14 +18,16 @@ internal object TileFolders {
     fun canMerge(dragged: TileSpec, target: TileSpec): Boolean =
         dragged.id != target.id && canHold(dragged) && (canHold(target) || target.content is TileContent.Folder)
 
-    /** Children are at most wide: a large tile would fill the whole open folder. */
+    /** Children are at most wide: a large tile would fill the whole open folder. They have no grid position. */
     private fun forFolder(spec: TileSpec): TileSpec =
-        if (spec.size == TileSize.LARGE) spec.copy(size = TileSize.WIDE) else spec
+        spec.copy(size = if (spec.size == TileSize.LARGE) TileSize.WIDE else spec.size, span = null).unplaced()
+
+    private fun TileSpec.unplaced() = copy(x = TileSpec.UNPLACED, y = TileSpec.UNPLACED)
 
     /**
      * Drops [draggedId] onto [targetId]. Onto a folder it is appended to the children; onto an
-     * app or shortcut both become a new folder with id [newId] at the target's position, as big
-     * as the target unless that is small. Null when the pair can't merge.
+     * app or shortcut both become a new folder with id [newId] at the target's grid position, as
+     * big as the target unless that is small. Null when the pair can't merge.
      */
     fun merge(list: List<TileSpec>, draggedId: Long, targetId: Long, newId: Long): FolderMerge? {
         val dragged = list.firstOrNull { it.id == draggedId } ?: return null
@@ -36,17 +38,20 @@ internal object TileFolders {
             is TileContent.Folder -> target.copy(content = content.copy(children = content.children + child))
             else -> {
                 val size = if (target.size == TileSize.SMALL) TileSize.MEDIUM else target.size
-                TileSpec(newId, size, TileContent.Folder(DEFAULT_NAME, listOf(forFolder(target), child)))
+                TileSpec(newId, size, TileContent.Folder(DEFAULT_NAME, listOf(forFolder(target), child)), target.x, target.y)
             }
         }
         val merged = list.filterNot { it.id == draggedId }.map { if (it.id == targetId) folder else it }
         return FolderMerge(merged, folder.id)
     }
 
-    /** What stays on the start screen in place of [folder] when it is left holding [children]. */
+    /**
+     * What stays on the start screen in place of [folder] when it is left holding [children]: a
+     * single child takes the folder's spot.
+     */
     private fun tidy(folder: TileSpec, children: List<TileSpec>): List<TileSpec> = when (children.size) {
         0 -> emptyList()
-        1 -> children
+        1 -> listOf(children.single().copy(x = folder.x, y = folder.y))
         else -> listOf(folder.copy(content = (folder.content as TileContent.Folder).copy(children = children)))
     }
 
@@ -56,13 +61,16 @@ internal object TileFolders {
         if (folder == null) listOf(spec) else tidy(spec, folder.children)
     }
 
-    /** Takes [childId] out of folder [folderId] and puts it on the start screen right after the folder. */
+    /**
+     * Takes [childId] out of folder [folderId] and puts it on the start screen as a new, unplaced
+     * tile right after the folder in the list.
+     */
     fun removeFromFolder(list: List<TileSpec>, folderId: Long, childId: Long): List<TileSpec> {
         val index = list.indexOfFirst { it.id == folderId }
         val folder = list.getOrNull(index)?.content as? TileContent.Folder ?: return list
         val child = folder.children.firstOrNull { it.id == childId } ?: return list
         val rest = folder.children.filterNot { it.id == childId }
-        return list.take(index) + tidy(list[index], rest) + child + list.drop(index + 1)
+        return list.take(index) + tidy(list[index], rest) + child.unplaced() + list.drop(index + 1)
     }
 
     /** Removes the tile [id] wherever it is, including from inside a folder. */
@@ -78,7 +86,7 @@ internal object TileFolders {
         if (spec.id == id && folder != null) spec.copy(content = folder.copy(name = name.trim())) else spec
     }
 
-    /** Moves child [id] into the slot of [targetId] inside folder [folderId], like a top-level move. */
+    /** Moves child [id] into the slot of [targetId] inside folder [folderId]; the other children shift by one. */
     fun moveInFolder(list: List<TileSpec>, folderId: Long, id: Long, targetId: Long): List<TileSpec> =
         list.map { spec ->
             val folder = spec.content as? TileContent.Folder

@@ -14,12 +14,14 @@ data class Placement(val x: Int, val y: Int, val width: Int, val height: Int) {
             abs(cellY - (y + height / 2f)) <= height * fraction / 2
 }
 
+/** First-fit packing of an ordered list; the start screen itself is laid out by [TilePlacement]. */
 object TileGrid {
     /**
      * Places tiles in order at the first free spot. Tiles of 2+ cells snap to even columns and
      * rows; small tiles fill 2x2 blocks (left-right, then top-bottom) the way they did on
      * Windows Phone, so four small tiles take the space of one medium tile. Later tiles may
-     * fill gaps left by earlier ones.
+     * fill gaps left by earlier ones. It gives positions to layouts saved without them
+     * ([TilePlacement.migrate]) and lays out the children of an open folder.
      */
     fun pack(sizes: List<TileSize>, columns: Int): List<Placement> {
         val occupied = ArrayList<BooleanArray>()

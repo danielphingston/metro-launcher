@@ -73,7 +73,7 @@ import io.github.danielphingston.metro.ui.start.FolderLayout
 import io.github.danielphingston.metro.ui.start.FolderRegion
 import io.github.danielphingston.metro.ui.start.LiveContent
 import io.github.danielphingston.metro.ui.start.TileFace
-import io.github.danielphingston.metro.ui.start.TileGrid
+import io.github.danielphingston.metro.ui.start.TilePlacement
 import io.github.danielphingston.metro.ui.start.TurnstilePhase
 import io.github.danielphingston.metro.ui.start.TurnstileState
 import io.github.danielphingston.metro.ui.start.turnstile
@@ -315,7 +315,10 @@ class StartScreenshotTest {
                 BoxWithConstraints(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 52.dp)) {
                     val gap = 4.dp
                     val cell = (maxWidth + gap) / columns
-                    val placements = TileGrid.pack(samples.map { it.size }, columns)
+                    // New tiles are appended in order, which is what pinning them one after another does.
+                    val placements = TilePlacement.layout(
+                        samples.mapIndexed { i, sample -> TileSpec(i + 1L, sample.size, TileContent.Weather) }, columns,
+                    )
                     samples.zip(placements).forEachIndexed { index, (sample, p) ->
                         val deemphasised = editing && index != 1
                         Box(
@@ -370,7 +373,7 @@ class StartScreenshotTest {
         warmIcons(icons, tiles + tiles.flatMap { it.children })
         val open = tiles.firstOrNull { it.spec.id == openFolder }
         val layout = FolderLayout.compute(
-            tiles.map { it.spec.size }, tiles.indexOfFirst { it === open }.takeIf { it >= 0 },
+            TilePlacement.layout(tiles.map { it.spec }, columns), tiles.indexOfFirst { it === open }.takeIf { it >= 0 },
             open?.children.orEmpty().map { it.spec.size }, columns,
         )
         val backdrop = StartBackdrop.Solid
