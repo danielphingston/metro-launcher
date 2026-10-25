@@ -226,7 +226,7 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
                 WebSearch.open(context, row.url, screenBounds, options)
             }
             is SearchRow.Web -> launcher.open(bounds) { screenBounds, options ->
-                WebSearch.open(context, row.url, screenBounds, options)
+                WebSearch.open(context, row.url, screenBounds, options, inBrowser = true)
             }
             is SearchRow.Caption -> Unit
         }
