@@ -49,6 +49,20 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # A manual release must name a new version: if the tag or a release for it already exists,
+      # stop rather than adding files to that release while its tag points at other code.
+      - name: Refuse to reuse an existing release tag
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --silent 2>/dev/null ||
+             gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --silent 2>/dev/null; then
+            echo "::error::$RELEASE_TAG already exists. Pick a new version, or delete that tag and release first."
+            exit 1
+          fi
+
       - name: Version from tag
         id: version
         env:

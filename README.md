@@ -92,7 +92,7 @@ To refresh `docs/`, run the tests and copy the PNGs you want from `app/build/out
 
 `.github/workflows/build.yml` runs tests, lint, a release APK and AAB on pushes to `master`, pull requests, `v*` tags and manual runs (changes that only touch docs are skipped), and uploads them with the lint and screenshot reports as workflow artifacts. The version name is `0.2.0-dev.<run>` on branches and the tag without its `v` on tags; the version code is the run number.
 
-Pushing a `v*` tag (for example `git tag v0.3.0 && git push origin v0.3.0`) also publishes a GitHub release with `metro-launcher-<version>.apk` and `.aab` and generated notes. You can also publish from the Actions tab: run **Build** manually with a `release_tag` such as `v0.3.0`, and the workflow creates the tag on the built commit.
+Pushing a `v*` tag (for example `git tag v0.3.0 && git push origin v0.3.0`) also publishes a GitHub release with `metro-launcher-<version>.apk` and `.aab` and generated notes. You can also publish from the Actions tab: run **Build** manually with a `release_tag` such as `v0.3.0`, and the workflow creates the tag on the built commit. A manual release stops early if that tag or release already exists, so pick a new version each time. It also skips tests and lint when a push build of the same commit already passed them.
 
 Signing is optional. Add the repository secrets `KEYSTORE_BASE64` (base64 of the `.jks`), `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD` to sign with your own key. Without them the release is signed with the debug key and marked as a prerelease: installable for testing, not accepted by Google Play.
 
