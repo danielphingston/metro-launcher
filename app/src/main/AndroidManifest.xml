@@ -65,6 +65,10 @@
         <intent>
             <action android:name="com.anddoes.launcher.THEME" />
         </intent>
+        <!-- Apps that provide widgets, so the widget picker can see and label them. -->
+        <intent>
+            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent>
     </queries>
 
     <application

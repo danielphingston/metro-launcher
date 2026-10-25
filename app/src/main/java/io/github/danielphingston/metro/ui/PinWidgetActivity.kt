@@ -46,7 +46,7 @@ class PinWidgetActivity : ComponentActivity() {
         val label = info.loadLabel(packageManager)?.toString()?.trim().orEmpty()
             .ifEmpty { info.provider.packageName }
 
-        fun add() {
+        fun add(columns: Int) {
             val host = WidgetTiles.host(this)
             val id = host.allocateAppWidgetId()
             val accepted = try {
@@ -55,11 +55,11 @@ class PinWidgetActivity : ComponentActivity() {
                 false
             }
             if (accepted) {
-                val (cols, rows) = WidgetTiles.cellsOf(this, info)
+                val cell = WidgetTiles.cellDp(resources.configuration.screenWidthDp, columns)
                 val serial = getSystemService(UserManager::class.java).getSerialNumberForUser(info.profile)
                 metro.tiles.add(
                     TileContent.Widget(id, info.provider.flattenToString(), serial),
-                    WidgetTiles.suggestedSize(cols, rows),
+                    WidgetTiles.suggestedSize(WidgetTiles.dimsOf(this, info), cell),
                 )
                 setResult(Activity.RESULT_OK)
             } else {
@@ -87,7 +87,7 @@ class PinWidgetActivity : ComponentActivity() {
                         MetroText("add to start?", MetroType.sectionTitle)
                         MetroText(label, MetroType.body, color = Metro.colors.subtle, maxLines = 2)
                         Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            MetroButton("add", onClick = ::add, modifier = Modifier.weight(1f))
+                            MetroButton("add", onClick = { add(settings.columns) }, modifier = Modifier.weight(1f))
                             MetroButton("cancel", onClick = { finish() }, modifier = Modifier.weight(1f))
                         }
                     }

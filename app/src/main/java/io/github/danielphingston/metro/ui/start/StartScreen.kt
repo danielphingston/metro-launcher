@@ -96,8 +96,10 @@ import io.github.danielphingston.metro.ui.tiles.ShortcutTile
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
 import io.github.danielphingston.metro.ui.tiles.WeatherTile
 import io.github.danielphingston.metro.ui.tiles.WeatherTiles
+import io.github.danielphingston.metro.ui.tiles.WidgetEditBadges
 import io.github.danielphingston.metro.ui.tiles.WidgetPicker
 import io.github.danielphingston.metro.ui.tiles.WidgetTile
+import io.github.danielphingston.metro.ui.tiles.widgetCustomActions
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.ClockSource
 import io.github.danielphingston.metro.live.ClockState
@@ -471,6 +473,7 @@ fun StartScreen(
                         },
                         onResize = { viewModel.resize(tiles[selectedIndex].spec.id) },
                     )
+                    WidgetEditBadges(tiles[selectedIndex], placements[selectedIndex], cellPx, gapPx)
                 } else if (state.editing && state.dragId == null && selectedChild >= 0) {
                     EditBadges(
                         placement = layout.children[selectedChild],
@@ -544,6 +547,9 @@ private fun TileHost(
 ) {
     val id = tile.spec.id
     val folder = tile.spec.content as? TileContent.Folder
+    // A hosted widget does its own touch handling and accessibility, and is never flipped or tilted.
+    val isWidget = tile.spec.content is TileContent.Widget
+    val widgetActions = widgetCustomActions(tile)
     val target = IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt())
     val position = remember { Animatable(appearFrom ?: target, IntOffset.VectorConverter) }
     val dragging = state.dragId == id
@@ -600,12 +606,12 @@ private fun TileHost(
             }
             .onGloballyPositioned { bounds = it.boundsInRoot() }
             .turnstile(LocalTurnstile.current, id) { bounds }
-            .semantics(mergeDescendants = true) {
+            .semantics(mergeDescendants = !isWidget) {
                 contentDescription = buildString {
                     if (folder != null) append("${tile.label}, folder, ${tile.children.size} items") else append(tile.label)
                     (live as? LiveContent.Notifications)?.let { append(", ${it.data.count} new") }
                 }
-                onClick {
+                if (!isWidget) onClick {
                     // Assistive launches skip the tap handler that normally ends edit mode.
                     state.exitEdit()
                     onLaunch(bounds)
@@ -622,6 +628,7 @@ private fun TileHost(
                     onRemoveFromFolder?.let { add(CustomAccessibilityAction("Remove from folder") { it(); true }) }
                     add(CustomAccessibilityAction("Unpin from start") { viewModel.unpin(id); true })
                     if (onRemoveFromFolder == null) add(CustomAccessibilityAction("Resize") { viewModel.resize(id); true })
+                    addAll(widgetActions)
                 }
             }
             .pointerInput(id) {
@@ -672,7 +679,7 @@ private fun TileHost(
                     }
                 }
             }
-            .metroTilt(enabled = !state.editing),
+            .metroTilt(enabled = !state.editing && !isWidget),
     ) {
         TileBody(
             tile, live, flipped, monochromeIcons, viewModel.icons, cell, folderOpen,
@@ -715,11 +722,11 @@ internal fun EditBadges(placement: Placement, cellPx: Float, gapPx: Float, onUnp
     }
 }
 
-private val EditBadgeSize = 30.dp
+internal val EditBadgeSize = 30.dp
 
 /** A filled circle with a thin ring in the page colour, so it stands out from any tile; [glyph] draws on it. */
 @Composable
-private fun EditBadge(
+internal fun EditBadge(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,

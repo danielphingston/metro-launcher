@@ -39,8 +39,16 @@ sealed interface TileContent {
     data class Shortcut(val packageName: String, val shortcutId: String, val userSerial: Long, val label: String) :
         TileContent
 
-    /** A hosted Android app widget. [provider] is a flattened ComponentName. */
-    data class Widget(val appWidgetId: Int, val provider: String, val userSerial: Long) : TileContent
+    /**
+     * A hosted Android app widget. [provider] is a flattened ComponentName. A [transparent] widget
+     * has no tile background, so its own (often rounded) design shows; else it sits on the accent tile.
+     */
+    data class Widget(
+        val appWidgetId: Int,
+        val provider: String,
+        val userSerial: Long,
+        val transparent: Boolean = false,
+    ) : TileContent
 
     data object Weather : TileContent
     data object Photos : TileContent
@@ -205,7 +213,7 @@ internal object TileJson {
             is TileContent.Shortcut -> obj.put("type", "shortcut").put("package", c.packageName)
                 .put("shortcut", c.shortcutId).put("serial", c.userSerial).put("label", c.label)
             is TileContent.Widget -> obj.put("type", "widget").put("widgetId", c.appWidgetId)
-                .put("provider", c.provider).put("serial", c.userSerial)
+                .put("provider", c.provider).put("serial", c.userSerial).apply { if (c.transparent) put("transparent", true) }
             TileContent.Weather -> obj.put("type", "weather")
             TileContent.Photos -> obj.put("type", "photos")
             TileContent.People -> obj.put("type", "people")
@@ -225,7 +233,9 @@ internal object TileJson {
             "shortcut" -> TileContent.Shortcut(
                 obj.getString("package"), obj.getString("shortcut"), obj.getLong("serial"), obj.optString("label"),
             )
-            "widget" -> TileContent.Widget(obj.getInt("widgetId"), obj.getString("provider"), obj.getLong("serial"))
+            "widget" -> TileContent.Widget(
+                obj.getInt("widgetId"), obj.getString("provider"), obj.getLong("serial"), obj.optBoolean("transparent"),
+            )
             "weather" -> TileContent.Weather
             "photos" -> TileContent.Photos
             "people" -> TileContent.People

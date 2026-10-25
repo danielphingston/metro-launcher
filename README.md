@@ -25,7 +25,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Weather tile: current conditions, flipping to high/low and the next days. Location by city search or approximate device location.
 - Photos tile (slideshow of photos you pick) and People tile (mosaic of contact photos).
 - Shortcut tiles: apps' pinned shortcuts, from the app list menu or an app's own "pin shortcut" request.
-- Widget tiles: Android app widgets hosted inside a tile, from the "widgets" picker or an app's pin request.
+- Widget tiles: Android app widgets hosted inside a tile, from the "widgets" picker (with search) or an app's pin request. Taps, buttons and scrolling lists work in place. In edit mode a widget tile gets a settings badge (when the widget has settings) and a badge that shows it on the accent tile or without a tile background.
 - Live tiles flip one at a time, only while visible.
 
 **Folders**
@@ -111,6 +111,6 @@ Signing is optional. Add the repository secrets `KEYSTORE_BASE64` (base64 of the
 - **Not tested on a real device yet.** Everything was built and checked with JVM unit tests and Robolectric screenshots only. Gesture handling (especially widgets inside tiles, which take touches from Compose), the wallpaper background, turnstile timing and widget binding need device testing.
 - Wallpaper mode sets the status bar icons from the wallpaper's own brightness hint; text on the page itself still follows the theme, so on a very bright or dark wallpaper some text can be hard to read. Android does not let apps read the wallpaper image, so the accent can't be taken from it.
 - Only app and shortcut tiles can go into folders (not widgets, weather, photos or people), and folder children are at most wide.
-- Widgets keep receiving updates while the app list is showing, and a widget that handles long-press itself needs a second touch before it can be dragged.
+- Widgets keep receiving updates while the app list is showing. A long-press on a widget that takes every touch (rare) enters edit mode, but the tile is then dragged with a second touch.
 - Portrait only. Notification access can be dropped by aggressive battery savers; set battery usage to "Unrestricted" if tiles stop updating.
 - Weather needs a network and a manual place or location permission; there is no forecast for places Open-Meteo can't find.

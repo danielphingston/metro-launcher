@@ -15,6 +15,10 @@ import io.github.danielphingston.metro.ui.tiles.WidgetTiles
  * [android.appwidget.AppWidgetHost.startAppWidgetConfigureActivityForResult], and its result
  * arrives as a legacy request code. This activity receives it and passes it on as an ordinary
  * activity result, so Compose's result launcher can use it.
+ *
+ * It also reopens the settings of a widget that is already on the start screen
+ * ([EXTRA_RECONFIGURE]). Nothing here frees the widget id, so cancelling keeps the widget; only
+ * the picker deletes the id of a widget that was never added.
  */
 class WidgetConfigActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,6 +59,9 @@ class WidgetConfigActivity : Activity() {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQUEST_CONFIGURE) return
+        if (resultCode == RESULT_OK && intent.getBooleanExtra(EXTRA_RECONFIGURE, false)) {
+            WidgetTiles.refresh(this, intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID))
+        }
         setResult(resultCode, data)
         finish()
     }
@@ -64,7 +71,10 @@ class WidgetConfigActivity : Activity() {
         finish()
     }
 
-    private companion object {
-        const val REQUEST_CONFIGURE = 1
+    companion object {
+        /** Set when a placed widget is being configured again: a result then refreshes it, a cancel keeps it. */
+        const val EXTRA_RECONFIGURE = "io.github.danielphingston.metro.RECONFIGURE"
+
+        private const val REQUEST_CONFIGURE = 1
     }
 }
