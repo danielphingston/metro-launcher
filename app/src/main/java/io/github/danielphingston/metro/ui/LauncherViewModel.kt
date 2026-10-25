@@ -19,6 +19,7 @@ import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import io.github.danielphingston.metro.live.AppNotifications
@@ -162,8 +163,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun pin(app: AppInfo) = addTile(TileContent.App(app.key), TileSize.MEDIUM)
 
     /** Pins any kind of tile and scrolls the start screen to it. */
-    fun addTile(content: TileContent, size: TileSize) {
-        metro.tiles.add(content, size)
+    fun addTile(content: TileContent, size: TileSize, span: TileSpan? = null) {
+        metro.tiles.add(content, size, span)
         _pinned.tryEmit(Unit)
     }
 
