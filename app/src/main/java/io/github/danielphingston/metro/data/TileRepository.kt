@@ -148,15 +148,15 @@ class TileRepository(private val context: Context, scope: CoroutineScope, privat
 
     fun pin(app: AppKey, size: TileSize = TileSize.MEDIUM) = add(TileContent.App(app), size)
 
-    /** Pins a tile at the bottom of the start screen unless an identical one (same app or shortcut) is already pinned. */
-    fun add(content: TileContent, size: TileSize): Long? {
+    /** Pins a tile at the bottom of the start screen unless an identical one (same app or shortcut) is already pinned. A [span] replaces the footprint of [size]. */
+    fun add(content: TileContent, size: TileSize, span: TileSpan? = null): Long? {
         var newId: Long? = null
         _tiles.update { current ->
             val list = current.orEmpty()
             if (content !is TileContent.Widget && list.flatten().any { it.content == content }) return@update list
             val id = nextId(list)
             newId = id
-            TilePlacement.settle(list + TileSpec(id, size, content), columnCount)
+            TilePlacement.settle(list + TileSpec(id, size, content, span = span), columnCount)
         }
         return newId
     }

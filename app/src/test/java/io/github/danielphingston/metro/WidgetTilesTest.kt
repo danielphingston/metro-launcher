@@ -54,47 +54,119 @@ class WidgetTilesTest {
         assertEquals(listOf(SizeF(363.6f, 188.2f)), sizes)
     }
 
+    private fun span(d: WidgetDims, columns: Int = 4) =
+        WidgetTiles.suggestedSpan(d, WidgetTiles.cellDp(411, columns), columns)
+
     @Test
-    fun smallWidgetsGetSmallTilesAndBigOnesGetBigTiles() {
-        // Typical declared sizes: 1x1 toggle, 2x2, 4x2, 4x4 and a tall 2x4.
-        assertEquals(TileSize.SMALL, WidgetTiles.suggestedSize(dims(40f, 40f, cols = 1, rows = 1), cell))
-        assertEquals(TileSize.MEDIUM, WidgetTiles.suggestedSize(dims(110f, 110f), cell))
-        assertEquals(TileSize.WIDE, WidgetTiles.suggestedSize(dims(250f, 110f), cell))
-        assertEquals(TileSize.LARGE, WidgetTiles.suggestedSize(dims(250f, 250f), cell))
-        assertEquals(TileSize.LARGE, WidgetTiles.suggestedSize(dims(110f, 250f), cell))
-        assertEquals(TileSize.LARGE, WidgetTiles.suggestedSize(dims(900f, 900f), cell))
+    fun withoutTargetCellsTheSmallestSpanThatHoldsTheMinimumIsUsed() {
+        // Cells are 99.75dp at four columns: one cell holds 95.75dp, two 195.5dp, three 295.25dp.
+        assertEquals(TileSpan(1, 1), span(dims(40f, 40f)))
+        assertEquals(TileSpan(2, 2), span(dims(110f, 110f)))
+        assertEquals(TileSpan(3, 2), span(dims(250f, 110f)))
+        assertEquals(TileSpan(4, 8), span(dims(900f, 900f)))
+        // Exactly a whole number of cells does not round up to the next one.
+        assertEquals(TileSpan(2, 1), span(dims(195.5f, 40f)))
+        // Six columns have smaller cells (66.5dp).
+        assertEquals(TileSpan(2, 2), span(dims(110f, 110f), columns = 6))
+        assertEquals(TileSpan(3, 2), span(dims(150f, 110f), columns = 6))
     }
 
     @Test
-    fun targetCellsWinOverTheMinimumSize() {
-        // Declares 2x2 cells but only a tiny minimum size.
-        assertEquals(TileSize.MEDIUM, WidgetTiles.suggestedSize(dims(40f, 40f, cols = 2, rows = 2), cell))
-        // 4 columns by 2 rows.
-        assertEquals(TileSize.WIDE, WidgetTiles.suggestedSize(dims(40f, 40f, cols = 4, rows = 2), cell))
+    fun spansAreExactNotJustTheFourTileSizes() {
+        assertEquals(TileSpan(1, 2), span(dims(60f, 150f)))
+        assertEquals(TileSpan(2, 1), span(dims(150f, 60f)))
+        assertEquals(TileSpan(1, 2), span(dims(40f, 40f, cols = 1, rows = 2)))
+        assertEquals(TileSpan(3, 2), span(dims(40f, 40f, cols = 3, rows = 2)))
     }
 
     @Test
-    fun theTileNeverDropsBelowTheSizeTheWidgetCanShrinkTo() {
-        // Small enough by default, but it can't be resized below 150dp wide.
-        assertEquals(TileSize.SMALL, WidgetTiles.suggestedSize(dims(60f, 60f), cell))
-        assertEquals(TileSize.MEDIUM, WidgetTiles.suggestedSize(dims(60f, 60f, resizeW = 150f, resizeH = 60f), cell))
-        assertEquals(TileSize.WIDE, WidgetTiles.suggestedSize(dims(60f, 60f, resizeW = 300f, resizeH = 60f), cell))
+    fun aOneByOneSamsungWidgetStaysOneByOneAtSixColumns() {
+        // The cell is 66.5dp; the widget declares one cell but a minimum of 80dp, within the tolerance.
+        val battery = dims(80f, 80f, resizeW = 40f, resizeH = 40f, cols = 1, rows = 1)
+        assertEquals(TileSpan(1, 1), span(battery, columns = 6))
+        assertEquals(TileSpan(1, 1), span(battery, columns = 4))
+        // Without declared target cells the same minimum needs two cells.
+        assertEquals(TileSpan(2, 2), span(dims(80f, 80f), columns = 6))
     }
 
     @Test
-    fun sixColumnsMakeSmallerTiles() {
-        val narrow = WidgetTiles.cellDp(411, 6)
-        // A 2x2 widget no longer fits a medium tile (about 128dp) of the six column grid.
-        assertEquals(TileSize.MEDIUM, WidgetTiles.suggestedSize(dims(110f, 110f), narrow))
-        assertEquals(TileSize.WIDE, WidgetTiles.suggestedSize(dims(150f, 110f), narrow))
+    fun aOneWideTwoTallWidgetGetsOneByTwo() {
+        val tall = dims(60f, 150f, cols = 1, rows = 2)
+        assertEquals(TileSpan(1, 2), span(tall, columns = 6))
+        assertEquals(TileSpan(1, 2), span(tall, columns = 4))
+    }
+
+    @Test
+    fun targetCellsAreHonouredUntilTheMinimumIsTooFarOver() {
+        // 66.5dp cells: one cell tolerates 83.125dp.
+        val six = 6
+        assertEquals(TileSpan(1, 1), span(dims(83f, 83f, cols = 1, rows = 1), six))
+        assertEquals(TileSpan(2, 2), span(dims(84f, 84f, cols = 1, rows = 1), six))
+        // The axes are decided on their own.
+        assertEquals(TileSpan(1, 2), span(dims(83f, 84f, cols = 1, rows = 1), six))
+        // Two cells tolerate 166.25dp.
+        assertEquals(TileSpan(2, 2), span(dims(166f, 166f, cols = 2, rows = 2), six))
+        assertEquals(TileSpan(3, 3), span(dims(167f, 167f, cols = 2, rows = 2), six))
+        // The size it can shrink to also counts when it is the bigger one.
+        assertEquals(TileSpan(3, 1), span(dims(40f, 40f, resizeW = 190f, cols = 1, rows = 1), six))
+        // A target larger than the minimum needs is used as declared.
+        assertEquals(TileSpan(4, 2), span(dims(40f, 40f, cols = 4, rows = 2)))
+    }
+
+    @Test
+    fun theSpanIsKeptWithinTheGrid() {
+        assertEquals(TileSpan(4, 8), span(dims(40f, 40f, cols = 6, rows = 12)))
+        assertEquals(TileSpan(4, 8), span(dims(2000f, 5000f)))
+    }
+
+    @Test
+    fun theClosestTileSizeFollowsTheSpan() {
+        assertEquals(TileSize.SMALL, WidgetTiles.nearestSize(TileSpan(1, 1)))
+        assertEquals(TileSize.MEDIUM, WidgetTiles.nearestSize(TileSpan(2, 2)))
+        assertEquals(TileSize.WIDE, WidgetTiles.nearestSize(TileSpan(4, 2)))
+        assertEquals(TileSize.WIDE, WidgetTiles.nearestSize(TileSpan(3, 2)))
+        assertEquals(TileSize.LARGE, WidgetTiles.nearestSize(TileSpan(4, 8)))
+        assertEquals(TileSize.MEDIUM, WidgetTiles.nearestSize(TileSpan(2, 3)))
+    }
+
+    @Test
+    fun theHandleCanReachTheStartingSpan() {
+        val samples = listOf(
+            dims(80f, 80f, resizeW = 40f, resizeH = 40f, cols = 1, rows = 1),
+            dims(80f, 80f, cols = 1, rows = 1),
+            dims(84f, 84f, cols = 1, rows = 1),
+            dims(60f, 150f, cols = 1, rows = 2),
+            dims(250f, 110f),
+            dims(250f, 110f, resizeW = 150f, resizeH = 60f),
+            dims(40f, 40f, resizeW = 200f, cols = 1, rows = 1),
+            dims(900f, 900f),
+        )
+        for (columns in listOf(4, 6)) for (d in samples) {
+            val start = span(d, columns)
+            val l = limits(d, columns, start.width, start.height)
+            assertTrue("$d at $columns: $l vs $start", l.minWidth <= start.width && l.minHeight <= start.height)
+            assertTrue("$d at $columns: $l vs $start", l.maxWidth >= start.width && l.maxHeight >= start.height)
+        }
+    }
+
+    @Test
+    fun theHandleMinimumUsesTheSameToleranceAsTheStart() {
+        // 66.5dp cells: the 80dp minimum fits one cell with tolerance, so the handle goes down to 1x1.
+        val d = dims(80f, 80f, cols = 1, rows = 1)
+        assertEquals(SpanLimits(1, 6, 1, 8), limits(d, columns = 6, width = 1, height = 1))
+        // Without target cells it still starts at 2x2, but can be dragged down to the tolerant minimum.
+        val plain = dims(80f, 80f)
+        assertEquals(TileSpan(2, 2), span(plain, columns = 6))
+        assertEquals(SpanLimits(1, 6, 1, 8), limits(plain, columns = 6))
     }
 
     @Test
     fun theSmallestSpanIsTheSizeTheWidgetCanShrinkTo() {
         // Cells are 99.75dp: one cell holds 95.75dp, two 195.5dp, three 295.25dp.
         assertEquals(SpanLimits(2, 4, 1, 8), limits(dims(250f, 110f, resizeW = 150f, resizeH = 60f)))
-        // Without a resize minimum the minimum size counts.
-        assertEquals(SpanLimits(3, 4, 2, 8), limits(dims(250f, 110f)))
+        // Without a resize minimum the minimum size counts, with a quarter of slack: two cells are 199.5dp, 249.4dp with it.
+        assertEquals(SpanLimits(3, 4, 1, 8), limits(dims(255f, 110f)))
+        assertEquals(SpanLimits(2, 4, 1, 8), limits(dims(249f, 110f)))
         // Exactly a whole number of cells does not round up to the next one.
         assertEquals(SpanLimits(2, 4, 1, 8), limits(dims(10f, 10f, resizeW = 195.5f)))
         // Never below one cell.
@@ -110,7 +182,7 @@ class WidgetTilesTest {
         // A maximum above the grid is capped by it.
         assertEquals(SpanLimits(1, 4, 1, 8), limits(dims(40f, 40f, maxW = 2000f, maxH = 5000f)))
         // A maximum below the minimum can't shrink the range to nothing.
-        assertEquals(SpanLimits(3, 3, 1, 8), limits(dims(250f, 40f, maxW = 100f)))
+        assertEquals(SpanLimits(3, 3, 1, 8), limits(dims(255f, 40f, maxW = 100f)))
         // On six narrower columns (about 66dp) 300dp is four cells.
         assertEquals(SpanLimits(1, 4, 1, 8), limits(dims(40f, 40f, maxW = 300f), columns = 6))
     }
@@ -147,14 +219,6 @@ class WidgetTilesTest {
         assertEquals(TileSpan(1, 1), WidgetTiles.dragSpan(2, 2, -9f, -9f, l))
         assertEquals(TileSpan(2, 2), WidgetTiles.dragSpan(2, 2, 9f, 9f, SpanLimits(2, 2, 2, 2)))
         assertEquals(TileSpan(3, 3), WidgetTiles.dragSpan(2, 2, -9f, -9f, SpanLimits(3, 4, 3, 4)))
-    }
-
-    @Test
-    fun cellsAreEstimatedFromTheMinimumWhenNoTargetIsDeclared() {
-        assertEquals(1, dims(40f, 40f).cols)
-        assertEquals(2, dims(110f, 180f).cols)
-        assertEquals(3, dims(110f, 180f).rows)
-        assertEquals(4, dims(40f, 40f, cols = 4, rows = 1).cols)
     }
 
     @Test

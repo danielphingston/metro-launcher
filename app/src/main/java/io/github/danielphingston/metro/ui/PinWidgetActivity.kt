@@ -57,9 +57,11 @@ class PinWidgetActivity : ComponentActivity() {
             if (accepted) {
                 val cell = WidgetTiles.cellDp(resources.configuration.screenWidthDp, columns)
                 val serial = getSystemService(UserManager::class.java).getSerialNumberForUser(info.profile)
+                val span = WidgetTiles.suggestedSpan(WidgetTiles.dimsOf(this, info), cell, columns)
                 metro.tiles.add(
                     TileContent.Widget(id, info.provider.flattenToString(), serial),
-                    WidgetTiles.suggestedSize(WidgetTiles.dimsOf(this, info), cell),
+                    WidgetTiles.nearestSize(span),
+                    span,
                 )
                 setResult(Activity.RESULT_OK)
             } else {

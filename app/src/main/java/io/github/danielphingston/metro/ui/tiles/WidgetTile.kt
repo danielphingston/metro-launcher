@@ -60,13 +60,14 @@ import io.github.danielphingston.metro.ui.start.EditBadgeSize
 import io.github.danielphingston.metro.ui.start.Placement
 import io.github.danielphingston.metro.ui.start.StartState
 import io.github.danielphingston.metro.ui.theme.tileSurface
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** What a provider declares about its size, in dp. Target cells are 0 when the provider gives none. */
+/** What a provider declares about its size, in dp. Target cells (in its own launcher's grid) are 0 when it gives none. */
 internal data class WidgetDims(
     val minWidth: Float,
     val minHeight: Float,
@@ -79,11 +80,7 @@ internal data class WidgetDims(
     val maxResizeHeight: Float = 0f,
     /** Which axes the widget can be resized along: [AppWidgetProviderInfo.RESIZE_HORIZONTAL] and/or [AppWidgetProviderInfo.RESIZE_VERTICAL]. */
     val resizeMode: Int = AppWidgetProviderInfo.RESIZE_BOTH,
-) {
-    /** The size in launcher cells: the declared target, else estimated from the minimum size. */
-    val cols: Int get() = targetCols.takeIf { it > 0 } ?: WidgetTiles.estimateCells(minWidth)
-    val rows: Int get() = targetRows.takeIf { it > 0 } ?: WidgetTiles.estimateCells(minHeight)
-}
+)
 
 /**
  * The cell sizes a widget tile can be resized to, both ends inclusive. An axis the widget can't
@@ -167,39 +164,49 @@ object WidgetTiles {
         )
     }
 
-    /** The classic launcher estimate: a cell is about 70dp, less 30dp of padding around the widget. */
-    internal fun estimateCells(dp: Float): Int = ((dp + 30) / 70).toInt().coerceAtLeast(1)
-
-    private fun cellsToDp(cells: Int): Float = 70f * cells - 30f
-
     /** The width of a start screen cell in dp: the screen less its side padding, split into [columns]. */
     internal fun cellDp(screenWidthDp: Int, columns: Int): Float = (screenWidthDp - 12f) / columns
 
     /**
-     * The smallest tile that holds the widget at its preferred size and never below the size it
-     * can be shrunk to. The preferred size is the declared target cells, else the minimum size.
-     * Tiles are [cell] dp wide with a 4dp gap.
+     * The footprint a new tile for the widget starts at, in cells of a grid of [columns] columns
+     * and [cell] dp (a tile is [cell] per cell less a 4dp gap). It never goes below the widget's
+     * minimum size, but a provider that declares target cells gets that many of our cells on each
+     * axis when its minimum is at most [TARGET_TOLERANCE] times that footprint: stock launchers
+     * give such widgets one of their cells, which can be a little smaller than ours, and they
+     * scale down fine. Else it is the smallest number of cells that holds the minimum.
      */
-    internal fun suggestedSize(dims: WidgetDims, cell: Float): TileSize {
-        val wantWidth = max(dims.targetCols.takeIf { it > 0 }?.let(::cellsToDp) ?: dims.minWidth, dims.minResizeWidth)
-        val wantHeight = max(dims.targetRows.takeIf { it > 0 }?.let(::cellsToDp) ?: dims.minHeight, dims.minResizeHeight)
-        return TileSize.entries.firstOrNull { size ->
-            cell * size.width - TILE_GAP >= wantWidth && cell * size.height - TILE_GAP >= wantHeight
-        } ?: TileSize.LARGE
+    internal fun suggestedSpan(dims: WidgetDims, cell: Float, columns: Int): TileSpan {
+        fun axis(minDp: Float, target: Int, limit: Int): Int {
+            val cells = if (target > 0 && minDp <= target * cell * TARGET_TOLERANCE) target else cellsToHold(minDp, cell)
+            return cells.coerceIn(1, limit)
+        }
+        return TileSpan(
+            axis(max(dims.minWidth, dims.minResizeWidth), dims.targetCols, columns),
+            axis(max(dims.minHeight, dims.minResizeHeight), dims.targetRows, TileSpan.MAX_HEIGHT),
+        )
     }
+
+    /** The [TileSize] closest to [span], for what still reads the size of a tile. */
+    internal fun nearestSize(span: TileSpan): TileSize =
+        TileSize.entries.minWith(
+            compareBy<TileSize>({ abs(it.width - span.width) + abs(it.height - span.height) }, { -it.width * it.height }),
+        )
 
     /**
      * The cell sizes a widget with [dims] may take in a grid of [columns] columns and cells of
      * [cell] dp (a tile is [cell] per cell less a 4dp gap). The minimum is the size it can be
-     * shrunk to (else its minimum size), at least 1x1. The maximum is the size the provider
+     * shrunk to (else its minimum size), at least 1x1, with the same [TARGET_TOLERANCE] as the
+     * starting footprint and never above it, so the handle reaches the footprint a new tile
+     * starts at. The maximum is the size the provider
      * allows, else the whole width and [TileSpan.MAX_HEIGHT] rows. An axis the widget can't be
      * resized along stays at the tile's current [width] x [height].
      */
     internal fun spanLimits(dims: WidgetDims, cell: Float, columns: Int, width: Int, height: Int): SpanLimits {
-        fun atLeast(dp: Float) = ceil((dp + TILE_GAP) / cell - CELL_EPSILON).toInt()
+        fun leastCells(dp: Float) = ceil(dp / (cell * TARGET_TOLERANCE) - CELL_EPSILON).toInt()
         fun atMost(dp: Float) = floor((dp + TILE_GAP) / cell + CELL_EPSILON).toInt()
-        val minW = atLeast(dims.minResizeWidth.takeIf { it > 0 } ?: dims.minWidth).coerceIn(1, columns)
-        val minH = atLeast(dims.minResizeHeight.takeIf { it > 0 } ?: dims.minHeight).coerceIn(1, TileSpan.MAX_HEIGHT)
+        val start = suggestedSpan(dims, cell, columns)
+        val minW = leastCells(dims.minResizeWidth.takeIf { it > 0 } ?: dims.minWidth).coerceIn(1, start.width)
+        val minH = leastCells(dims.minResizeHeight.takeIf { it > 0 } ?: dims.minHeight).coerceIn(1, start.height)
         val maxW = dims.maxResizeWidth.takeIf { it > 0 }?.let(::atMost)?.coerceIn(minW, columns) ?: columns
         val maxH = dims.maxResizeHeight.takeIf { it > 0 }?.let(::atMost)?.coerceIn(minH, TileSpan.MAX_HEIGHT) ?: TileSpan.MAX_HEIGHT
         val horizontal = dims.resizeMode and AppWidgetProviderInfo.RESIZE_HORIZONTAL != 0
@@ -220,6 +227,16 @@ object WidgetTiles {
      */
     internal fun dragSpan(startWidth: Int, startHeight: Int, dx: Float, dy: Float, limits: SpanLimits): TileSpan =
         limits.clamp((startWidth + dx).roundToInt(), (startHeight + dy).roundToInt())
+
+    /** The smallest number of [cell] dp cells whose tile (less the gap) holds [dp]. */
+    private fun cellsToHold(dp: Float, cell: Float): Int = ceil((dp + TILE_GAP) / cell - CELL_EPSILON).toInt()
+
+    /**
+     * How much bigger than its footprint a widget's declared minimum may be and still start at
+     * that footprint. Samsung's battery widget declares 1x1 cells but a minimum of about 80dp,
+     * a little over one of our cells at six columns.
+     */
+    internal const val TARGET_TOLERANCE = 1.25f
 
     /** Matches the gap between start screen tiles. */
     private const val TILE_GAP = 4f

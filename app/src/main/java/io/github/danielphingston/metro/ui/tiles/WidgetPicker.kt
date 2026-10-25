@@ -59,7 +59,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.ui.LauncherViewModel
 import io.github.danielphingston.metro.ui.WidgetConfigActivity
 import io.github.danielphingston.metro.ui.components.MetroFlyout
@@ -125,6 +127,8 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val host = remember { WidgetTiles.host(context) }
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val columns = viewModel.settings.collectAsStateWithLifecycle().value.columns
+    val cell = WidgetTiles.cellDp(screenWidthDp, columns)
     val groups by produceState<List<WidgetGroup>?>(null) {
         value = withContext(Dispatchers.IO) { loadWidgets(context) }
     }
@@ -142,9 +146,8 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
 
     fun pin(widget: PendingWidget) {
         val provider = widget.entry.info.provider.flattenToString()
-        val cell = WidgetTiles.cellDp(screenWidthDp, viewModel.settings.value.columns)
-        val size = WidgetTiles.suggestedSize(widget.entry.dims, cell)
-        viewModel.addTile(TileContent.Widget(widget.id, provider, widget.entry.userSerial), size)
+        val span = WidgetTiles.suggestedSpan(widget.entry.dims, cell, columns)
+        viewModel.addTile(TileContent.Widget(widget.id, provider, widget.entry.userSerial), WidgetTiles.nearestSize(span), span)
         pending = null
         onDismiss()
     }
@@ -230,7 +233,7 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
                         )
                     }
                     items(group.widgets, key = { "${group.appLabel}:${it.userSerial}:${it.info.provider.flattenToString()}" }) { entry ->
-                        WidgetRow(entry, onClick = { choose(entry) })
+                        WidgetRow(entry, WidgetTiles.suggestedSpan(entry.dims, cell, columns), onClick = { choose(entry) })
                     }
                 }
             }
@@ -288,7 +291,7 @@ private fun DrawScope.drawMagnifier(color: Color) {
 }
 
 @Composable
-private fun WidgetRow(entry: WidgetEntry, onClick: () -> Unit) {
+private fun WidgetRow(entry: WidgetEntry, span: TileSpan, onClick: () -> Unit) {
     val context = LocalContext.current
     val preview by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, entry) {
         value = withContext(Dispatchers.IO) {
@@ -312,7 +315,7 @@ private fun WidgetRow(entry: WidgetEntry, onClick: () -> Unit) {
         }
         Column(Modifier.weight(1f)) {
             MetroText(entry.label, MetroType.listItem, maxLines = 2)
-            MetroText("${entry.dims.cols} × ${entry.dims.rows}", MetroType.caption, color = Metro.colors.subtle)
+            MetroText("${span.width} × ${span.height}", MetroType.caption, color = Metro.colors.subtle)
         }
     }
 }
