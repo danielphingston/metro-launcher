@@ -14,6 +14,10 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.FrameLayout
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -25,12 +29,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -45,13 +51,17 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.WidgetConfigActivity
 import io.github.danielphingston.metro.ui.start.EditBadge
 import io.github.danielphingston.metro.ui.start.EditBadgeSize
 import io.github.danielphingston.metro.ui.start.Placement
+import io.github.danielphingston.metro.ui.start.StartState
 import io.github.danielphingston.metro.ui.theme.tileSurface
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -64,10 +74,32 @@ internal data class WidgetDims(
     val minResizeHeight: Float,
     val targetCols: Int,
     val targetRows: Int,
+    /** The largest size the widget can be resized to, in dp; 0 when the provider sets no limit. */
+    val maxResizeWidth: Float = 0f,
+    val maxResizeHeight: Float = 0f,
+    /** Which axes the widget can be resized along: [AppWidgetProviderInfo.RESIZE_HORIZONTAL] and/or [AppWidgetProviderInfo.RESIZE_VERTICAL]. */
+    val resizeMode: Int = AppWidgetProviderInfo.RESIZE_BOTH,
 ) {
     /** The size in launcher cells: the declared target, else estimated from the minimum size. */
     val cols: Int get() = targetCols.takeIf { it > 0 } ?: WidgetTiles.estimateCells(minWidth)
     val rows: Int get() = targetRows.takeIf { it > 0 } ?: WidgetTiles.estimateCells(minHeight)
+}
+
+/**
+ * The cell sizes a widget tile can be resized to, both ends inclusive. An axis the widget can't
+ * be resized along has equal ends.
+ */
+internal data class SpanLimits(val minWidth: Int, val maxWidth: Int, val minHeight: Int, val maxHeight: Int) {
+    /** Whether there is anything to resize. */
+    val resizable: Boolean get() = maxWidth > minWidth || maxHeight > minHeight
+
+    fun clamp(width: Int, height: Int) = TileSpan(width.coerceIn(minWidth, maxWidth), height.coerceIn(minHeight, maxHeight))
+
+    /** These limits for a tile with only [columns] columns to grow into. */
+    fun within(columns: Int): SpanLimits {
+        val max = maxWidth.coerceIn(1, columns.coerceAtLeast(1))
+        return copy(minWidth = minWidth.coerceAtMost(max), maxWidth = max)
+    }
 }
 
 /** Hosts Android app widgets inside tiles. One [AppWidgetHost] serves the whole app. */
@@ -129,6 +161,9 @@ object WidgetTiles {
             minResizeHeight = info.minResizeHeight / density,
             targetCols = info.targetCellWidth,
             targetRows = info.targetCellHeight,
+            maxResizeWidth = info.maxResizeWidth / density,
+            maxResizeHeight = info.maxResizeHeight / density,
+            resizeMode = info.resizeMode,
         )
     }
 
@@ -153,8 +188,44 @@ object WidgetTiles {
         } ?: TileSize.LARGE
     }
 
+    /**
+     * The cell sizes a widget with [dims] may take in a grid of [columns] columns and cells of
+     * [cell] dp (a tile is [cell] per cell less a 4dp gap). The minimum is the size it can be
+     * shrunk to (else its minimum size), at least 1x1. The maximum is the size the provider
+     * allows, else the whole width and [TileSpan.MAX_HEIGHT] rows. An axis the widget can't be
+     * resized along stays at the tile's current [width] x [height].
+     */
+    internal fun spanLimits(dims: WidgetDims, cell: Float, columns: Int, width: Int, height: Int): SpanLimits {
+        fun atLeast(dp: Float) = ceil((dp + TILE_GAP) / cell - CELL_EPSILON).toInt()
+        fun atMost(dp: Float) = floor((dp + TILE_GAP) / cell + CELL_EPSILON).toInt()
+        val minW = atLeast(dims.minResizeWidth.takeIf { it > 0 } ?: dims.minWidth).coerceIn(1, columns)
+        val minH = atLeast(dims.minResizeHeight.takeIf { it > 0 } ?: dims.minHeight).coerceIn(1, TileSpan.MAX_HEIGHT)
+        val maxW = dims.maxResizeWidth.takeIf { it > 0 }?.let(::atMost)?.coerceIn(minW, columns) ?: columns
+        val maxH = dims.maxResizeHeight.takeIf { it > 0 }?.let(::atMost)?.coerceIn(minH, TileSpan.MAX_HEIGHT) ?: TileSpan.MAX_HEIGHT
+        val horizontal = dims.resizeMode and AppWidgetProviderInfo.RESIZE_HORIZONTAL != 0
+        val vertical = dims.resizeMode and AppWidgetProviderInfo.RESIZE_VERTICAL != 0
+        val w = width.coerceIn(1, columns)
+        val h = height.coerceIn(1, TileSpan.MAX_HEIGHT)
+        return SpanLimits(
+            minWidth = if (horizontal) minW else w,
+            maxWidth = if (horizontal) maxW else w,
+            minHeight = if (vertical) minH else h,
+            maxHeight = if (vertical) maxH else h,
+        )
+    }
+
+    /**
+     * The footprint a handle drag asks for: the tile's [startWidth] x [startHeight] plus the drag
+     * ([dx], [dy] in cells, fractions allowed), snapped to whole cells and kept within [limits].
+     */
+    internal fun dragSpan(startWidth: Int, startHeight: Int, dx: Float, dy: Float, limits: SpanLimits): TileSpan =
+        limits.clamp((startWidth + dx).roundToInt(), (startHeight + dy).roundToInt())
+
     /** Matches the gap between start screen tiles. */
     private const val TILE_GAP = 4f
+
+    /** Slack for float error when a size is exactly a whole number of cells. */
+    private const val CELL_EPSILON = 0.01f
 
     /** Whether the provider has a configuration activity the user can open again for a placed widget. */
     internal fun canReconfigure(info: AppWidgetProviderInfo): Boolean = info.configure != null
@@ -364,17 +435,45 @@ internal class WidgetFrame(
 }
 
 /**
- * The extra edit mode badges of the selected widget tile, on its left corners: the widget's own
- * settings (when its provider has any) and whether it sits on the accent tile or draws alone.
+ * The size limits of the widget with provider [info] for a tile at [placement], also capped by
+ * the columns to its right, or null if the widget's provider is gone.
+ */
+private fun widgetSpanLimits(
+    context: Context,
+    info: AppWidgetProviderInfo?,
+    placement: Placement,
+    columns: Int,
+    cellDp: Float,
+): SpanLimits? = info?.let {
+    WidgetTiles.spanLimits(WidgetTiles.dimsOf(context, it), cellDp, columns, placement.width, placement.height)
+        .within(columns - placement.x)
+}
+
+/**
+ * The extra edit mode badges of the selected widget tile: on its left corners the widget's own
+ * settings (when its provider has any) and whether it sits on the accent tile or draws alone;
+ * on its bottom-right corner a handle that resizes it in whole cells, within what the provider
+ * allows. While dragging, [state] holds the footprint to outline; the tile is only resized on
+ * release, through [onSetSpan], because every size change is reported to the widget.
  */
 @Composable
-internal fun WidgetEditBadges(tile: ResolvedTile, placement: Placement, cellPx: Float, gapPx: Float) {
+internal fun WidgetEditBadges(
+    tile: ResolvedTile,
+    placement: Placement,
+    cellPx: Float,
+    gapPx: Float,
+    cellDp: Float,
+    columns: Int,
+    state: StartState,
+    onSetSpan: (width: Int, height: Int) -> Unit,
+) {
     val widget = tile.spec.content as? TileContent.Widget ?: return
     val context = LocalContext.current
     val info = remember(widget.appWidgetId) { WidgetTiles.providerInfo(context, widget.appWidgetId) }
     val badgePx = with(LocalDensity.current) { EditBadgeSize.toPx() }
     val left = placement.x * cellPx
     val top = placement.y * cellPx
+    val right = (placement.x + placement.width) * cellPx - gapPx
     val bottom = (placement.y + placement.height) * cellPx - gapPx
     if (info != null && WidgetTiles.canReconfigure(info)) {
         EditBadge(
@@ -388,20 +487,95 @@ internal fun WidgetEditBadges(tile: ResolvedTile, placement: Placement, cellPx: 
         onClick = { WidgetTiles.setTransparent(context, tile.spec.id, !widget.transparent) },
         modifier = Modifier.offset { IntOffset((left - badgePx * 0.15f).roundToInt(), (bottom - badgePx * 0.7f).roundToInt()) },
     ) { color, stroke -> drawTileBackground(color, stroke, filled = !widget.transparent) }
+    val limits = widgetSpanLimits(context, info, placement, columns, cellDp)
+    if (limits != null && limits.resizable) {
+        EditBadge(
+            label = "resize handle",
+            onClick = null,
+            modifier = Modifier
+                .offset { IntOffset((right - badgePx * 0.85f).roundToInt(), (bottom - badgePx * 0.7f).roundToInt()) }
+                .resizeHandle(state, tile.spec.id, placement, cellPx, limits, onSetSpan),
+        ) { color, stroke -> drawResizeHandle(color, stroke) }
+    }
 }
 
-/** Screen reader alternatives to the badges in [WidgetEditBadges]; empty for any other tile. */
+/**
+ * Drags the tile's bottom-right corner: the footprint [StartState.resizeSpan] follows the finger
+ * in whole cells within [limits], and [onSetSpan] gets it on release (not when the gesture is
+ * cancelled or nothing changed). The handle itself stays where it is until the new size arrives,
+ * so the drag is measured against a fixed point.
+ */
+private fun Modifier.resizeHandle(
+    state: StartState,
+    id: Long,
+    start: Placement,
+    cellPx: Float,
+    limits: SpanLimits,
+    onSetSpan: (width: Int, height: Int) -> Unit,
+): Modifier = composed {
+    val currentOnSetSpan by rememberUpdatedState(onSetSpan)
+    pointerInput(id, start, cellPx, limits) {
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            // A tap on the handle must not reach the screen's tap handler, which leaves edit mode.
+            down.consume()
+            val slop = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() } ?: return@awaitEachGesture
+            var moved = slop.position - down.position
+            fun follow() {
+                state.resizeId = id
+                state.resizeSpan = WidgetTiles.dragSpan(start.width, start.height, moved.x / cellPx, moved.y / cellPx, limits)
+            }
+            // Tiles below an open folder sit lower than their cells say; close it, as dragging a tile does.
+            state.openFolderId = null
+            follow()
+            try {
+                val completed = drag(slop.id) { change ->
+                    moved += change.positionChange()
+                    change.consume()
+                    follow()
+                }
+                val span = state.resizeSpan
+                if (completed && span != null && (span.width != start.width || span.height != start.height)) {
+                    currentOnSetSpan(span.width, span.height)
+                }
+            } finally {
+                state.resizeId = null
+                state.resizeSpan = null
+            }
+        }
+    }
+}
+
+/**
+ * Screen reader alternatives to the badges in [WidgetEditBadges]; empty for any other tile.
+ * Instead of the handle there are actions that grow or shrink the tile by a cell, offered only
+ * while the widget can go that way.
+ */
 @Composable
-internal fun widgetCustomActions(tile: ResolvedTile): List<CustomAccessibilityAction> {
+internal fun widgetCustomActions(
+    tile: ResolvedTile,
+    placement: Placement,
+    columns: Int,
+    cellDp: Float,
+    onSetSpan: (width: Int, height: Int) -> Unit,
+): List<CustomAccessibilityAction> {
     val widget = tile.spec.content as? TileContent.Widget ?: return emptyList()
     val context = LocalContext.current
     val info = remember(widget.appWidgetId) { WidgetTiles.providerInfo(context, widget.appWidgetId) }
+    val limits = widgetSpanLimits(context, info, placement, columns, cellDp)
+    val (w, h) = placement.width to placement.height
     return buildList {
         if (info != null && WidgetTiles.canReconfigure(info)) {
             add(CustomAccessibilityAction("Widget settings") { WidgetTiles.reconfigure(context, widget.appWidgetId); true })
         }
         val label = if (widget.transparent) "Show on tile" else "Hide tile background"
         add(CustomAccessibilityAction(label) { WidgetTiles.setTransparent(context, tile.spec.id, !widget.transparent); true })
+        if (limits != null) {
+            if (w < limits.maxWidth) add(CustomAccessibilityAction("Make wider") { onSetSpan(w + 1, h); true })
+            if (w > limits.minWidth) add(CustomAccessibilityAction("Make narrower") { onSetSpan(w - 1, h); true })
+            if (h < limits.maxHeight) add(CustomAccessibilityAction("Make taller") { onSetSpan(w, h + 1); true })
+            if (h > limits.minHeight) add(CustomAccessibilityAction("Make shorter") { onSetSpan(w, h - 1); true })
+        }
     }
 }
 
@@ -422,4 +596,17 @@ private fun DrawScope.drawTileBackground(color: Color, stroke: Float, filled: Bo
     val topLeft = Offset(inset, inset)
     val square = androidx.compose.ui.geometry.Size(size.width - inset * 2, size.height - inset * 2)
     if (filled) drawRect(color, topLeft, square) else drawRect(color, topLeft, square, style = Stroke(stroke))
+}
+
+/** A diagonal with an arrowhead at each end: drag to resize. */
+internal fun DrawScope.drawResizeHandle(color: Color, stroke: Float) {
+    val inset = size.minDimension * 0.3f
+    val a = Offset(inset, inset)
+    val b = Offset(size.width - inset, size.height - inset)
+    val head = size.minDimension * 0.2f
+    drawLine(color, a, b, stroke, StrokeCap.Round)
+    drawLine(color, a, a + Offset(head, 0f), stroke, StrokeCap.Round)
+    drawLine(color, a, a + Offset(0f, head), stroke, StrokeCap.Round)
+    drawLine(color, b, b - Offset(head, 0f), stroke, StrokeCap.Round)
+    drawLine(color, b, b - Offset(0f, head), stroke, StrokeCap.Round)
 }

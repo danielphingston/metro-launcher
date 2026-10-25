@@ -240,6 +240,22 @@ class TilePlacementTest {
         assertEquals(GridPos(0, 2), TilePlacement.setSpan(specs, 1, 3, 2, 6).at(2))
     }
 
+    @Test
+    fun aSpanPlacementShowsWhereTheResizedTileLandsWithoutChangingAnything() {
+        val specs = listOf(tile(1, MEDIUM, 0, 0), tile(2, MEDIUM, 2, 0), tile(3, WIDE, 0, 2))
+        assertEquals(Placement(0, 0, 4, 3), TilePlacement.spanPlacement(specs, 1, 4, 3, 4))
+        // Tiles in the way are pushed aside, not the resized one.
+        assertEquals(Placement(0, 2, 3, 2), TilePlacement.spanPlacement(specs, 3, 3, 2, 4))
+        // An even width snaps to an even column, so a tile in column 1 steps left.
+        assertEquals(Placement(0, 0, 2, 1), TilePlacement.spanPlacement(listOf(tile(1, SMALL, 1, 0)), 1, 2, 1, 4))
+        assertEquals(Placement(1, 0, 3, 1), TilePlacement.spanPlacement(listOf(tile(1, SMALL, 1, 0)), 1, 3, 1, 4))
+        // Clamped to the grid; unknown ids have no placement.
+        assertEquals(Placement(0, 0, 4, TileSpan.MAX_HEIGHT), TilePlacement.spanPlacement(specs, 1, 9, 99, 4))
+        assertEquals(null, TilePlacement.spanPlacement(specs, 7, 2, 2, 4))
+        assertEquals(MEDIUM, specs[0].size)
+        assertEquals(null, specs[0].span)
+    }
+
     // --- Drag and drop ------------------------------------------------------------------------
 
     @Test

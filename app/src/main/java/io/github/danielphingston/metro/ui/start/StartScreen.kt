@@ -81,14 +81,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.IconCache
+import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileFolders
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.live.MediaSource
 import io.github.danielphingston.metro.live.NotificationHub
 import io.github.danielphingston.metro.ui.applist.drawMagnifier
 import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroMenu
+import io.github.danielphingston.metro.ui.components.StatusBarScrim
 import io.github.danielphingston.metro.ui.tiles.FolderTile
 import io.github.danielphingston.metro.ui.tiles.PeopleTile
 import io.github.danielphingston.metro.ui.tiles.PeopleTiles
@@ -110,6 +113,7 @@ import io.github.danielphingston.metro.ui.LauncherViewModel
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.metroTilt
+import io.github.danielphingston.metro.ui.theme.LocalStartBackdrop
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.delay
@@ -142,6 +146,15 @@ class StartState(val scroll: ScrollState) {
     var preview by mutableStateOf<TileMove?>(null)
         internal set
 
+    /**
+     * Widget tile being resized with its handle, and the footprint it would take if released now.
+     * Only the outline ([ResizeGhost]) follows the finger; the tile itself changes on release.
+     */
+    var resizeId by mutableStateOf<Long?>(null)
+        internal set
+    var resizeSpan by mutableStateOf<TileSpan?>(null)
+        internal set
+
     fun select(id: Long) {
         editing = true
         selectedId = id
@@ -169,6 +182,8 @@ class StartState(val scroll: ScrollState) {
         dragId = null
         dragCell = null
         preview = null
+        resizeId = null
+        resizeSpan = null
         mergeCandidateId = null
         mergeTargetId = null
     }
@@ -289,6 +304,16 @@ fun StartScreen(
         FolderLayout.compute(settled, openIndex, openChildren.map { it.spec.size }, columns)
     }
     val placements = layout.tiles
+    // Where the tile being resized would land, snapped to the grid.
+    val resizeSpan = state.resizeSpan
+    val resizeId = state.resizeId
+    val ghost = remember(specs, resizeId, resizeSpan, columns) {
+        if (resizeId != null && resizeSpan != null) {
+            TilePlacement.spanPlacement(specs, resizeId, resizeSpan.width, resizeSpan.height, columns)
+        } else {
+            null
+        }
+    }
     // The dropped layout has arrived (or the drop was a no-op): stop previewing.
     LaunchedEffect(specs) { if (state.dragId == null) state.preview = null }
     val flipped = remember { mutableStateMapOf<Long, Boolean>() }
@@ -447,6 +472,7 @@ fun StartScreen(
                             cellPx = cellPx,
                             gapPx = gapPx,
                             cell = cell,
+                            columns = columns,
                             state = state,
                             live = liveFor(tile),
                             flipped = flipped[tile.spec.id] == true && !state.editing,
@@ -490,6 +516,7 @@ fun StartScreen(
                             cellPx = cellPx,
                             gapPx = gapPx,
                             cell = cell,
+                            columns = columns,
                             state = state,
                             live = liveFor(child),
                             flipped = flipped[child.spec.id] == true && !state.editing,
@@ -522,7 +549,10 @@ fun StartScreen(
                 }
                 val selectedIndex = tiles.indexOfFirst { it.spec.id == state.selectedId }
                 val selectedChild = openChildren.indexOfFirst { it.spec.id == state.selectedId }
+                if (ghost != null) ResizeGhost(ghost, cellPx, gapPx)
                 if (state.editing && state.dragId == null && selectedIndex >= 0) {
+                    // Widgets resize with their own drag handle instead of stepping through sizes.
+                    val isWidget = tiles[selectedIndex].spec.content is TileContent.Widget
                     EditBadges(
                         placement = placements[selectedIndex],
                         cellPx = cellPx,
@@ -531,9 +561,18 @@ fun StartScreen(
                             viewModel.unpin(tiles[selectedIndex].spec.id)
                             state.exitEdit()
                         },
-                        onResize = { viewModel.resize(tiles[selectedIndex].spec.id) },
+                        onResize = if (isWidget) null else ({ viewModel.resize(tiles[selectedIndex].spec.id) }),
                     )
-                    WidgetEditBadges(tiles[selectedIndex], placements[selectedIndex], cellPx, gapPx)
+                    WidgetEditBadges(
+                        tile = tiles[selectedIndex],
+                        placement = placements[selectedIndex],
+                        cellPx = cellPx,
+                        gapPx = gapPx,
+                        cellDp = cell.value,
+                        columns = columns,
+                        state = state,
+                        onSetSpan = { w, h -> viewModel.setSpan(tiles[selectedIndex].spec.id, w, h) },
+                    )
                 } else if (state.editing && state.dragId == null && selectedChild >= 0) {
                     EditBadges(
                         placement = layout.children[selectedChild],
@@ -558,6 +597,11 @@ fun StartScreen(
             }
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
+
+        // Tiles scroll up under the status bar; keep its clock and icons legible.
+        StatusBarScrim(overPhoto = LocalStartBackdrop.current.mode.let {
+            it == StartBackground.PHOTO_FULL || it == StartBackground.SYSTEM_WALLPAPER
+        })
 
         if (state.addMenuOpen) {
             AddTileMenu(
@@ -591,6 +635,7 @@ private fun TileHost(
     cellPx: Float,
     gapPx: Float,
     cell: Dp,
+    columns: Int,
     state: StartState,
     live: LiveContent?,
     flipped: Boolean,
@@ -610,7 +655,7 @@ private fun TileHost(
     val folder = tile.spec.content as? TileContent.Folder
     // A hosted widget does its own touch handling and accessibility, and is never flipped or tilted.
     val isWidget = tile.spec.content is TileContent.Widget
-    val widgetActions = widgetCustomActions(tile)
+    val widgetActions = widgetCustomActions(tile, placement, columns, cell.value) { w, h -> viewModel.setSpan(id, w, h) }
     val target = IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt())
     val position = remember { Animatable(appearFrom ?: target, IntOffset.VectorConverter) }
     val dragging = state.dragId == id
@@ -688,7 +733,7 @@ private fun TileHost(
                     }
                     onRemoveFromFolder?.let { add(CustomAccessibilityAction("Remove from folder") { it(); true }) }
                     add(CustomAccessibilityAction("Unpin from start") { viewModel.unpin(id); true })
-                    if (onRemoveFromFolder == null) add(CustomAccessibilityAction("Resize") { viewModel.resize(id); true })
+                    if (onRemoveFromFolder == null && !isWidget) add(CustomAccessibilityAction("Resize") { viewModel.resize(id); true })
                     addAll(widgetActions)
                 }
             }
@@ -797,7 +842,7 @@ internal val EditBadgeSize = 30.dp
 @Composable
 internal fun EditBadge(
     label: String,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     glyph: DrawScope.(color: Color, stroke: Float) -> Unit,
 ) {
@@ -807,9 +852,26 @@ internal fun EditBadge(
             .size(EditBadgeSize)
             .background(colors.foreground, CircleShape)
             .border(2.dp, colors.background, CircleShape)
-            .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
+            .then(if (onClick != null) Modifier.clickable(onClickLabel = label, role = Role.Button, onClick = onClick) else Modifier)
             .semantics { contentDescription = label }
             .drawBehind { glyph(colors.background, 1.5.dp.toPx()) },
+    )
+}
+
+/** The outline of the footprint a tile being resized takes on release, [placement] in grid cells. */
+@Composable
+internal fun ResizeGhost(placement: Placement, cellPx: Float, gapPx: Float) {
+    val colors = Metro.colors
+    val density = LocalDensity.current
+    Box(
+        Modifier
+            .offset { IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt()) }
+            .size(
+                with(density) { (placement.width * cellPx - gapPx).toDp() },
+                with(density) { (placement.height * cellPx - gapPx).toDp() },
+            )
+            .background(colors.foreground.copy(alpha = 0.12f))
+            .border(2.dp, colors.foreground),
     )
 }
 

@@ -76,6 +76,7 @@ import io.github.danielphingston.metro.ui.LauncherViewModel
 import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.components.StatusBarScrim
 import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.start.LocalTurnstile
 import io.github.danielphingston.metro.ui.start.turnstile
@@ -198,6 +199,8 @@ fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: A
                 state.menu = app to bounds
             },
         )
+        // The list sits on a page colour (nearly opaque in the photo modes), so the scrim is the page colour too.
+        StatusBarScrim(overPhoto = false)
 
         if (state.jumpListOpen) {
             JumpList(

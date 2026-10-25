@@ -114,6 +114,17 @@ object TilePlacement {
         return settle(specs.map { if (it.id == id) it.copy(span = span) else it }, columns, first = id)
     }
 
+    /**
+     * Where tile [id] ends up, with its size, if it were given a custom footprint of [width] x
+     * [height] cells (see [setSpan]): the snapped footprint a resize shows before it is applied.
+     * Null if there is no such tile.
+     */
+    fun spanPlacement(specs: List<TileSpec>, id: Long, width: Int, height: Int, columns: Int): Placement? {
+        val index = specs.indexOfFirst { it.id == id }
+        if (index < 0) return null
+        return layout(setSpan(specs, id, width, height, columns), columns, first = id)[index]
+    }
+
     /** A tile's footprint and working position while the layout is computed. */
     private class Slot(val index: Int, val spec: TileSpec, columns: Int) {
         val width = spec.width.coerceIn(1, columns)

@@ -68,10 +68,13 @@ import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.MetroToggle
 import io.github.danielphingston.metro.ui.settings.AccentGrid
 import io.github.danielphingston.metro.ui.settings.Section
+import io.github.danielphingston.metro.ui.start.EditBadge
 import io.github.danielphingston.metro.ui.start.EditBadges
 import io.github.danielphingston.metro.ui.start.FolderLayout
 import io.github.danielphingston.metro.ui.start.FolderRegion
 import io.github.danielphingston.metro.ui.start.LiveContent
+import io.github.danielphingston.metro.ui.start.Placement
+import io.github.danielphingston.metro.ui.start.ResizeGhost
 import io.github.danielphingston.metro.ui.start.TileFace
 import io.github.danielphingston.metro.ui.start.TilePlacement
 import io.github.danielphingston.metro.ui.start.TurnstilePhase
@@ -84,6 +87,7 @@ import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.StartBackdrop
 import io.github.danielphingston.metro.ui.theme.startBackdrop
 import io.github.danielphingston.metro.ui.tiles.FolderTile
+import io.github.danielphingston.metro.ui.tiles.drawResizeHandle
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -154,6 +158,10 @@ class StartScreenshotTest {
     @Test
     fun startEditing() = capture("start_editing", ThemeMode.DARK, 4, editing = true)
 
+    /** A selected tile with the outline of a bigger footprint, as shown while a widget's handle is dragged. */
+    @Test
+    fun startResizing() = capture("start_resizing", ThemeMode.DARK, 4, editing = true, resizing = true)
+
     @Test
     fun startPhotoTiles() = capture("start_photo_tiles", ThemeMode.DARK, 4, background = StartBackground.PHOTO_TILES)
 
@@ -222,6 +230,7 @@ class StartScreenshotTest {
         transparency: Int? = null,
         editing: Boolean = false,
         turnstile: TurnstileState? = null,
+        resizing: Boolean = false,
     ) {
         captureRoboImage("build/outputs/roborazzi/$name.png") {
             MetroTheme(LauncherSettings(theme = theme, accent = accent, columns = columns)) {
@@ -229,7 +238,7 @@ class StartScreenshotTest {
                     val settings = LauncherSettings(background = background, tileTransparency = transparency)
                     StartBackdrop.of(settings, if (settings.showsPhoto) photo() else null) { 0f }
                 }
-                StartPreview(samples(), columns, backdrop, editing, turnstile)
+                StartPreview(samples(), columns, backdrop, editing, turnstile, resizing)
             }
         }
     }
@@ -305,6 +314,7 @@ class StartScreenshotTest {
         backdrop: StartBackdrop,
         editing: Boolean = false,
         turnstile: TurnstileState? = null,
+        resizing: Boolean = false,
     ) {
         val context = LocalContext.current
         val icons = remember { IconCache(context) }
@@ -337,7 +347,23 @@ class StartScreenshotTest {
                         }
                     }
                     if (editing) {
-                        EditBadges(placements[1], with(density) { cell.toPx() }, with(density) { gap.toPx() }, {}, {})
+                        val cellPx = with(density) { cell.toPx() }
+                        val gapPx = with(density) { gap.toPx() }
+                        if (resizing) {
+                            // A widget tile has a drag handle where other tiles have the resize badge.
+                            val badge = placements[1]
+                            EditBadges(badge, cellPx, gapPx, {}, null)
+                            EditBadge(
+                                label = "resize handle",
+                                onClick = null,
+                                modifier = Modifier.offset(
+                                    cell * (badge.x + badge.width) - gap - 25.5.dp, cell * (badge.y + badge.height) - gap - 21.dp,
+                                ),
+                            ) { color, stroke -> drawResizeHandle(color, stroke) }
+                            ResizeGhost(Placement(badge.x, badge.y, badge.width, badge.height + 1), cellPx, gapPx)
+                        } else {
+                            EditBadges(placements[1], cellPx, gapPx, {}, {})
+                        }
                     }
                 }
             }

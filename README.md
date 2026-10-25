@@ -26,8 +26,9 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Weather tile: current conditions, flipping to high/low and the next days. Location by city search or approximate device location.
 - Photos tile (slideshow of photos you pick) and People tile (mosaic of contact photos).
 - Shortcut tiles: apps' pinned shortcuts, from the app list menu or an app's own "pin shortcut" request.
-- Widget tiles: Android app widgets hosted inside a tile, from the "widgets" picker (with search) or an app's pin request. Taps, buttons and scrolling lists work in place. In edit mode a widget tile gets a settings badge (when the widget has settings) and a badge that shows it on the accent tile or without a tile background.
+- Widget tiles: Android app widgets hosted inside a tile, from the "widgets" picker (with search) or an app's pin request. Taps, buttons and scrolling lists work in place. In edit mode a widget tile gets a settings badge (when the widget has settings), a badge that shows it on the accent tile or without a tile background, and a corner handle you drag to resize it in whole cells, within the sizes its provider allows (TalkBack: make wider, narrower, taller, shorter).
 - Live tiles flip one at a time, only while visible.
+- A soft fade under the status bar keeps the clock and icons readable when tiles scroll up behind them (start screen and app list).
 
 **Folders**
 - Hold a dragged app or shortcut tile over another for a moment (about 0.6 s) to merge them into a folder; drop onto a folder to add to it.
