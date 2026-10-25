@@ -1,10 +1,22 @@
 name: Build
 
+# Builds master, pull requests, v* tags and manual runs. Changes that only touch docs skip the
+# build (path filters don't apply to tag pushes, so tagged releases always build).
 on:
   push:
-    branches: ["**"]
+    branches: [master]
     tags: ["v*"]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "app/src/main/assets/licenses/**"
+      - "LICENSE*"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "app/src/main/assets/licenses/**"
+      - "LICENSE*"
   workflow_dispatch:
     inputs:
       release_tag:

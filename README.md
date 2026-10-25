@@ -90,7 +90,7 @@ To refresh `docs/`, run the tests and copy the PNGs you want from `app/build/out
 
 ## CI and releases
 
-`.github/workflows/build.yml` runs tests, lint, a release APK and AAB on every push and pull request, and uploads them with the lint and screenshot reports as workflow artifacts. The version name is `0.2.0-dev.<run>` on branches and the tag without its `v` on tags; the version code is the run number.
+`.github/workflows/build.yml` runs tests, lint, a release APK and AAB on pushes to `master`, pull requests, `v*` tags and manual runs (changes that only touch docs are skipped), and uploads them with the lint and screenshot reports as workflow artifacts. The version name is `0.2.0-dev.<run>` on branches and the tag without its `v` on tags; the version code is the run number.
 
 Pushing a `v*` tag (for example `git tag v0.3.0 && git push origin v0.3.0`) also publishes a GitHub release with `metro-launcher-<version>.apk` and `.aab` and generated notes. You can also publish from the Actions tab: run **Build** manually with a `release_tag` such as `v0.3.0`, and the workflow creates the tag on the built commit.
 
