@@ -1,7 +1,6 @@
 package io.github.danielphingston.metro.ui.start
 
 import io.github.danielphingston.metro.data.TileSize
-import kotlin.math.abs
 
 /** A tile's position on the start grid, in small-tile cells. */
 data class Placement(val x: Int, val y: Int, val width: Int, val height: Int) {
@@ -10,11 +9,6 @@ data class Placement(val x: Int, val y: Int, val width: Int, val height: Int) {
 
     fun overlaps(other: Placement) =
         x < other.x + other.width && other.x < x + width && y < other.y + other.height && other.y < y + height
-
-    /** Whether the point is within the middle [fraction] of the tile on both axes. */
-    fun inMiddle(cellX: Float, cellY: Float, fraction: Float = 0.5f): Boolean =
-        abs(cellX - (x + width / 2f)) <= width * fraction / 2 &&
-            abs(cellY - (y + height / 2f)) <= height * fraction / 2
 }
 
 /** First-fit packing of an ordered list; the start screen itself is laid out by [TilePlacement]. */

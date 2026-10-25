@@ -148,7 +148,7 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
             // The app list's own overlays, then the way back to start.
             pager.currentPage != 0 ->
                 if (!appListState.handleBack()) scope.launch { pager.animateScrollToPage(0) }
-            // On start: flyouts sit on top of everything, then edit mode, then the open folder.
+            // On start: flyouts (grouping included) sit on top of everything, then edit mode, then the open folder.
             startState.dismissFlyouts() -> Unit
             startState.editing -> startState.exitEdit()
             startState.dismissOverlays() -> Unit

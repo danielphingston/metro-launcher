@@ -161,14 +161,4 @@ class FolderLayoutTest {
         val layout = FolderLayout.compute(packed(MEDIUM, MEDIUM), openIndex = 0, childSizes = emptyList(), columns = 4)
         assertNull(layout.region)
     }
-
-    @Test
-    fun middleAreaIsTheCentreHalfOfATile() {
-        val medium = Placement(2, 0, 2, 2)
-        assertTrue(medium.inMiddle(3f, 1f))
-        assertTrue(medium.inMiddle(3.4f, 0.6f))
-        assertFalse(medium.inMiddle(2.1f, 1f))
-        assertFalse(medium.inMiddle(3f, 1.8f))
-        assertFalse(medium.inMiddle(1.9f, 1f))
-    }
 }

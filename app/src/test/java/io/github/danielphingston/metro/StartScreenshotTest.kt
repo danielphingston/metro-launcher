@@ -12,6 +12,7 @@ import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.os.Process
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,10 +74,13 @@ import io.github.danielphingston.metro.ui.start.EditBadge
 import io.github.danielphingston.metro.ui.start.EditBadges
 import io.github.danielphingston.metro.ui.start.FolderLayout
 import io.github.danielphingston.metro.ui.start.FolderRegion
+import io.github.danielphingston.metro.ui.start.GroupingBar
 import io.github.danielphingston.metro.ui.start.LiveContent
 import io.github.danielphingston.metro.ui.start.Placement
 import io.github.danielphingston.metro.ui.start.ResizeGhost
+import io.github.danielphingston.metro.ui.start.StartState
 import io.github.danielphingston.metro.ui.start.TileFace
+import io.github.danielphingston.metro.ui.start.TileHost
 import io.github.danielphingston.metro.ui.start.TilePlacement
 import io.github.danielphingston.metro.ui.start.TurnstilePhase
 import io.github.danielphingston.metro.ui.start.TurnstileState
@@ -162,6 +166,11 @@ class StartScreenshotTest {
     /** A selected tile with the outline of a bigger footprint, as shown while a widget's handle is dragged. */
     @Test
     fun startResizing() = capture("start_resizing", ThemeMode.DARK, 4, editing = true, resizing = true)
+
+    @Test
+    fun startGrouping() = captureRoboImage("build/outputs/roborazzi/start_grouping.png") {
+        MetroTheme(LauncherSettings(columns = 4)) { GroupingPreview() }
+    }
 
     @Test
     fun startPhotoTiles() = capture("start_photo_tiles", ThemeMode.DARK, 4, background = StartBackground.PHOTO_TILES)
@@ -373,10 +382,76 @@ class StartScreenshotTest {
                             ) { color, stroke -> drawResizeHandle(color, stroke) }
                             ResizeGhost(Placement(badge.x, badge.y, badge.width, badge.height + 1), cellPx, gapPx)
                         } else {
-                            EditBadges(placements[1], cellPx, gapPx, {}, {})
+                            EditBadges(placements[1], cellPx, gapPx, {}, {}, onGroup = {})
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Grouping mode on the real tiles: "Messages" is the anchor, "Phone" and "Maps" are picked, the
+     * calendar tile is a weather tile as a stand-in for any tile that can't be grouped.
+     */
+    @Composable
+    private fun GroupingPreview() {
+        val context = LocalContext.current
+        val icons = remember { IconCache(context) }
+        val density = LocalDensity.current
+        val columns = 4
+        val samples = samples()
+        val tiles = samples.mapIndexed { index, sample ->
+            val spec = if (sample.app.label == "Calendar") {
+                TileSpec(index + 1L, sample.size, TileContent.Weather)
+            } else {
+                TileSpec(index + 1L, sample.size, TileContent.App(sample.app.key))
+            }
+            ResolvedTile(spec, sample.app, sample.app.label)
+        }
+        val placements = TilePlacement.layout(tiles.map { it.spec }, columns)
+        val state = remember {
+            StartState(ScrollState(0)).apply {
+                startGrouping(2)
+                toggleGrouped(1)
+                toggleGrouped(11)
+            }
+        }
+        val backdrop = StartBackdrop.Solid
+        CompositionLocalProvider(LocalStartBackdrop provides backdrop) {
+            Box(Modifier.fillMaxSize().startBackdrop(backdrop, Metro.colors.background)) {
+                BoxWithConstraints(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 52.dp)) {
+                    val gap = 4.dp
+                    val cell = (maxWidth + gap) / columns
+                    val cellPx = with(density) { cell.toPx() }
+                    tiles.zip(placements).forEachIndexed { index, (tile, p) ->
+                        TileHost(
+                            tile = tile,
+                            placement = p,
+                            cellPx = cellPx,
+                            gapPx = with(density) { gap.toPx() },
+                            cell = cell,
+                            columns = columns,
+                            state = state,
+                            live = samples[index].live,
+                            flipped = samples[index].flipped,
+                            monochromeIcons = true,
+                            icons = icons,
+                            onUnpin = {},
+                            onResize = {},
+                            onSetSpan = { _, _ -> },
+                            onLaunch = {},
+                            onLongPress = {},
+                        )
+                    }
+                }
+                GroupingBar(
+                    anchorIsFolder = false,
+                    count = state.groupingSelection.size,
+                    onConfirm = {},
+                    onCancel = {},
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
             }
         }
     }

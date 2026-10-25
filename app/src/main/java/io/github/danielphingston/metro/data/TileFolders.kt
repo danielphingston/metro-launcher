@@ -1,7 +1,7 @@
 package io.github.danielphingston.metro.data
 
-/** What [TileFolders.merge] produced: the new tile list and the folder that now holds the dragged tile. */
-internal class FolderMerge(val tiles: List<TileSpec>, val folderId: Long)
+/** What [TileFolders.groupIntoFolder] produced: the new tile list and the folder that now holds the grouped tiles. */
+internal class FolderGroup(val tiles: List<TileSpec>, val folderId: Long)
 
 /**
  * The folder edits as pure functions over the ordered tile list, so they can be tested without a
@@ -14,9 +14,8 @@ internal object TileFolders {
     /** Only app and shortcut tiles can live in a folder. */
     fun canHold(spec: TileSpec): Boolean = spec.content is TileContent.App || spec.content is TileContent.Shortcut
 
-    /** Whether [dragged] may be dropped onto [target]: onto an app or shortcut (new folder) or onto a folder. */
-    fun canMerge(dragged: TileSpec, target: TileSpec): Boolean =
-        dragged.id != target.id && canHold(dragged) && (canHold(target) || target.content is TileContent.Folder)
+    /** Whether [spec] can start a group: an app or shortcut (a new folder) or a folder (to add to). */
+    fun canGroup(spec: TileSpec): Boolean = canHold(spec) || spec.content is TileContent.Folder
 
     /** Children are at most wide: a large tile would fill the whole open folder. They have no grid position. */
     private fun forFolder(spec: TileSpec): TileSpec =
@@ -25,24 +24,28 @@ internal object TileFolders {
     private fun TileSpec.unplaced() = copy(x = TileSpec.UNPLACED, y = TileSpec.UNPLACED)
 
     /**
-     * Drops [draggedId] onto [targetId]. Onto a folder it is appended to the children; onto an
-     * app or shortcut both become a new folder with id [newId] at the target's grid position, as
-     * big as the target unless that is small. Null when the pair can't merge.
+     * Groups the top-level tiles [ids] with [anchorId], in the order given. An anchor that is a
+     * folder takes them as more children; an app or shortcut and them become a new folder with id
+     * [newId] at the anchor's grid position, as big as the anchor unless that is small, holding the
+     * anchor first. Ids that are missing, repeated, the anchor itself or not [canHold] are
+     * ignored. Null when the anchor can't start a group or nothing is left to group.
      */
-    fun merge(list: List<TileSpec>, draggedId: Long, targetId: Long, newId: Long): FolderMerge? {
-        val dragged = list.firstOrNull { it.id == draggedId } ?: return null
-        val target = list.firstOrNull { it.id == targetId } ?: return null
-        if (!canMerge(dragged, target)) return null
-        val child = forFolder(dragged)
-        val folder = when (val content = target.content) {
-            is TileContent.Folder -> target.copy(content = content.copy(children = content.children + child))
+    fun groupIntoFolder(list: List<TileSpec>, anchorId: Long, ids: List<Long>, newId: Long): FolderGroup? {
+        val anchor = list.firstOrNull { it.id == anchorId }?.takeIf(::canGroup) ?: return null
+        val grouped = ids.distinct().filter { it != anchorId }
+            .mapNotNull { id -> list.firstOrNull { it.id == id }?.takeIf(::canHold) }
+        if (grouped.isEmpty()) return null
+        val added = grouped.map(::forFolder)
+        val folder = when (val content = anchor.content) {
+            is TileContent.Folder -> anchor.copy(content = content.copy(children = content.children + added))
             else -> {
-                val size = if (target.size == TileSize.SMALL) TileSize.MEDIUM else target.size
-                TileSpec(newId, size, TileContent.Folder(DEFAULT_NAME, listOf(forFolder(target), child)), target.x, target.y)
+                val size = if (anchor.size == TileSize.SMALL) TileSize.MEDIUM else anchor.size
+                TileSpec(newId, size, TileContent.Folder(DEFAULT_NAME, listOf(forFolder(anchor)) + added), anchor.x, anchor.y)
             }
         }
-        val merged = list.filterNot { it.id == draggedId }.map { if (it.id == targetId) folder else it }
-        return FolderMerge(merged, folder.id)
+        val gone = grouped.mapTo(HashSet()) { it.id }
+        val tiles = list.filterNot { it.id in gone }.map { if (it.id == anchorId) folder else it }
+        return FolderGroup(tiles, folder.id)
     }
 
     /**

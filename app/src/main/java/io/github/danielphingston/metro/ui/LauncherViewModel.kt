@@ -183,8 +183,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Drops tile [id] with its top-left corner on the grid cell [x], [y]. */
     fun moveTo(id: Long, x: Int, y: Int) = metro.tiles.moveTo(id, x, y)
 
-    /** Drops tile [id] onto [targetId] to make or fill a folder; returns the folder's id, or null if they can't merge. */
-    fun mergeIntoFolder(id: Long, targetId: Long): Long? = metro.tiles.mergeIntoFolder(id, targetId)
+    /** Groups tiles [ids] with [anchorId] into a new folder or the anchor folder; returns the folder's id, or null if nothing was grouped. */
+    fun groupIntoFolder(anchorId: Long, ids: List<Long>): Long? = metro.tiles.groupIntoFolder(anchorId, ids)
     fun removeFromFolder(folderId: Long, childId: Long) = metro.tiles.removeFromFolder(folderId, childId)
     fun renameFolder(id: Long, name: String) = metro.tiles.renameFolder(id, name)
     fun moveInFolder(folderId: Long, id: Long, targetId: Long) = metro.tiles.moveInFolder(folderId, id, targetId)

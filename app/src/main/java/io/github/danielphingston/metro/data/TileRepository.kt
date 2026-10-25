@@ -199,15 +199,15 @@ class TileRepository(private val context: Context, scope: CoroutineScope, privat
         _tiles.update { list -> list?.let { TilePlacement.moveTo(it, id, GridPos(x, y), columnCount) } }
 
     /**
-     * Drops tile [id] onto [targetId]: both become a new folder, or [id] joins the target folder.
-     * Returns the folder's id, or null when the two can't merge.
+     * Groups tiles [ids] with [anchorId] into a new folder, or into the anchor if it is a folder;
+     * see [TileFolders.groupIntoFolder]. Returns the folder's id, or null when nothing was grouped.
      */
-    fun mergeIntoFolder(id: Long, targetId: Long): Long? {
+    fun groupIntoFolder(anchorId: Long, ids: List<Long>): Long? {
         var folderId: Long? = null
         _tiles.update { list ->
-            val merged = list?.let { TileFolders.merge(it, id, targetId, nextId(it)) }
-            folderId = merged?.folderId
-            merged?.let { TilePlacement.settle(it.tiles, columnCount, it.folderId) } ?: list
+            val grouped = list?.let { TileFolders.groupIntoFolder(it, anchorId, ids, nextId(it)) }
+            folderId = grouped?.folderId
+            grouped?.let { TilePlacement.settle(it.tiles, columnCount, it.folderId) } ?: list
         }
         return folderId
     }

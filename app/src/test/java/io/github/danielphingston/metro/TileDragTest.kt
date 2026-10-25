@@ -36,12 +36,12 @@ import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.search.rememberPullToSearch
 import io.github.danielphingston.metro.ui.start.DragTracking
 import io.github.danielphingston.metro.ui.start.GridPos
-import io.github.danielphingston.metro.ui.start.MergeAim
 import io.github.danielphingston.metro.ui.start.Placement
 import io.github.danielphingston.metro.ui.start.StartState
 import io.github.danielphingston.metro.ui.start.TileHost
 import io.github.danielphingston.metro.ui.theme.MetroTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -65,9 +65,6 @@ class TileDragTest {
     private val state = StartState(ScrollState(0))
     private var pickups = 0
     private var dropCompleted: Boolean? = null
-
-    /** What the start screen would do on a drop: the tile the drag was armed to merge into, if any. */
-    private var droppedInto: Long? = null
 
     private fun app(label: String) = AppInfo(
         key = AppKey("com.example.${label.lowercase()}", "Main", 0),
@@ -95,7 +92,7 @@ class TileDragTest {
                 HorizontalPager(pager, userScrollEnabled = !state.editing) { page ->
                     Box(Modifier.fillMaxSize().then(if (page == 0) Modifier.nestedScroll(pull) else Modifier)) {
                         if (page == 0) {
-                            DragTracking(state, tiles, placements, cellPx, 4)
+                            DragTracking(state, tiles, cellPx, 4)
                             Column(
                                 Modifier
                                     .fillMaxSize()
@@ -122,12 +119,8 @@ class TileDragTest {
                                                 onSetSpan = { _, _ -> },
                                                 onLaunch = {},
                                                 onLongPress = { pickups++ },
-                                                mergeTarget = state.mergeTargetId == tile.spec.id,
                                                 onRemoveFromFolder = if (inFolder) ({}) else null,
-                                                onDrop = { completed ->
-                                                    dropCompleted = completed
-                                                    droppedInto = state.mergeTargetId
-                                                },
+                                                onDrop = { completed -> dropCompleted = completed },
                                             )
                                         }
                                     }
@@ -140,12 +133,6 @@ class TileDragTest {
             }
         }
         rule.mainClock.advanceTimeBy(100)
-    }
-
-    /** The other tiles are still laid out around the dragged tile's own cell, not around the target's. */
-    private fun assertStillAtOrigin() {
-        val to = state.preview?.to
-        assertTrue("the other tiles must keep still, but made room for $to", to == null || to == GridPos(0, 0))
     }
 
     private val longPress get() = ViewConfiguration.getLongPressTimeout().toLong()
@@ -223,58 +210,59 @@ class TileDragTest {
     }
 
     @Test
-    fun restingOnATilesMiddleMergesIntoItAndTheTileStaysPut() {
+    fun holdingOverAnotherTileNeverMakesAFolderAndTheDropJustMovesTheTile() {
         setGrid()
         pickUp()
         move(600f)
-        // Past the preview hold, short of the dwell: the target is aimed at, not armed, and nothing has moved.
-        rule.mainClock.advanceTimeBy(250)
-        assertEquals(2L, state.mergeCandidateId)
-        assertNull(state.mergeTargetId)
-        assertStillAtOrigin()
-
-        rule.mainClock.advanceTimeBy(MergeAim.DWELL_MILLIS)
-        assertEquals(2L, state.mergeTargetId)
-        assertStillAtOrigin()
-
-        phone.performTouchInput { up() }
-        rule.mainClock.advanceTimeBy(16)
-        assertEquals(2L, droppedInto)
-    }
-
-    @Test
-    fun aDwellOfAboutHalfASecondIsEnough() {
-        setGrid()
-        pickUp()
-        move(600f)
-        rule.mainClock.advanceTimeBy(450)
-        assertEquals(2L, state.mergeTargetId)
-    }
-
-    @Test
-    fun releasingBeforeTheDwellOnlyMovesTheTile() {
-        setGrid()
-        pickUp()
-        move(600f)
-        rule.mainClock.advanceTimeBy(MergeAim.DWELL_MILLIS / 2)
-        assertEquals(2L, state.mergeCandidateId)
-        phone.performTouchInput { up() }
-        rule.mainClock.advanceTimeBy(16)
-        assertNull(droppedInto)
-        assertEquals(true, dropCompleted)
-    }
-
-    @Test
-    fun passingOverATileQuicklyDoesNotArmAndReflowResumesBeyondIt() {
-        setGrid()
-        pickUp()
-        move(600f)
-        move(600f)
-        // Out past the other tile again: no merge, and the others make room for the cell it is over.
-        assertNull(state.mergeCandidateId)
-        assertNull(state.mergeHoverId)
-        rule.mainClock.advanceTimeBy(300)
-        assertNull(state.mergeTargetId)
+        // Far longer than any dwell: the tile is over the other one's middle and nothing is aimed at.
+        rule.mainClock.advanceTimeBy(2_000)
+        assertEquals(GridPos(2, 0), state.dragCell)
         assertEquals(GridPos(2, 0), state.preview?.to)
+        assertEquals(1L, state.dragId)
+
+        phone.performTouchInput { up() }
+        rule.mainClock.advanceTimeBy(16)
+        assertEquals(true, dropCompleted)
+        assertNull(state.dragId)
+        assertNull(state.dragCell)
+        // The drop keeps previewing the move until the stored layout arrives.
+        assertEquals(GridPos(2, 0), state.preview?.to)
+    }
+
+    @Test
+    fun theOtherTilesMakeRoomOnceTheDraggedOneHasRestedOnACell() {
+        setGrid()
+        pickUp()
+        move(600f)
+        rule.mainClock.advanceTimeBy(30)
+        assertNotEquals("still passing over", GridPos(2, 0), state.preview?.to)
+        rule.mainClock.advanceTimeBy(100)
+        assertEquals(GridPos(2, 0), state.preview?.to)
+    }
+
+    @Test
+    fun passingOverATileQuicklyDoesNotMakeTheOthersMove() {
+        setGrid()
+        pickUp()
+        move(600f)
+        move(-600f)
+        rule.mainClock.advanceTimeBy(300)
+        assertEquals(GridPos(0, 0), state.dragCell)
+        assertEquals(GridPos(0, 0), state.preview?.to)
+    }
+
+    @Test
+    fun tilesCannotBeDraggedOrPickedUpWhileGrouping() {
+        setGrid()
+        rule.runOnIdle { state.startGrouping(2) }
+        rule.mainClock.advanceTimeBy(100)
+        phone.performTouchInput { down(center) }
+        rule.mainClock.advanceTimeBy(longPress + 100)
+        move(300f)
+        assertEquals(0, pickups)
+        assertNull(state.dragId)
+        phone.performTouchInput { up() }
+        rule.mainClock.advanceTimeBy(16)
+        assertEquals(2L, state.selectedId)
     }
 }

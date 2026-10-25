@@ -69,9 +69,11 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -83,6 +85,7 @@ import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.TileFolders
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.live.MediaSource
@@ -170,15 +173,39 @@ class StartState(val scroll: ScrollState) {
     var renamingFolderId by mutableStateOf<Long?>(null)
 
     /**
-     * Tile the dragged one's centre is over and could join: the other tiles keep still while it is
-     * set. Then the one whose middle it is held over, and the same once held long enough to drop into it.
+     * Grouping mode, which makes or fills a folder: the tile the group is built around (a folder
+     * to add to, or an app or shortcut to start a new one) and the tiles picked for it, in the
+     * order they were tapped. See [TileFolders.groupIntoFolder].
      */
-    var mergeHoverId by mutableStateOf<Long?>(null)
-        internal set
-    var mergeCandidateId by mutableStateOf<Long?>(null)
-        internal set
-    var mergeTargetId by mutableStateOf<Long?>(null)
-        internal set
+    var groupingAnchorId by mutableStateOf<Long?>(null)
+        private set
+    var groupingSelection by mutableStateOf<List<Long>>(emptyList())
+        private set
+
+    val grouping: Boolean get() = groupingAnchorId != null
+
+    /** Starts grouping around tile [anchorId]. The open folder closes, as it does for a drag. */
+    fun startGrouping(anchorId: Long) {
+        select(anchorId)
+        openFolderId = null
+        groupingSelection = emptyList()
+        groupingAnchorId = anchorId
+    }
+
+    /** Picks tile [id] for the group, or takes it out again. */
+    fun toggleGrouped(id: Long) {
+        groupingSelection = if (id in groupingSelection) groupingSelection - id else groupingSelection + id
+    }
+
+    /** Keeps only the picked tiles that are among [existing], e.g. after one was unpinned. */
+    fun keepGrouped(existing: Set<Long>) {
+        if (groupingSelection.any { it !in existing }) groupingSelection = groupingSelection.filter { it in existing }
+    }
+
+    fun endGrouping() {
+        groupingAnchorId = null
+        groupingSelection = emptyList()
+    }
 
     fun exitEdit() {
         editing = false
@@ -188,30 +215,27 @@ class StartState(val scroll: ScrollState) {
         preview = null
         resizeId = null
         resizeSpan = null
-        mergeHoverId = null
-        mergeCandidateId = null
-        mergeTargetId = null
+        endGrouping()
     }
 
-    /** Whether a flyout is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || widgetPickerOpen || renamingFolderId != null
+    /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
+    val flyoutOpen: Boolean get() = addMenuOpen || widgetPickerOpen || renamingFolderId != null || grouping
 
-    /** Closes the flyouts (add-tile menu, widget picker, rename field); returns true if one was open. */
+    /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
         val any = flyoutOpen
         addMenuOpen = false
         widgetPickerOpen = false
         renamingFolderId = null
+        endGrouping()
         return any
     }
 
     /** Closes all transient UI, the open folder included; returns true if anything was open. */
     fun dismissOverlays(): Boolean {
-        val any = addMenuOpen || widgetPickerOpen || openFolderId != null || renamingFolderId != null
-        addMenuOpen = false
-        widgetPickerOpen = false
+        val any = flyoutOpen || openFolderId != null
+        dismissFlyouts()
         openFolderId = null
-        renamingFolderId = null
         return any
     }
 }
@@ -225,10 +249,7 @@ fun rememberStartState(): StartState {
 private val SidePadding = 8.dp
 private val TileGap = 4.dp
 
-/**
- * How long a dragged tile must stay over a cell before the other tiles move out of its way, so
- * they don't scatter while it passes over them and a merge target is still there to aim at.
- */
+/** How long a dragged tile must stay over a cell before the other tiles move out of its way, so they don't scatter while it passes over them. */
 private const val PREVIEW_HOLD_MILLIS = 120L
 
 /** The bottom strip of a folder tile, as a fraction of a cell, that renames the folder when tapped in edit mode. */
@@ -332,6 +353,12 @@ fun StartScreen(
         val navInsetPx = WindowInsets.navigationBars.getBottom(density)
         val rows = layout.rows
 
+        // Tiles unpinned or uninstalled while grouping can't be grouped any more.
+        LaunchedEffect(loadedTiles) {
+            val anchor = state.groupingAnchorId
+            if (loadedTiles == null || anchor == null) return@LaunchedEffect
+            if (tiles.none { it.spec.id == anchor }) state.endGrouping() else state.keepGrouped(tiles.mapTo(HashSet()) { it.spec.id })
+        }
         // A folder that was unpinned or dissolved while open no longer has anything to show.
         LaunchedEffect(openFolder, loadedTiles) {
             if (loadedTiles != null && openFolder == null) state.openFolderId = null
@@ -403,14 +430,20 @@ fun StartScreen(
             }
         }
 
-        DragTracking(state, tiles, placements, cellPx, columns)
+        DragTracking(state, tiles, cellPx, columns)
 
         Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(state.scroll)
                 .pointerInput(Unit) {
-                    detectTapGestures { if (state.editing) state.exitEdit() else state.openFolderId = null }
+                    detectTapGestures {
+                        when {
+                            state.grouping -> state.endGrouping()
+                            state.editing -> state.exitEdit()
+                            else -> state.openFolderId = null
+                        }
+                    }
                 },
         ) {
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
@@ -450,16 +483,10 @@ fun StartScreen(
                             onSetSpan = { w, h -> viewModel.setSpan(tile.spec.id, w, h) },
                             onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state) },
                             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
-                            mergeTarget = state.mergeTargetId == tile.spec.id,
                             onDrop = { completed ->
-                                val into = state.mergeTargetId
                                 val cell = state.dragCell
-                                state.mergeHoverId = null
-                                state.mergeCandidateId = null
                                 state.preview = null
-                                if (completed && into != null) {
-                                    viewModel.mergeIntoFolder(tile.spec.id, into)?.let(state::select)
-                                } else if (completed && cell != null) {
+                                if (completed && cell != null) {
                                     // Keep showing the drop until the stored layout catches up, unless it changes nothing.
                                     if (TilePlacement.moveTo(specs, tile.spec.id, cell, columns) != specs) {
                                         state.preview = TileMove(tile.spec.id, cell)
@@ -523,9 +550,10 @@ fun StartScreen(
                 val selectedIndex = tiles.indexOfFirst { it.spec.id == state.selectedId }
                 val selectedChild = openChildren.indexOfFirst { it.spec.id == state.selectedId }
                 if (ghost != null) ResizeGhost(ghost, cellPx, gapPx)
-                if (state.editing && state.dragId == null && selectedIndex >= 0) {
+                if (state.editing && state.dragId == null && !state.grouping && selectedIndex >= 0) {
                     // Widgets resize with their own drag handle instead of stepping through sizes.
-                    val isWidget = tiles[selectedIndex].spec.content is TileContent.Widget
+                    val selectedTile = tiles[selectedIndex]
+                    val isWidget = selectedTile.spec.content is TileContent.Widget
                     EditBadges(
                         placement = placements[selectedIndex],
                         cellPx = cellPx,
@@ -535,6 +563,8 @@ fun StartScreen(
                             state.exitEdit()
                         },
                         onResize = if (isWidget) null else ({ viewModel.resize(tiles[selectedIndex].spec.id) }),
+                        onGroup = if (TileFolders.canGroup(selectedTile.spec)) ({ state.startGrouping(selectedTile.spec.id) }) else null,
+                        groupLabel = if (selectedTile.spec.content is TileContent.Folder) "add to folder" else "group into folder",
                     )
                     WidgetEditBadges(
                         tile = tiles[selectedIndex],
@@ -546,7 +576,7 @@ fun StartScreen(
                         state = state,
                         onSetSpan = { w, h -> viewModel.setSpan(tiles[selectedIndex].spec.id, w, h) },
                     )
-                } else if (state.editing && state.dragId == null && selectedChild >= 0) {
+                } else if (state.editing && state.dragId == null && !state.grouping && selectedChild >= 0) {
                     EditBadges(
                         placement = layout.children[selectedChild],
                         cellPx = cellPx,
@@ -569,6 +599,8 @@ fun StartScreen(
                 AllAppsArrow(onShowApps)
             }
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+            // Room to scroll the last tiles above the grouping bar.
+            if (state.grouping) Spacer(Modifier.height(GroupingBarHeight))
         }
 
         // Tiles scroll up under the status bar; keep its clock and icons legible.
@@ -592,6 +624,20 @@ fun StartScreen(
         if (state.widgetPickerOpen) {
             WidgetPicker(viewModel, onDismiss = { state.widgetPickerOpen = false })
         }
+        if (state.grouping) {
+            GroupingBar(
+                anchorIsFolder = tiles.firstOrNull { it.spec.id == state.groupingAnchorId }?.spec?.content is TileContent.Folder,
+                count = state.groupingSelection.size,
+                onConfirm = {
+                    // The new or filled folder is left selected, ready to rename.
+                    val folderId = state.groupingAnchorId?.let { viewModel.groupIntoFolder(it, state.groupingSelection) }
+                    state.endGrouping()
+                    folderId?.let(state::select)
+                },
+                onCancel = state::endGrouping,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
         tiles.firstOrNull { it.spec.id == state.renamingFolderId }?.let { folder ->
             FolderRename((folder.spec.content as? TileContent.Folder)?.name.orEmpty()) { name ->
                 viewModel.renameFolder(folder.spec.id, name)
@@ -603,45 +649,26 @@ fun StartScreen(
 
 /**
  * Follows a dragged top-level tile (also while the screen scrolls under it) and works out what
- * dropping it would do. It always targets the cell its corner snaps to ([StartState.dragCell]);
- * holding its centre over a tile it can join ([MergeAim]) keeps the other tiles still, so that tile
- * stays under the finger, and in its middle arms the merge after [MergeAim.DWELL_MILLIS]. Moving
- * off resumes normal reflow, so a quick pass over other tiles only reorders. [placements] are the
- * tiles as displayed.
+ * dropping it would do: it always targets the cell its corner snaps to ([StartState.dragCell]),
+ * and the other tiles make room for it once it has rested there for a moment. Dragging only ever
+ * moves a tile; folders are made in grouping mode.
  */
 @Composable
-internal fun DragTracking(state: StartState, tiles: List<ResolvedTile>, placements: List<Placement>, cellPx: Float, columns: Int) {
-    val haptics = LocalHapticFeedback.current
+internal fun DragTracking(state: StartState, tiles: List<ResolvedTile>, cellPx: Float, columns: Int) {
     val currentTiles by rememberUpdatedState(tiles)
-    val currentPlacements by rememberUpdatedState(placements)
-    // Holding a dragged tile over another one's middle arms the drop into it.
-    LaunchedEffect(state.mergeCandidateId) {
-        state.mergeTargetId = null
-        val candidate = state.mergeCandidateId ?: return@LaunchedEffect
-        delay(MergeAim.DWELL_MILLIS)
-        state.mergeTargetId = candidate
-        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-    }
 
     LaunchedEffect(state.dragId) {
         val id = state.dragId ?: return@LaunchedEffect
         snapshotFlow { state.dragTopLeft }.collect { topLeft ->
-            val index = currentTiles.indexOfFirst { it.spec.id == id }
-            if (index < 0) return@collect // A folder child; those are handled by the child's own drag.
-            val (cx, cy) = dragCenterCell(state, currentPlacements[index], cellPx)
-            // Measured against the tiles as displayed, which stay put while one is aimed at.
-            val aim = MergeAim.aim(currentTiles.map { it.spec }, currentPlacements, index, cx, cy, state.mergeCandidateId)
-            state.mergeHoverId = aim.hover?.let { currentTiles[it].spec.id }
-            state.mergeCandidateId = if (aim.joins) state.mergeHoverId else null
-            state.dragCell = TilePlacement.dropCell(currentTiles[index].spec, topLeft.x / cellPx, topLeft.y / cellPx, columns)
+            val spec = currentTiles.firstOrNull { it.spec.id == id }?.spec
+                ?: return@collect // A folder child; those are handled by the child's own drag.
+            state.dragCell = TilePlacement.dropCell(spec, topLeft.x / cellPx, topLeft.y / cellPx, columns)
         }
     }
-    // The other tiles make room once the dragged one has rested on a cell for a moment, unless it
-    // is over a tile it could join: that one must not move out from under it.
-    LaunchedEffect(state.dragCell, state.mergeHoverId) {
+    // The other tiles make room once the dragged one has rested on a cell for a moment.
+    LaunchedEffect(state.dragCell) {
         val id = state.dragId ?: return@LaunchedEffect
         val cell = state.dragCell ?: return@LaunchedEffect
-        if (state.mergeHoverId != null) return@LaunchedEffect
         delay(PREVIEW_HOLD_MILLIS)
         state.preview = TileMove(id, cell)
     }
@@ -667,7 +694,6 @@ internal fun TileHost(
     onLaunch: (Rect?) -> Unit,
     onLongPress: () -> Unit,
     onDragMove: () -> Unit = {},
-    mergeTarget: Boolean = false,
     /** Where a folder's child slides out from when the folder opens. */
     appearFrom: IntOffset? = null,
     /** Set for the children of an open folder. */
@@ -693,11 +719,15 @@ internal fun TileHost(
         }
     }
     val selected = state.selectedId == id
+    // While grouping, the anchor and the tiles that can join it stand out and the rest dim.
+    val grouping = state.grouping
+    val groupAnchor = grouping && state.groupingAnchorId == id
+    val groupTarget = grouping && !groupAnchor && onRemoveFromFolder == null && TileFolders.canHold(tile.spec)
+    val picked = groupTarget && id in state.groupingSelection
     val scale by animateFloatAsState(
         when {
-            mergeTarget -> 1.08f
-            dragging && state.mergeTargetId != null -> 0.8f
             dragging -> 1.04f
+            grouping -> if (groupAnchor || picked) 1f else 0.94f
             state.editing && !selected -> 0.94f
             else -> 1f
         },
@@ -706,7 +736,12 @@ internal fun TileHost(
     var shown by remember { mutableStateOf(appearFrom == null) }
     LaunchedEffect(Unit) { shown = true }
     val alpha by animateFloatAsState(
-        if (!shown) 0f else if (state.editing && !selected && !mergeTarget) 0.6f else 1f,
+        when {
+            !shown -> 0f
+            grouping -> if (groupAnchor || groupTarget) 1f else 0.3f
+            state.editing && !selected -> 0.6f
+            else -> 1f
+        },
         label = "tileAlpha",
     )
     var bounds by remember { mutableStateOf<Rect?>(null) }
@@ -714,6 +749,7 @@ internal fun TileHost(
     val currentPlacement by rememberUpdatedState(placement)
     val currentOnDragMove by rememberUpdatedState(onDragMove)
     val currentOnDrop by rememberUpdatedState(onDrop)
+    val currentGroupTarget by rememberUpdatedState(groupTarget)
     val folderOpen = state.openFolderId == id
     val widthDp = cell * placement.width - TileGap
     val heightDp = cell * placement.height - TileGap
@@ -740,6 +776,16 @@ internal fun TileHost(
                     if (folder != null) append("${tile.label}, folder, ${tile.children.size} items") else append(tile.label)
                     (live as? LiveContent.Notifications)?.let { append(", ${it.data.count} new") }
                 }
+                if (grouping) {
+                    // Grouping mode: tiles are picked, not opened; only those that can join respond.
+                    if (groupTarget) {
+                        onClick { state.toggleGrouped(id); true }
+                        stateDescription = if (picked) "selected" else "not selected"
+                    } else if (!groupAnchor) {
+                        disabled()
+                    }
+                    return@semantics
+                }
                 if (!isWidget) onClick {
                     // Assistive launches skip the tap handler that normally ends edit mode.
                     state.exitEdit()
@@ -748,6 +794,9 @@ internal fun TileHost(
                 }
                 onLongClick("edit") { state.select(id); true }
                 customActions = buildList {
+                    if (onRemoveFromFolder == null && TileFolders.canGroup(tile.spec)) {
+                        add(CustomAccessibilityAction("Group into folder…") { state.startGrouping(id); true })
+                    }
                     if (folder != null) {
                         add(CustomAccessibilityAction(if (folderOpen) "Close" else "Open") {
                             state.openFolderId = if (folderOpen) null else id
@@ -765,6 +814,8 @@ internal fun TileHost(
                 // tile can be dragged straight away.
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    // Tiles are picked, not moved, while grouping.
+                    if (state.grouping) return@awaitEachGesture
                     val immediate = state.editing && state.selectedId == id
                     val start = if (immediate) {
                         awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
@@ -795,8 +846,6 @@ internal fun TileHost(
                         if (state.dragId == id) {
                             state.dragId = null
                             state.dragCell = null
-                            state.mergeHoverId = null
-                            state.mergeCandidateId = null
                             // A finished drop keeps its preview until the stored layout catches up.
                             if (!dropped) state.preview = null
                         }
@@ -805,7 +854,9 @@ internal fun TileHost(
             }
             .pointerInput(id, cellPx) {
                 detectTapGestures { offset ->
-                    if (state.editing) {
+                    if (state.grouping) {
+                        if (currentGroupTarget) state.toggleGrouped(id)
+                    } else if (state.editing) {
                         // The name strip of a folder opens the rename field.
                         if (folder != null && offset.y > size.height - cellPx * FOLDER_NAME_STRIP) {
                             state.renamingFolderId = id
@@ -825,16 +876,32 @@ internal fun TileHost(
             editing = state.editing,
             onWidgetLongPress = { onLongPress(); state.select(id) },
         )
-        if (mergeTarget) Box(Modifier.fillMaxSize().border(2.dp, Metro.colors.foreground))
+        if (groupAnchor) Box(Modifier.fillMaxSize().border(2.dp, Metro.colors.foreground))
+        if (groupTarget) GroupCheckbox(picked, Modifier.align(Alignment.TopEnd).padding(6.dp))
     }
 }
 
 @Composable
-internal fun EditBadges(placement: Placement, cellPx: Float, gapPx: Float, onUnpin: () -> Unit, onResize: (() -> Unit)?) {
+internal fun EditBadges(
+    placement: Placement,
+    cellPx: Float,
+    gapPx: Float,
+    onUnpin: () -> Unit,
+    onResize: (() -> Unit)?,
+    onGroup: (() -> Unit)? = null,
+    groupLabel: String = "group into folder",
+) {
     val badgePx = with(LocalDensity.current) { EditBadgeSize.toPx() }
     val right = (placement.x + placement.width) * cellPx - gapPx
     val bottom = (placement.y + placement.height) * cellPx - gapPx
     val top = placement.y * cellPx
+    val left = placement.x * cellPx
+    // Group: top-left corner, where widgets (which can't be grouped) have their settings badge.
+    if (onGroup != null) EditBadge(
+        label = groupLabel,
+        onClick = onGroup,
+        modifier = Modifier.offset { IntOffset((left - badgePx * 0.15f).roundToInt(), (top - badgePx * 0.3f).roundToInt()) },
+    ) { color, stroke -> drawFolderGlyph(color, stroke) }
     // Unpin: top-right corner.
     EditBadge(
         label = "unpin",

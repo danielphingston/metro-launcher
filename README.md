@@ -18,8 +18,8 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 **Start screen**
 - Small, medium, wide and large tiles; small tiles cluster in 2x2 blocks like Windows Phone. Four columns, or six with "Show more tiles".
 - Tiles keep the place you give them and only ever slide straight up into free space, never sideways into gaps; resizing or dropping a tile pushes the ones in its way down. Any tile can rise one row into a row left half empty, such as under a pair of small tiles. New tiles go at the bottom.
-- Press and hold a tile to edit: drag to move, the corner badges unpin or resize. Back, Home or a tap on empty space leaves edit mode.
-- "+" under the tiles adds weather, photos, people and widget tiles; the arrow opens the app list. TalkBack gets custom actions (open folder, remove from folder, unpin, resize) as an alternative to dragging.
+- Press and hold a tile to edit: drag to move (dragging never makes a folder), the corner badges unpin, resize or group into a folder. Back, Home or a tap on empty space leaves edit mode.
+- "+" under the tiles adds weather, photos, people and widget tiles; the arrow opens the app list. TalkBack gets custom actions (open folder, group into folder, remove from folder, unpin, resize) as an alternative to dragging.
 
 **Tiles and live tiles**
 - App tiles show an unread count and flip to the latest message (read from notifications). Clock and calendar apps show time, date, alarm and next appointment. Music apps show the current track and album art.
@@ -31,7 +31,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - A soft fade under the status bar keeps the clock and icons readable when tiles scroll up behind them (start screen and app list).
 
 **Folders**
-- Hold a dragged app or shortcut tile over the middle of another for a moment (about 0.4 s) to merge them into a folder; drop onto a folder to add to it. The tile you aim at stays put while you do.
+- Grouping is its own action, so moving tiles stays easy. In edit mode the selected app, shortcut or folder tile has a folder badge in its top left corner; tap it to start grouping. Tap other app and shortcut tiles to tick their round checkbox (the rest dim), then "create folder (n)" in the bar at the bottom, or "add to folder (n)" when you started from a folder. The new folder takes the first tile's place and children in the order you ticked them. "cancel", Back, Home or a tap on empty space leaves grouping.
 - Tap a folder to open it inline below its row; drag children to reorder or out of the band to remove them. Folders with fewer than two children dissolve.
 - Rename in edit mode by tapping the name strip of the folder tile.
 
