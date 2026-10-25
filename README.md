@@ -37,6 +37,10 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Swipe left. Alphabetical with letter tiles and a jump grid, search, and a "recently added" group.
 - Press and hold an app for pin to start, app shortcuts, uninstall and app info.
 
+**Search**
+- Swipe down on the start screen, or tap the magnifier under the tiles. Results appear as you type: apps, app shortcuts (when Metro is the default home app) and a web row that opens google, bing or duckduckgo (settings) in your default browser. A typed address gets an "open" row. Search or Enter opens the best app match, else the web search.
+- Metro makes no network requests while you type; nothing leaves the phone until you open a web result, and then your browser does it.
+
 **Backgrounds and personalisation**
 - Theme: dark, light or follow system. The 20 Windows Phone accent colours.
 - Start background: solid; photo tiles (each tile is a window onto one photo); full photo with parallax; or the system wallpaper.

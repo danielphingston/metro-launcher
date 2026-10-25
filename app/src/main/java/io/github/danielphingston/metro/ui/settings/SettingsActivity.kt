@@ -176,6 +176,8 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
 
         IconPackSettingsSection(settings, repository)
 
+        SearchSettingsSection(settings, repository)
+
         BackgroundSettingsSection(settings, repository)
 
         Section("live tiles")

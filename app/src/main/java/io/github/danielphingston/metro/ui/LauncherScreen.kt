@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect as ComposeRect
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -25,6 +26,9 @@ import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.BackgroundPhoto
 import io.github.danielphingston.metro.ui.applist.AppListScreen
 import io.github.danielphingston.metro.ui.applist.AppListState
+import io.github.danielphingston.metro.ui.search.SearchOverlay
+import io.github.danielphingston.metro.ui.search.SearchState
+import io.github.danielphingston.metro.ui.search.rememberPullToSearch
 import io.github.danielphingston.metro.ui.start.LocalTurnstile
 import io.github.danielphingston.metro.ui.start.StartScreen
 import io.github.danielphingston.metro.ui.start.Turnstile
@@ -103,6 +107,7 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
     val scope = rememberCoroutineScope()
     val startState = rememberStartState()
     val appListState = remember { AppListState() }
+    val searchState = remember { SearchState() }
     val view = LocalView.current
     val context = LocalContext.current
     val turnstile = remember { TurnstileState { Turnstile.animationsEnabled(context.contentResolver) } }
@@ -116,6 +121,7 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
             if (animate || pager.currentPage != 0) turnstile.reset()
             startState.exitEdit()
             startState.dismissOverlays()
+            searchState.close()
             appListState.reset()
             if (animate) {
                 launch { pager.animateScrollToPage(0) }
@@ -137,6 +143,8 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
     // A launcher never finishes on back: back only unwinds launcher UI state.
     BackHandler {
         when {
+            // Search sits on top of everything.
+            searchState.handleBack() -> Unit
             // The app list's own overlays, then the way back to start.
             pager.currentPage != 0 ->
                 if (!appListState.handleBack()) scope.launch { pager.animateScrollToPage(0) }
@@ -154,16 +162,29 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
         StartBackdrop.of(settings, image) { startState.scroll.value * BackgroundPhoto.PARALLAX }
     }
 
+    // Pulling the start screen down past its top opens search.
+    val pullToSearch = rememberPullToSearch(
+        scroll = startState.scroll,
+        enabled = !startState.editing && !startState.flyoutOpen && !searchState.isOpen && pager.currentPage == 0,
+        onPull = searchState::open,
+    )
+
     CompositionLocalProvider(LocalStartBackdrop provides backdrop) {
         Box(Modifier.fillMaxSize().startBackdrop(backdrop, Metro.colors.background)) {
             CompositionLocalProvider(LocalTurnstile provides turnstile) {
                 HorizontalPager(
                     state = pager,
-                    userScrollEnabled = !startState.editing && !startState.flyoutOpen && !appListState.overlayOpen,
+                    userScrollEnabled = !startState.editing && !startState.flyoutOpen && !appListState.overlayOpen &&
+                        !searchState.isOpen,
                     beyondViewportPageCount = 1,
                     key = { it },
                 ) { page ->
-                    Box(Modifier.fillMaxSize().continuum(pager, page)) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .continuum(pager, page)
+                            .then(if (page == 0) Modifier.nestedScroll(pullToSearch) else Modifier),
+                    ) {
                         when (page) {
                             0 -> StartScreen(
                                 viewModel = viewModel,
@@ -175,12 +196,15 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
                                     startState.exitEdit()
                                     scope.launch { pager.animateScrollToPage(1) }
                                 },
+                                onSearch = searchState::open,
                             )
                             else -> AppListScreen(viewModel, appListState, launcher)
                         }
                     }
                 }
             }
+            // Outside LocalTurnstile's scope: its own field must not swing with the tiles.
+            SearchOverlay(viewModel, searchState, launcher)
         }
     }
 }

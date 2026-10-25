@@ -37,9 +37,11 @@ object AppGroups {
         return q.isEmpty() || fold(label).contains(q)
     }
 
+    private val accents = Regex("\\p{Mn}+")
+
     /** Lowercase and strip accents, so "é" groups under "e" and "cafe" finds "Café". */
-    private fun fold(text: String): String =
+    internal fun fold(text: String): String =
         Normalizer.normalize(text, Normalizer.Form.NFD)
-            .replace(Regex("\\p{Mn}+"), "")
+            .replace(accents, "")
             .lowercase(Locale.ROOT)
 }

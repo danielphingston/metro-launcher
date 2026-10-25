@@ -273,9 +273,9 @@ internal fun AppListContent(
     }
 }
 
-/** A slim box with a magnifier; the border turns accent while typing. */
+/** A slim box with a magnifier; the border turns accent while typing. The search overlay reuses it. */
 @Composable
-private fun SearchBox(query: String, onQueryChange: (String) -> Unit, onSubmit: () -> Unit) {
+internal fun SearchBox(query: String, onQueryChange: (String) -> Unit, onSubmit: () -> Unit, modifier: Modifier = Modifier) {
     val colors = Metro.colors
     var focused by remember { mutableStateOf(false) }
     BasicTextField(
@@ -286,7 +286,7 @@ private fun SearchBox(query: String, onQueryChange: (String) -> Unit, onSubmit: 
         cursorBrush = SolidColor(colors.accent),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
         keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .turnstile(LocalTurnstile.current, "search")
             .padding(start = ListStart, end = 12.dp, top = 12.dp, bottom = 8.dp)
@@ -315,7 +315,7 @@ private fun SearchBox(query: String, onQueryChange: (String) -> Unit, onSubmit: 
     )
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMagnifier(color: Color) {
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMagnifier(color: Color) {
     val stroke = 1.5.dp.toPx()
     val r = size.width * 0.32f
     val c = Offset(size.width * 0.42f, size.height * 0.42f)

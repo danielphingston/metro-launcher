@@ -55,6 +55,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -85,6 +86,7 @@ import io.github.danielphingston.metro.data.TileFolders
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.MediaSource
 import io.github.danielphingston.metro.live.NotificationHub
+import io.github.danielphingston.metro.ui.applist.drawMagnifier
 import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.tiles.FolderTile
@@ -206,6 +208,7 @@ fun StartScreen(
     isCurrentPage: Boolean,
     launcher: AppLauncher,
     onShowApps: () -> Unit,
+    onSearch: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -490,6 +493,7 @@ fun StartScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 AddTileButton(onClick = { state.addMenuOpen = true })
+                SearchButton(onSearch)
                 AllAppsArrow(onShowApps)
             }
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
@@ -831,6 +835,12 @@ private fun AddTileButton(onClick: () -> Unit) = RoundGlyphButton("add a tile", 
     val arm = size.width * 0.18f
     drawLine(color, Offset(c - arm, c), Offset(c + arm, c), stroke, StrokeCap.Round)
     drawLine(color, Offset(c, c - arm), Offset(c, c + arm), stroke, StrokeCap.Round)
+}
+
+/** Circled magnifier that opens the search overlay. */
+@Composable
+private fun SearchButton(onClick: () -> Unit) = RoundGlyphButton("search", onClick) { color, _ ->
+    inset(size.width * 0.28f) { drawMagnifier(color) }
 }
 
 /** The circled arrow under the tiles that opens the app list. */

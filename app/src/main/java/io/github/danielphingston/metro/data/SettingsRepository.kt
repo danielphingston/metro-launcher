@@ -45,6 +45,8 @@ data class LauncherSettings(
     val tileTransparency: Int? = null,
     /** Use [backgroundAccent] instead of [accent] while a photo background is on. */
     val accentFromBackground: Boolean = false,
+    /** Where the search overlay's "web" row searches. */
+    val searchEngine: SearchEngine = SearchEngine.GOOGLE,
 ) {
     /** Whether the start screen shows the picked photo. */
     val showsPhoto: Boolean get() = background == StartBackground.PHOTO_TILES || background == StartBackground.PHOTO_FULL
@@ -80,6 +82,7 @@ class SettingsRepository(private val context: Context) {
         val backgroundAccent = intPreferencesKey("background_accent")
         val tileTransparency = intPreferencesKey("tile_transparency")
         val accentFromBackground = booleanPreferencesKey("accent_from_background")
+        val searchEngine = stringPreferencesKey("search_engine")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -99,6 +102,8 @@ class SettingsRepository(private val context: Context) {
             backgroundAccent = this[Keys.backgroundAccent],
             tileTransparency = this[Keys.tileTransparency],
             accentFromBackground = this[Keys.accentFromBackground] ?: defaults.accentFromBackground,
+            searchEngine = this[Keys.searchEngine]?.let { runCatching { SearchEngine.valueOf(it) }.getOrNull() }
+                ?: defaults.searchEngine,
         )
     }
 
@@ -125,6 +130,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAccentFromBackground(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.accentFromBackground] = enabled }
+
+    suspend fun setSearchEngine(engine: SearchEngine) =
+        context.metroDataStore.edit { it[Keys.searchEngine] = engine.name }
 
     /** The photo can't be read any more: forget it and go back to the plain background. */
     suspend fun clearUnreadablePhoto() = context.metroDataStore.edit {
