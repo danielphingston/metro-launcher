@@ -83,7 +83,6 @@ import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.data.TileContent
-import io.github.danielphingston.metro.data.TileFolders
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.live.MediaSource
@@ -170,7 +169,12 @@ class StartState(val scroll: ScrollState) {
     /** Folder whose name is being edited. */
     var renamingFolderId by mutableStateOf<Long?>(null)
 
-    /** Tile the dragged one is held over the middle of, and the same once held long enough to drop into it. */
+    /**
+     * Tile the dragged one's centre is over and could join: the other tiles keep still while it is
+     * set. Then the one whose middle it is held over, and the same once held long enough to drop into it.
+     */
+    var mergeHoverId by mutableStateOf<Long?>(null)
+        internal set
     var mergeCandidateId by mutableStateOf<Long?>(null)
         internal set
     var mergeTargetId by mutableStateOf<Long?>(null)
@@ -184,6 +188,7 @@ class StartState(val scroll: ScrollState) {
         preview = null
         resizeId = null
         resizeSpan = null
+        mergeHoverId = null
         mergeCandidateId = null
         mergeTargetId = null
     }
@@ -219,9 +224,6 @@ fun rememberStartState(): StartState {
 
 private val SidePadding = 8.dp
 private val TileGap = 4.dp
-
-/** How long a dragged tile must rest over another's middle before dropping would merge them. */
-private const val MERGE_DWELL_MILLIS = 600L
 
 /**
  * How long a dragged tile must stay over a cell before the other tiles move out of its way, so
@@ -345,15 +347,6 @@ fun StartScreen(
             withTimeoutOrNull(500) { snapshotFlow { state.scroll.maxValue }.first { it >= target } }
             state.scroll.animateScrollTo(target)
         }
-        // Holding a dragged tile over another one's middle arms the drop into it.
-        LaunchedEffect(state.mergeCandidateId) {
-            state.mergeTargetId = null
-            val candidate = state.mergeCandidateId ?: return@LaunchedEffect
-            delay(MERGE_DWELL_MILLIS)
-            state.mergeTargetId = candidate
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-        }
-
         // Which live tiles are on screen: only those may flip.
         val liveTiles by rememberUpdatedState(
             (tiles.zip(placements) + openChildren.zip(layout.children)).mapNotNull { (tile, placement) ->
@@ -409,34 +402,7 @@ fun StartScreen(
             }
         }
 
-        // Follow a dragged top-level tile (also while the screen scrolls under it): holding it over the
-        // middle of a tile it can join arms a merge, anywhere else it targets the cell its corner snaps to.
-        val currentTiles by rememberUpdatedState(tiles)
-        val currentPlacements by rememberUpdatedState(placements)
-        LaunchedEffect(state.dragId) {
-            val id = state.dragId ?: return@LaunchedEffect
-            snapshotFlow { state.dragTopLeft }.collect { topLeft ->
-                val index = currentTiles.indexOfFirst { it.spec.id == id }
-                if (index < 0) return@collect // A folder child; those are handled by the child's own drag.
-                val (cx, cy) = dragCenterCell(state, currentPlacements[index], cellPx)
-                val target = currentTiles.indices.firstOrNull { i ->
-                    i != index && currentPlacements[i].contains(cx, cy)
-                }
-                val joins = target != null && currentPlacements[target].inMiddle(cx, cy) &&
-                    TileFolders.canMerge(currentTiles[index].spec, currentTiles[target].spec)
-                state.mergeCandidateId = if (joins) currentTiles[target!!].spec.id else null
-                if (!joins) {
-                    state.dragCell = TilePlacement.dropCell(currentTiles[index].spec, topLeft.x / cellPx, topLeft.y / cellPx, columns)
-                }
-            }
-        }
-        // The other tiles make room once the dragged one has rested on a cell for a moment.
-        LaunchedEffect(state.dragCell) {
-            val id = state.dragId ?: return@LaunchedEffect
-            val cell = state.dragCell ?: return@LaunchedEffect
-            delay(PREVIEW_HOLD_MILLIS)
-            state.preview = TileMove(id, cell)
-        }
+        DragTracking(state, tiles, placements, cellPx, columns)
 
         Column(
             Modifier
@@ -477,14 +443,17 @@ fun StartScreen(
                             live = liveFor(tile),
                             flipped = flipped[tile.spec.id] == true && !state.editing,
                             monochromeIcons = settings.monochromeIcons,
-                            viewModel = viewModel,
+                            icons = viewModel.icons,
+                            onUnpin = { viewModel.unpin(tile.spec.id) },
+                            onResize = { viewModel.resize(tile.spec.id) },
+                            onSetSpan = { w, h -> viewModel.setSpan(tile.spec.id, w, h) },
                             onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state) },
                             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
                             mergeTarget = state.mergeTargetId == tile.spec.id,
                             onDrop = { completed ->
                                 val into = state.mergeTargetId
-                                // Over a tile it could join, the tiles still show the earlier preview; drop as shown.
-                                val cell = if (state.mergeCandidateId != null) state.preview?.to ?: state.dragCell else state.dragCell
+                                val cell = state.dragCell
+                                state.mergeHoverId = null
                                 state.mergeCandidateId = null
                                 state.preview = null
                                 if (completed && into != null) {
@@ -521,7 +490,10 @@ fun StartScreen(
                             live = liveFor(child),
                             flipped = flipped[child.spec.id] == true && !state.editing,
                             monochromeIcons = settings.monochromeIcons,
-                            viewModel = viewModel,
+                            icons = viewModel.icons,
+                            onUnpin = { viewModel.unpin(child.spec.id) },
+                            onResize = { viewModel.resize(child.spec.id) },
+                            onSetSpan = { w, h -> viewModel.setSpan(child.spec.id, w, h) },
                             onLaunch = { bounds -> activateTile(context, child, bounds, launcher, defaults, state) },
                             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
                             appearFrom = appearFrom,
@@ -628,8 +600,55 @@ fun StartScreen(
     }
 }
 
+/**
+ * Follows a dragged top-level tile (also while the screen scrolls under it) and works out what
+ * dropping it would do. It always targets the cell its corner snaps to ([StartState.dragCell]);
+ * holding its centre over a tile it can join ([MergeAim]) keeps the other tiles still, so that tile
+ * stays under the finger, and in its middle arms the merge after [MergeAim.DWELL_MILLIS]. Moving
+ * off resumes normal reflow, so a quick pass over other tiles only reorders. [placements] are the
+ * tiles as displayed.
+ */
 @Composable
-private fun TileHost(
+internal fun DragTracking(state: StartState, tiles: List<ResolvedTile>, placements: List<Placement>, cellPx: Float, columns: Int) {
+    val haptics = LocalHapticFeedback.current
+    val currentTiles by rememberUpdatedState(tiles)
+    val currentPlacements by rememberUpdatedState(placements)
+    // Holding a dragged tile over another one's middle arms the drop into it.
+    LaunchedEffect(state.mergeCandidateId) {
+        state.mergeTargetId = null
+        val candidate = state.mergeCandidateId ?: return@LaunchedEffect
+        delay(MergeAim.DWELL_MILLIS)
+        state.mergeTargetId = candidate
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+
+    LaunchedEffect(state.dragId) {
+        val id = state.dragId ?: return@LaunchedEffect
+        snapshotFlow { state.dragTopLeft }.collect { topLeft ->
+            val index = currentTiles.indexOfFirst { it.spec.id == id }
+            if (index < 0) return@collect // A folder child; those are handled by the child's own drag.
+            val (cx, cy) = dragCenterCell(state, currentPlacements[index], cellPx)
+            // Measured against the tiles as displayed, which stay put while one is aimed at.
+            val aim = MergeAim.aim(currentTiles.map { it.spec }, currentPlacements, index, cx, cy, state.mergeCandidateId)
+            state.mergeHoverId = aim.hover?.let { currentTiles[it].spec.id }
+            state.mergeCandidateId = if (aim.joins) state.mergeHoverId else null
+            state.dragCell = TilePlacement.dropCell(currentTiles[index].spec, topLeft.x / cellPx, topLeft.y / cellPx, columns)
+        }
+    }
+    // The other tiles make room once the dragged one has rested on a cell for a moment, unless it
+    // is over a tile it could join: that one must not move out from under it.
+    LaunchedEffect(state.dragCell, state.mergeHoverId) {
+        val id = state.dragId ?: return@LaunchedEffect
+        val cell = state.dragCell ?: return@LaunchedEffect
+        if (state.mergeHoverId != null) return@LaunchedEffect
+        delay(PREVIEW_HOLD_MILLIS)
+        state.preview = TileMove(id, cell)
+    }
+}
+
+/** One tile on the start grid: its gestures, accessibility actions, edit mode visuals and body. */
+@Composable
+internal fun TileHost(
     tile: ResolvedTile,
     placement: Placement,
     cellPx: Float,
@@ -640,7 +659,10 @@ private fun TileHost(
     live: LiveContent?,
     flipped: Boolean,
     monochromeIcons: Boolean,
-    viewModel: LauncherViewModel,
+    icons: IconCache,
+    onUnpin: () -> Unit,
+    onResize: () -> Unit,
+    onSetSpan: (width: Int, height: Int) -> Unit,
     onLaunch: (Rect?) -> Unit,
     onLongPress: () -> Unit,
     onDragMove: () -> Unit = {},
@@ -655,7 +677,7 @@ private fun TileHost(
     val folder = tile.spec.content as? TileContent.Folder
     // A hosted widget does its own touch handling and accessibility, and is never flipped or tilted.
     val isWidget = tile.spec.content is TileContent.Widget
-    val widgetActions = widgetCustomActions(tile, placement, columns, cell.value) { w, h -> viewModel.setSpan(id, w, h) }
+    val widgetActions = widgetCustomActions(tile, placement, columns, cell.value, onSetSpan)
     val target = IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt())
     val position = remember { Animatable(appearFrom ?: target, IntOffset.VectorConverter) }
     val dragging = state.dragId == id
@@ -732,8 +754,8 @@ private fun TileHost(
                         })
                     }
                     onRemoveFromFolder?.let { add(CustomAccessibilityAction("Remove from folder") { it(); true }) }
-                    add(CustomAccessibilityAction("Unpin from start") { viewModel.unpin(id); true })
-                    if (onRemoveFromFolder == null && !isWidget) add(CustomAccessibilityAction("Resize") { viewModel.resize(id); true })
+                    add(CustomAccessibilityAction("Unpin from start") { onUnpin(); true })
+                    if (onRemoveFromFolder == null && !isWidget) add(CustomAccessibilityAction("Resize") { onResize(); true })
                     addAll(widgetActions)
                 }
             }
@@ -772,6 +794,7 @@ private fun TileHost(
                         if (state.dragId == id) {
                             state.dragId = null
                             state.dragCell = null
+                            state.mergeHoverId = null
                             state.mergeCandidateId = null
                             // A finished drop keeps its preview until the stored layout catches up.
                             if (!dropped) state.preview = null
@@ -793,10 +816,11 @@ private fun TileHost(
                     }
                 }
             }
-            .metroTilt(enabled = !state.editing && !isWidget),
+            // Constant for a tile, so edit mode (which turns the tilt off) never reshapes the modifier chain mid-gesture.
+            .then(if (isWidget) Modifier else Modifier.metroTilt(enabled = !state.editing)),
     ) {
         TileBody(
-            tile, live, flipped, monochromeIcons, viewModel.icons, cell, folderOpen,
+            tile, live, flipped, monochromeIcons, icons, cell, folderOpen,
             editing = state.editing,
             onWidgetLongPress = { onLongPress(); state.select(id) },
         )

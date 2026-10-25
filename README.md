@@ -31,7 +31,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - A soft fade under the status bar keeps the clock and icons readable when tiles scroll up behind them (start screen and app list).
 
 **Folders**
-- Hold a dragged app or shortcut tile over another for a moment (about 0.6 s) to merge them into a folder; drop onto a folder to add to it.
+- Hold a dragged app or shortcut tile over the middle of another for a moment (about 0.4 s) to merge them into a folder; drop onto a folder to add to it. The tile you aim at stays put while you do.
 - Tap a folder to open it inline below its row; drag children to reorder or out of the band to remove them. Folders with fewer than two children dissolve.
 - Rename in edit mode by tapping the name strip of the folder tile.
 

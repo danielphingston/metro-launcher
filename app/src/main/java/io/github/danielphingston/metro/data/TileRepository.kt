@@ -24,12 +24,12 @@ import org.json.JSONObject
 enum class TileSize(val width: Int, val height: Int) {
     SMALL(1, 1), MEDIUM(2, 2), WIDE(4, 2), LARGE(4, 4);
 
-    /** Windows Phone's resize button order. */
+    /** The resize button's order: each press grows the tile one size, and the largest goes back to small. */
     fun next(): TileSize = when (this) {
-        MEDIUM -> SMALL
-        SMALL -> WIDE
+        SMALL -> MEDIUM
+        MEDIUM -> WIDE
         WIDE -> LARGE
-        LARGE -> MEDIUM
+        LARGE -> SMALL
     }
 }
 

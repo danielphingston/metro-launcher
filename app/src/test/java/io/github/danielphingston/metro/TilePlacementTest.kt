@@ -144,8 +144,8 @@ class TilePlacementTest {
 
     @Test
     fun growingATilePushesNeighboursDownWithoutMovingThemSideways() {
-        val specs = listOf(tile(1, SMALL, 0, 0), tile(2, MEDIUM, 2, 0), tile(3, MEDIUM, 0, 2), tile(4, MEDIUM, 2, 2))
-        val resized = TilePlacement.resize(specs, 1, 4) // small -> wide
+        val specs = listOf(tile(1, MEDIUM, 0, 0), tile(2, MEDIUM, 2, 0), tile(3, MEDIUM, 0, 2), tile(4, MEDIUM, 2, 2))
+        val resized = TilePlacement.resize(specs, 1, 4) // medium -> wide
         assertEquals(WIDE, resized[0].size)
         assertEquals(GridPos(0, 0), resized.at(1))
         // The tile that was beside it drops below, and the one under that drops further, in the same column.
@@ -158,32 +158,35 @@ class TilePlacementTest {
     fun aResizedTileKeepsItsCornerAndSnapsToAnEvenColumn() {
         // A small at (1, 1) becomes wide: its corner snaps to column 0 in four columns, and it rises to row 0.
         val specs = listOf(tile(1, SMALL, 1, 1), tile(2, MEDIUM, 0, 2))
-        val resized = TilePlacement.resize(specs, 1, 4)
+        val resized = TilePlacement.resize(TilePlacement.resize(specs, 1, 4), 1, 4) // small -> medium -> wide
+        assertEquals(WIDE, resized[0].size)
         assertEquals(GridPos(0, 0), resized.at(1))
         assertEquals(GridPos(0, 2), resized.at(2))
         // On six columns a wide tile at x = 5 is clamped to the last even slot, not moved elsewhere.
-        val wide = TilePlacement.resize(listOf(tile(1, SMALL, 5, 0)), 1, 6)
+        val wide = TilePlacement.resize(TilePlacement.resize(listOf(tile(1, SMALL, 5, 0)), 1, 6), 1, 6)
         assertEquals(GridPos(2, 0), wide.at(1))
     }
 
     @Test
     fun shrinkingATileDoesNotMoveUnrelatedTiles() {
+        // On six columns, with a stack of tiles beside the large one.
         val specs = listOf(
-            tile(1, MEDIUM, 0, 0), tile(2, MEDIUM, 2, 0), tile(3, WIDE, 0, 2), tile(4, MEDIUM, 0, 4), tile(5, MEDIUM, 2, 4),
+            tile(1, LARGE, 0, 0), tile(2, MEDIUM, 4, 0), tile(3, MEDIUM, 4, 2), tile(4, MEDIUM, 4, 4),
         )
-        val before = TilePlacement.settle(specs, 4)
-        val shrunk = TilePlacement.resize(before, 1, 4) // medium -> small
+        val before = TilePlacement.settle(specs, 6)
+        val shrunk = TilePlacement.resize(before, 1, 6) // large -> small
         assertEquals(SMALL, shrunk[0].size)
-        // The freed cells stay empty: the wide tile cannot rise (the small and the medium are still above it).
+        // The freed cells stay empty: the tiles beside it are in other columns and have nothing to rise into.
         assertEquals(before.drop(1).map { it.x to it.y }, shrunk.drop(1).map { it.x to it.y })
     }
 
     @Test
     fun shrinkingLetsTilesDirectlyBelowRise() {
         val specs = listOf(tile(1, LARGE, 0, 0), tile(2, MEDIUM, 0, 4), tile(3, MEDIUM, 2, 4))
-        val shrunk = TilePlacement.resize(specs, 1, 4) // large -> medium
-        assertEquals(MEDIUM, shrunk[0].size)
-        assertEquals(GridPos(0, 2), shrunk.at(2))
+        val shrunk = TilePlacement.resize(specs, 1, 4) // large -> small
+        assertEquals(SMALL, shrunk[0].size)
+        // The one under the small tile's column stops below it; the other has the whole top row.
+        assertEquals(GridPos(0, 1), shrunk.at(2))
         assertEquals(GridPos(2, 0), shrunk.at(3))
     }
 
@@ -193,11 +196,11 @@ class TilePlacementTest {
         val before = TilePlacement.settle(
             listOf(
                 tile(1, MEDIUM, 0, 0), tile(2, MEDIUM, 2, 0), tile(3, SMALL, 0, 2),
-                tile(4, MEDIUM, 2, 2), tile(5, WIDE, 0, 4), tile(6, SMALL, 0, 6),
+                tile(4, LARGE, 2, 2), tile(5, WIDE, 0, 6), tile(6, SMALL, 0, 8),
             ),
-            4,
+            6,
         )
-        val after = TilePlacement.resize(before, 4, 4) // medium -> small
+        val after = TilePlacement.resize(before, 4, 6) // large -> small
         // The tiles above and beside it stay put.
         assertEquals(before.filter { it.id <= 3L }.map { it.x to it.y }, after.filter { it.id <= 3L }.map { it.x to it.y })
         // The row it freed is filled only by the tiles straight below it rising, never from the side.
@@ -208,8 +211,10 @@ class TilePlacementTest {
     fun resizeStepsThroughTheSizesAndDropsASpan() {
         val specs = listOf(tile(1, MEDIUM, 0, 0, TileSpan(3, 5)))
         val resized = TilePlacement.resize(specs, 1, 4).single()
-        assertEquals(SMALL, resized.size)
+        assertEquals(WIDE, resized.size)
         assertEquals(null, resized.span)
+        // Each press grows one size; the largest goes back to small.
+        assertEquals(listOf(MEDIUM, WIDE, LARGE, SMALL), listOf(SMALL, MEDIUM, WIDE, LARGE).map { it.next() })
     }
 
     // --- Custom spans -------------------------------------------------------------------------

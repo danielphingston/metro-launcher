@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -87,13 +88,25 @@ fun MetroText(
  * The Windows Phone "tilt" press effect: the element tips toward the finger, or sinks when
  * pressed in the middle. Observes pointer events without consuming them, so it composes with
  * any click or drag handling on the same element.
+ *
+ * Turning [enabled] off only stops the effect (and eases back to rest); the modifier chain keeps
+ * its shape. Dropping the modifier instead would rebuild the element's pointer input chain, and
+ * that cancels a gesture already running on it: a tile that goes into edit mode while pressed
+ * would lose the drag that follows.
  */
 fun Modifier.metroTilt(enabled: Boolean = true, maxDegrees: Float = 9f): Modifier = composed {
-    if (!enabled) return@composed this
     val rotX = remember { Animatable(0f) }
     val rotY = remember { Animatable(0f) }
     val scale = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()
+    val currentEnabled by rememberUpdatedState(enabled)
+    LaunchedEffect(enabled) {
+        if (!enabled) {
+            launch { rotY.animateTo(0f, tween(150)) }
+            launch { rotX.animateTo(0f, tween(150)) }
+            launch { scale.animateTo(1f, tween(150)) }
+        }
+    }
     this
         .pointerInput(maxDegrees) {
             fun animate(x: Float, y: Float, s: Float, millis: Int) {
@@ -111,7 +124,7 @@ fun Modifier.metroTilt(enabled: Boolean = true, maxDegrees: Float = 9f): Modifie
                         val nx = (change.position.x / size.width - 0.5f) * 2 // -1..1
                         val ny = (change.position.y / size.height - 0.5f) * 2
                         val edge = maxOf(kotlin.math.abs(nx), kotlin.math.abs(ny)).coerceAtMost(1f)
-                        animate(nx * maxDegrees, -ny * maxDegrees, 1f - 0.04f * (1f - edge), 90)
+                        if (currentEnabled) animate(nx * maxDegrees, -ny * maxDegrees, 1f - 0.04f * (1f - edge), 90)
                     } else if (start != null &&
                         (!change.pressed || (change.position - start).getDistance() > viewConfiguration.touchSlop)
                     ) {
