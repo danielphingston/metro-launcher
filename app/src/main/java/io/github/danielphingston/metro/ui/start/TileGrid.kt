@@ -8,6 +8,9 @@ data class Placement(val x: Int, val y: Int, val width: Int, val height: Int) {
     fun contains(cellX: Float, cellY: Float) =
         cellX >= x && cellX < x + width && cellY >= y && cellY < y + height
 
+    fun overlaps(other: Placement) =
+        x < other.x + other.width && other.x < x + width && y < other.y + other.height && other.y < y + height
+
     /** Whether the point is within the middle [fraction] of the tile on both axes. */
     fun inMiddle(cellX: Float, cellY: Float, fraction: Float = 0.5f): Boolean =
         abs(cellX - (x + width / 2f)) <= width * fraction / 2 &&

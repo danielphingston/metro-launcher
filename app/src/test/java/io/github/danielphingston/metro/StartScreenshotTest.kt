@@ -51,6 +51,7 @@ import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarEvent
@@ -187,6 +188,10 @@ class StartScreenshotTest {
         captureFolders("start_folder_open_light", ThemeMode.LIGHT, openFolder = GAMES_ID, accent = 0xFF0050EF.toInt())
 
     @Test
+    fun startFolderOpenBesideTallTile() =
+        captureFolders("start_folder_open_tall", ThemeMode.DARK, openFolder = GAMES_ID, tallTile = true)
+
+    @Test
     fun appList() = captureRoboImage("build/outputs/roborazzi/app_list.png") {
         MetroTheme(LauncherSettings()) { AppListPreview() }
     }
@@ -243,10 +248,16 @@ class StartScreenshotTest {
         }
     }
 
-    private fun captureFolders(name: String, theme: ThemeMode, openFolder: Long?, accent: Int = LauncherSettings.DEFAULT_ACCENT) {
+    private fun captureFolders(
+        name: String,
+        theme: ThemeMode,
+        openFolder: Long?,
+        accent: Int = LauncherSettings.DEFAULT_ACCENT,
+        tallTile: Boolean = false,
+    ) {
         captureRoboImage("build/outputs/roborazzi/$name.png") {
             MetroTheme(LauncherSettings(theme = theme, accent = accent, columns = 4)) {
-                FolderPreview(openFolder)
+                FolderPreview(openFolder, tallTile)
             }
         }
     }
@@ -375,7 +386,7 @@ class StartScreenshotTest {
      * does, by laying the tiles out with [FolderLayout] and drawing the children in a [FolderRegion].
      */
     @Composable
-    private fun FolderPreview(openFolder: Long?) {
+    private fun FolderPreview(openFolder: Long?, tallTile: Boolean) {
         val icons = folderIcons
         val columns = 4
         val unread = LiveContent.Notifications(AppNotifications(5, emptyList()), true)
@@ -385,15 +396,19 @@ class StartScreenshotTest {
                 appTile(11, "Xbox", TileSize.MEDIUM), appTile(12, "Chess", TileSize.MEDIUM), appTile(13, "Cards", TileSize.SMALL),
                 appTile(14, "Racing", TileSize.SMALL), appTile(15, "Puzzle", TileSize.SMALL), appTile(16, "Poker", TileSize.SMALL),
                 appTile(17, "Trivia", TileSize.WIDE), appTile(18, "Arcade", TileSize.MEDIUM),
-            ),
+            ).let { if (tallTile) it.take(4) else it },
         )
         val work = folderTile(
             WORK_ID, "work", TileSize.WIDE,
             listOf("Docs", "Sheets", "Slides", "Drive", "Meet", "Notes", "Tasks", "Keep", "Gmail", "Maps", "Files")
                 .mapIndexed { i, label -> appTile(30L + i, label, TileSize.MEDIUM) },
         )
+        val phone = appTile(1, "Phone", TileSize.MEDIUM)
         val tiles = listOf(
-            appTile(1, "Phone", TileSize.MEDIUM), games, work,
+            // With [tallTile], the folder sits beside a tile twice its height, which moves below the open region.
+            if (tallTile) phone.copy(spec = phone.spec.copy(x = 0, y = 0, span = TileSpan(2, 4))) else phone,
+            if (tallTile) games.copy(spec = games.spec.copy(x = 2, y = 0)) else games,
+            work,
             appTile(2, "Clock", TileSize.MEDIUM), appTile(3, "Music", TileSize.MEDIUM), appTile(4, "Camera", TileSize.WIDE),
         )
         warmIcons(icons, tiles + tiles.flatMap { it.children })

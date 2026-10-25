@@ -18,8 +18,8 @@ import io.github.danielphingston.metro.ui.theme.Metro
 
 /**
  * Where everything sits on the start screen. [tiles] are the top-level tiles in list order. With a
- * folder open, [children] are its children and [region] the cells they fill; the tiles below the
- * folder's rows are [tiles] shifted down by the region's height.
+ * folder open, [children] are its children and [region] the cells they fill, right under the
+ * folder; [tiles] are moved down out of its way (see [FolderLayout.compute]).
  */
 class StartLayout(
     val tiles: List<Placement>,
@@ -31,25 +31,35 @@ class StartLayout(
 object FolderLayout {
     /**
      * Takes the settled [base] placements (see [TilePlacement.layout]) and, when the tile at
-     * [openIndex] is an open folder, opens a full-width region for its [childSizes] right under
-     * the rows it occupies; the children are packed in list order. Tiles that start above the
-     * end of those rows stay put; the cut is pushed down past any tile that straddles it and
-     * kept on an even row so small-tile clusters aren't split.
+     * [openIndex] is an open folder, opens a full-width region for its [childSizes] directly under
+     * the folder, wherever it sits; the children are packed in list order. With `cut` the row
+     * under the folder and `height` the region's rows:
+     * - A tile that ends at or above `cut` stays where it is.
+     * - A tile that starts at or below `cut` moves down by `height`.
+     * - A tile beside the folder that straddles `cut` moves down to start just below the region.
+     * - Moved tiles that now overlap are then separated top to bottom, then left to right: the
+     *   later one is pushed down to just below the earlier one, repeatedly.
+     * Tiles never change column, nothing rises into the gaps they leave, and the layout is
+     * derived from [base] each time, so closing the folder gives the stored layout back.
      */
     fun compute(base: List<Placement>, openIndex: Int?, childSizes: List<TileSize>, columns: Int): StartLayout {
         if (openIndex == null || openIndex !in base.indices || childSizes.isEmpty()) {
             return StartLayout(base, emptyList(), null, TileGrid.rows(base))
         }
-        fun evenCeil(row: Int) = (row + 1) / 2 * 2
-        var cut = evenCeil(base[openIndex].y + base[openIndex].height)
-        while (true) {
-            val next = evenCeil(base.filter { it.y < cut }.maxOf { it.y + it.height })
-            if (next <= cut) break
-            cut = next
-        }
+        val cut = base[openIndex].y + base[openIndex].height
         val kids = TileGrid.pack(childSizes, columns)
         val height = TileGrid.rows(kids)
-        val shifted = base.map { if (it.y >= cut) it.copy(y = it.y + height) else it }
+        val shifted = base.toMutableList()
+        val moved = base.indices.filter { base[it].y + base[it].height > cut }
+        for (i in moved) shifted[i] = base[i].let { it.copy(y = if (it.y >= cut) it.y + height else cut + height) }
+        val settled = ArrayList<Placement>()
+        for (i in moved.sortedWith(compareBy({ shifted[it].y }, { shifted[it].x }, { it }))) {
+            while (true) {
+                val hit = settled.firstOrNull { shifted[i].overlaps(it) } ?: break
+                shifted[i] = shifted[i].copy(y = hit.y + hit.height)
+            }
+            settled += shifted[i]
+        }
         return StartLayout(
             tiles = shifted,
             children = kids.map { it.copy(y = it.y + cut) },
