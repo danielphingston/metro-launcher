@@ -114,7 +114,6 @@ Signing is optional. Add the repository secrets `KEYSTORE_BASE64` (base64 of the
 
 ## Known limitations
 
-- **Not tested on a real device yet.** Everything was built and checked with JVM unit tests and Robolectric screenshots only. Gesture handling (especially widgets inside tiles, which take touches from Compose), the wallpaper background, turnstile timing and widget binding need device testing.
 - Wallpaper mode sets the status bar icons from the wallpaper's own brightness hint; text on the page itself still follows the theme, so on a very bright or dark wallpaper some text can be hard to read. Android does not let apps read the wallpaper image, so the accent can't be taken from it.
 - Only app and shortcut tiles can go into folders (not widgets, weather, photos or people), and folder children are at most wide.
 - Widgets keep receiving updates while the app list is showing. A long-press on a widget that takes every touch (rare) enters edit mode, but the tile is then dragged with a second touch.
