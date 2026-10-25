@@ -229,6 +229,8 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
             )
         })
 
+        CrashLogSettingsSection()
+
         Section("about")
         MetroText("Metro Launcher ${BuildConfig.VERSION_NAME}", MetroType.caption, color = colors.subtle)
         Spacer(Modifier.height(24.dp))

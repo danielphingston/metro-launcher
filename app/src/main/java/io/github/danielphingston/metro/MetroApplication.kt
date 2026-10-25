@@ -2,6 +2,7 @@ package io.github.danielphingston.metro
 
 import android.app.Application
 import io.github.danielphingston.metro.data.AppRepository
+import io.github.danielphingston.metro.data.CrashLog
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileRepository
@@ -29,6 +30,8 @@ class MetroApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // First, so a crash anywhere below is recorded too.
+        CrashLog.install(this)
         settings = SettingsRepository(this)
         tiles = TileRepository(this, appScope, settings.settings.map { it.columns }.distinctUntilChanged())
         icons = IconCache(this)

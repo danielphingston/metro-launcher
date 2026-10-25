@@ -129,6 +129,7 @@ jobs:
           path: |
             app/build/reports/
             app/build/outputs/roborazzi/
+            app/build/outputs/mapping/release/mapping.txt
 
       # Runs for pushed v* tags, or a manual run with release_tag (the tag is then created
       # on the built commit).

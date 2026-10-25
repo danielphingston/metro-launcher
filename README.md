@@ -96,6 +96,10 @@ Pushing a `v*` tag (for example `git tag v0.3.0 && git push origin v0.3.0`) also
 
 Signing is optional. Add the repository secrets `KEYSTORE_BASE64` (base64 of the `.jks`), `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD` to sign with your own key. Without them the release is signed with the debug key and marked as a prerelease: installable for testing, not accepted by Google Play.
 
+## Crash log
+
+If Metro crashes, the stack trace is saved to `last_crash.txt` in the app's private storage (the last four crashes, with time, app version, phone model and thread), and the system still gets the crash as usual. "last crash" in Metro settings shows it with "share" and "clear" buttons; nothing is sent anywhere unless you press share. Release builds are minified, so a trace needs the `mapping.txt` of the same build to read: it is in the AAB, and the CI `reports` artifact has it as `outputs/mapping/release/mapping.txt`.
+
 ## Publishing to Google Play
 
 - `minSdk 31`, `targetSdk 36`. Upload the signed `.aab`.
