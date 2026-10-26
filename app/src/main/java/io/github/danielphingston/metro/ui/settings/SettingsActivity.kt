@@ -8,10 +8,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +38,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -56,10 +55,12 @@ import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationAccess
+import io.github.danielphingston.metro.ui.LARGE_SCREEN_DP
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.MetroToggle
+import io.github.danielphingston.metro.ui.components.applySystemBars
 import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroAccents
@@ -80,10 +81,7 @@ class SettingsActivity : ComponentActivity() {
             MetroTheme(current) {
                 val colors = Metro.colors
                 LaunchedEffect(colors) {
-                    val transparent = android.graphics.Color.TRANSPARENT
-                    val style = if (colors.isDark) SystemBarStyle.dark(transparent)
-                    else SystemBarStyle.light(transparent, transparent)
-                    enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+                    applySystemBars(darkIcons = !colors.isDark)
                     window.setBackgroundDrawable(ColorDrawable(colors.background.toArgb()))
                 }
                 SettingsScreen(current, repository)
@@ -162,11 +160,23 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
         AccentGrid(settings.accent) { scope.launch { repository.setAccent(it) } }
 
         Section("start screen")
-        MetroToggle(
-            "Show more tiles",
-            settings.columns == 6,
-            { scope.launch { repository.setColumns(if (it) 6 else 4) } },
-        )
+        if (LocalConfiguration.current.smallestScreenWidthDp >= LARGE_SCREEN_DP) {
+            // Tiles keep about a phone's size on a tablet, so more columns fill the wider screen.
+            MetroText("tiles per row", MetroType.caption, color = colors.subtle)
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(4, 6, 8).forEach { count ->
+                    MetroChoice("$count", settings.columns == count, { scope.launch { repository.setColumns(count) } })
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+        } else {
+            MetroToggle(
+                "Show more tiles",
+                settings.columns > 4,
+                { scope.launch { repository.setColumns(if (it) 6 else 4) } },
+            )
+        }
         MetroToggle(
             "Use themed app icons",
             settings.monochromeIcons,

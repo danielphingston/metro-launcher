@@ -84,11 +84,11 @@
         <activity
             android:name=".ui.MainActivity"
             android:clearTaskOnLaunch="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:excludeFromRecents="true"
             android:exported="true"
             android:launchMode="singleTask"
             android:resumeWhilePausing="true"
-            android:screenOrientation="portrait"
             android:stateNotNeeded="true"
             android:taskAffinity=""
             android:theme="@style/Theme.Metro.Launcher"

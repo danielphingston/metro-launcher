@@ -15,17 +15,21 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -61,6 +65,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -155,7 +160,11 @@ internal fun appListRows(apps: List<AppInfo>, query: String, now: Long): List<Ap
 }
 
 private val ListStart = 20.dp
+private val ListEnd = 12.dp
 private val IconBox = 44.dp
+
+/** The widest the list gets; on a tablet it stays this wide in the middle of the screen. */
+private val ListMaxWidth = 560.dp
 
 @Composable
 fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: AppLauncher) {
@@ -243,33 +252,40 @@ internal fun AppListContent(
     onClick: (AppInfo, Rect?) -> Unit,
     onLongClick: (AppInfo, Rect) -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        SearchBox(query, onQueryChange, onSubmit)
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = ListStart,
-                end = 12.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
-            ),
-        ) {
-            items(rows, key = { it.key }) { row ->
-                when (row) {
-                    is AppListRow.Header -> LetterTile(row.group, onClick = onLetterClick)
-                    AppListRow.RecentHeader -> MetroText(
-                        "recently added",
-                        MetroType.caption,
-                        color = Metro.colors.subtle,
-                        modifier = Modifier.turnstile(LocalTurnstile.current, "recent").padding(top = 12.dp, bottom = 6.dp),
-                    )
-                    is AppListRow.App -> AppRow(
-                        app = row.app,
-                        icons = icons,
-                        monochrome = monochrome,
-                        onClick = { bounds -> onClick(row.app, bounds) },
-                        onLongClick = { bounds -> onLongClick(row.app, bounds) },
-                    )
+    BoxWithConstraints(
+        Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
+    ) {
+        // Centred on a wide screen. The margins are padding of the full-width list, so it still
+        // scrolls from anywhere on the screen.
+        val margin = ((maxWidth - ListMaxWidth) / 2).coerceAtLeast(0.dp)
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            SearchBox(query, onQueryChange, onSubmit, Modifier.padding(horizontal = margin))
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = margin + ListStart,
+                    end = margin + ListEnd,
+                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
+                ),
+            ) {
+                items(rows, key = { it.key }) { row ->
+                    when (row) {
+                        is AppListRow.Header -> LetterTile(row.group, onClick = onLetterClick)
+                        AppListRow.RecentHeader -> MetroText(
+                            "recently added",
+                            MetroType.caption,
+                            color = Metro.colors.subtle,
+                            modifier = Modifier.turnstile(LocalTurnstile.current, "recent").padding(top = 12.dp, bottom = 6.dp),
+                        )
+                        is AppListRow.App -> AppRow(
+                            app = row.app,
+                            icons = icons,
+                            monochrome = monochrome,
+                            onClick = { bounds -> onClick(row.app, bounds) },
+                            onLongClick = { bounds -> onLongClick(row.app, bounds) },
+                        )
+                    }
                 }
             }
         }
@@ -292,7 +308,7 @@ internal fun SearchBox(query: String, onQueryChange: (String) -> Unit, onSubmit:
         modifier = modifier
             .fillMaxWidth()
             .turnstile(LocalTurnstile.current, "search")
-            .padding(start = ListStart, end = 12.dp, top = 12.dp, bottom = 8.dp)
+            .padding(start = ListStart, end = ListEnd, top = 12.dp, bottom = 8.dp)
             .onFocusChanged { focused = it.isFocused },
         decorationBox = { field ->
             Row(
@@ -388,45 +404,50 @@ private fun AppRow(
 @Composable
 private fun JumpList(available: Set<String>, onPick: (String) -> Unit, onDismiss: () -> Unit) {
     val colors = Metro.colors
+    val lines = AppGroups.ALL.chunked(4)
+    val gap = 6.dp
     MetroFlyout(onDismiss) {
-        Column(
+        BoxWithConstraints(
             Modifier
                 .fillMaxSize()
                 .background(colors.background.copy(alpha = 0.95f))
                 .clickable(remember { MutableInteractionSource() }, null, onClick = onDismiss)
                 .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            contentAlignment = Alignment.TopCenter,
         ) {
-            AppGroups.ALL.chunked(4).forEach { line ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    line.forEach { group ->
-                        val enabled = group in available
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .aspectRatio(1f)
-                                .background(if (enabled) colors.accent else colors.chrome)
-                                .then(
-                                    if (enabled) {
-                                        Modifier.metroTilt().clickable(onClickLabel = "jump to $group") { onPick(group) }
-                                    } else {
-                                        Modifier
-                                    },
-                                ),
-                        ) {
-                            MetroText(
-                                group,
-                                MetroType.style(30.sp, FontWeight.Light),
-                                color = if (enabled) colors.onAccent else colors.subtle.copy(alpha = 0.6f),
-                                modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 4.dp),
-                            )
+            // Four letters a row, as wide as the screen allows; on a wide, short screen (a tablet
+            // in landscape) smaller, so every row fits.
+            val square = minOf((maxWidth - gap * 3) / 4, (maxHeight - gap * (lines.size - 1)) / lines.size)
+            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                lines.forEach { line ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        line.forEach { group ->
+                            val enabled = group in available
+                            JumpTile(group, enabled, Modifier.size(square)) { onPick(group) }
                         }
                     }
-                    repeat(4 - line.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun JumpTile(group: String, enabled: Boolean, modifier: Modifier, onPick: () -> Unit) {
+    val colors = Metro.colors
+    Box(
+        modifier
+            .background(if (enabled) colors.accent else colors.chrome)
+            .then(if (enabled) Modifier.metroTilt().clickable(onClickLabel = "jump to $group", onClick = onPick) else Modifier),
+    ) {
+        MetroText(
+            group,
+            MetroType.style(30.sp, FontWeight.Light),
+            color = if (enabled) colors.onAccent else colors.subtle.copy(alpha = 0.6f),
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 4.dp),
+        )
     }
 }
 
@@ -454,10 +475,16 @@ private fun AppMenu(
             // Open below the pressed row, or above it when there is no room.
             val screenHeight = constraints.maxHeight
             val y = if (anchor.bottom + menuHeight > screenHeight) anchor.top - menuHeight else anchor.bottom
+            // As wide as the list, from its left edge: the whole screen on a phone, the centred
+            // list on a tablet.
+            val density = LocalDensity.current
+            val start = with(density) { ListStart.toPx() }
+            val width = with(density) { (anchor.width + start + ListEnd.toPx()).toDp() }
             MetroMenu(
                 items = items,
                 modifier = Modifier
-                    .offset { IntOffset(0, y.roundToInt()) }
+                    .offset { IntOffset((anchor.left - start).roundToInt(), y.roundToInt()) }
+                    .width(width)
                     .onGloballyPositioned { menuHeight = it.size.height },
             )
         }

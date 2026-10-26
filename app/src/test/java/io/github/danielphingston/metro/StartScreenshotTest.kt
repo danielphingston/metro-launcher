@@ -210,6 +210,13 @@ class StartScreenshotTest {
         MetroTheme(LauncherSettings(theme = ThemeMode.LIGHT, accent = 0xFF6A00FF.toInt())) { AppListPreview() }
     }
 
+    /** A tablet in landscape: the list keeps a phone's width in the middle. */
+    @Test
+    @Config(qualifiers = "w1280dp-h800dp-land-mdpi")
+    fun appListTablet() = captureRoboImage("build/outputs/roborazzi/app_list_tablet.png") {
+        MetroTheme(LauncherSettings()) { AppListPreview() }
+    }
+
     @Test
     fun menuFlyout() = captureRoboImage("build/outputs/roborazzi/menu_flyout.png") {
         MetroTheme(LauncherSettings()) {

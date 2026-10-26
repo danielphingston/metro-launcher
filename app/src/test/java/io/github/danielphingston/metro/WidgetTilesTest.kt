@@ -161,6 +161,17 @@ class WidgetTilesTest {
     }
 
     @Test
+    fun tabletCellsStayPhoneSized() {
+        // A phone's cells are below the cap and unchanged.
+        assertEquals(99.75f, WidgetTiles.cellDp(411, 4), 0.001f)
+        // A 1280dp wide tablet in landscape would otherwise get 317dp cells in four columns.
+        assertEquals(WidgetTiles.MAX_CELL_DP, WidgetTiles.cellDp(1280, 4), 0.001f)
+        assertEquals(WidgetTiles.MAX_CELL_DP, WidgetTiles.cellDp(1280, 8), 0.001f)
+        // A portrait tablet in eight columns fills its width just under the cap.
+        assertEquals(98.5f, WidgetTiles.cellDp(800, 8), 0.001f)
+    }
+
+    @Test
     fun theSmallestSpanIsTheSizeTheWidgetCanShrinkTo() {
         // Cells are 99.75dp: one cell holds 95.75dp, two 195.5dp, three 295.25dp.
         assertEquals(SpanLimits(2, 4, 1, 8), limits(dims(250f, 110f, resizeW = 150f, resizeH = 60f)))

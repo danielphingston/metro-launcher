@@ -2,10 +2,14 @@
 <resources>
     <style name="Theme.Metro" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/metro_background</item>
+        <!-- Transparent bars for Android 12 to 14; from 15 the system makes them transparent. -->
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">@bool/metro_light_bars</item>
         <item name="android:windowLightNavigationBar">@bool/metro_light_bars</item>
+        <!-- No grey scrim behind 3-button navigation: the content shows through. -->
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
     </style>
 
     <!-- The home screen keeps an opaque window: no wallpaper compositing, cheapest to draw. -->

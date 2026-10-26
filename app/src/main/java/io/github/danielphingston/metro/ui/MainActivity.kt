@@ -3,14 +3,14 @@ package io.github.danielphingston.metro.ui
 import android.app.WallpaperColors
 import android.app.WallpaperManager
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.live.NotificationAccess
+import io.github.danielphingston.metro.ui.components.applySystemBars
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroColors
 import io.github.danielphingston.metro.ui.theme.MetroTheme
@@ -32,6 +33,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        followOrientation(resources.configuration)
         setContent {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
             MetroTheme(settings) {
@@ -52,9 +54,7 @@ class MainActivity : ComponentActivity() {
      */
     private fun applyWindowColors(colors: MetroColors, wallpaper: Boolean) {
         val transparent = android.graphics.Color.TRANSPARENT
-        val darkIcons = if (wallpaper) wallpaperSupportsDarkIcons() else !colors.isDark
-        val style = if (darkIcons) SystemBarStyle.light(transparent, transparent) else SystemBarStyle.dark(transparent)
-        enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+        applySystemBars(darkIcons = if (wallpaper) wallpaperSupportsDarkIcons() else !colors.isDark)
         window.setBackgroundDrawable(ColorDrawable(if (wallpaper) transparent else colors.background.toArgb()))
         // Make sure the surface itself is not opaque, so the wallpaper behind it can show.
         window.setFormat(if (wallpaper) PixelFormat.TRANSLUCENT else PixelFormat.OPAQUE)
@@ -63,6 +63,27 @@ class MainActivity : ComponentActivity() {
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
         }
+    }
+
+    // Rotating, folding and attaching a keyboard are handled in place (see the manifest): Compose
+    // lays out again for the new size, and the start screen keeps its scroll position.
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        followOrientation(newConfig)
+    }
+
+    /**
+     * Phones stay in portrait, like Windows Phone. Large screens (tablets, unfolded foldables)
+     * turn freely: Android 16 ignores orientation locks on them anyway, so the lock is set here
+     * rather than in the manifest, where Google Play flags it.
+     */
+    private fun followOrientation(config: Configuration) {
+        val orientation = if (config.smallestScreenWidthDp >= LARGE_SCREEN_DP) {
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+        if (requestedOrientation != orientation) requestedOrientation = orientation
     }
 
     /** Whether the system wallpaper is light enough for dark status bar icons; no permission needed. */
@@ -87,3 +108,6 @@ class MainActivity : ComponentActivity() {
         NotificationAccess.rebindIfNeeded(this)
     }
 }
+
+/** Android's threshold for a large screen (tablets, unfolded foldables): the shorter side is at least this many dp. */
+internal const val LARGE_SCREEN_DP = 600

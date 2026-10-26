@@ -65,6 +65,7 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 /** What a provider declares about its size, in dp. Target cells (in its own launcher's grid) are 0 when it gives none. */
@@ -200,8 +201,17 @@ object WidgetTiles {
         )
     }
 
-    /** The width of a start screen cell in dp: the screen less its side padding, split into [columns]. */
-    internal fun cellDp(screenWidthDp: Int, columns: Int): Float = (screenWidthDp - 12f) / columns
+    /**
+     * The width of a start screen cell in dp: the screen less its side padding, split into
+     * [columns], and at most [MAX_CELL_DP].
+     */
+    internal fun cellDp(screenWidthDp: Int, columns: Int): Float = min((screenWidthDp - 12f) / columns, MAX_CELL_DP)
+
+    /**
+     * The largest start screen cell in dp, about a phone's in four columns. A tablet shows tiles
+     * of phone size instead of stretching them across the screen.
+     */
+    const val MAX_CELL_DP = 104f
 
     /**
      * The footprint a new tile for the widget starts at, in cells of a grid of [columns] columns

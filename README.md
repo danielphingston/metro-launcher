@@ -17,6 +17,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 
 **Start screen**
 - Small, medium, wide and large tiles; small tiles cluster in 2x2 blocks like Windows Phone. Four columns, or six with "Show more tiles".
+- Tablets and unfolded foldables: tiles keep about a phone's size, the grid and the app list sit in the middle of the screen, and the screen can rotate. Settings offer four, six or eight tiles per row there.
 - Tiles keep the place you give them and only ever slide straight up into free space, never sideways into gaps; resizing or dropping a tile pushes the ones in its way down. Any tile can rise one row into a row left half empty, such as under a pair of small tiles. New tiles go at the bottom.
 - Press and hold a tile to edit: drag to move (dragging never makes a folder), the corner badges unpin, resize or group into a folder. Back, Home or a tap on empty space leaves edit mode.
 - "+" under the tiles adds weather, photos, people and widget tiles; the arrow opens the app list. TalkBack gets custom actions (open folder, group into folder, remove from folder, unpin, resize) as an alternative to dragging.
@@ -123,5 +124,5 @@ If Metro crashes, the stack trace is saved to `last_crash.txt` in the app's priv
 - Wallpaper mode sets the status bar icons from the wallpaper's own brightness hint; text on the page itself still follows the theme, so on a very bright or dark wallpaper some text can be hard to read. Android does not let apps read the wallpaper image, so the accent can't be taken from it.
 - Only app and shortcut tiles can go into folders (not widgets, weather, photos or people), and folder children are at most wide.
 - Widgets keep receiving updates while the app list is showing. A long-press on a widget that takes every touch (rare) enters edit mode, but the tile is then dragged with a second touch.
-- Portrait only. Notification access can be dropped by aggressive battery savers; set battery usage to "Unrestricted" if tiles stop updating.
+- Phones are portrait only. Notification access can be dropped by aggressive battery savers; set battery usage to "Unrestricted" if tiles stop updating.
 - Weather needs a network and a manual place or location permission; there is no forecast for places Open-Meteo can't find.

@@ -22,15 +22,19 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -65,6 +69,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -106,6 +111,7 @@ import io.github.danielphingston.metro.ui.tiles.WeatherTiles
 import io.github.danielphingston.metro.ui.tiles.WidgetEditBadges
 import io.github.danielphingston.metro.ui.tiles.WidgetPicker
 import io.github.danielphingston.metro.ui.tiles.WidgetTile
+import io.github.danielphingston.metro.ui.tiles.WidgetTiles
 import io.github.danielphingston.metro.ui.tiles.widgetCustomActions
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.ClockSource
@@ -343,9 +349,17 @@ fun StartScreen(
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
 
+    val layoutDirection = LocalLayoutDirection.current
+    // In landscape a camera cutout or the navigation bar can sit at the side.
+    val sideInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val gridWidth = maxWidth - SidePadding * 2
-        val cell: Dp = (gridWidth + TileGap) / columns
+        val sidesPx = sideInsets.getLeft(density, layoutDirection) + sideInsets.getRight(density, layoutDirection)
+        val sides = with(density) { sidesPx.toDp() }
+        // Cells grow with the width up to about a phone's, so a tablet shows tiles of the same
+        // size, and the grid sits in the middle of a wide screen.
+        val cell: Dp = minOf((maxWidth - sides - SidePadding * 2 + TileGap) / columns, WidgetTiles.MAX_CELL_DP.dp)
+        val gridWidth = cell * columns - TileGap
         val cellPx = with(density) { cell.toPx() }
         val gapPx = with(density) { TileGap.toPx() }
         val viewportPx = with(density) { maxHeight.toPx() }
@@ -444,7 +458,9 @@ fun StartScreen(
                             else -> state.openFolderId = null
                         }
                     }
-                },
+                }
+                .windowInsetsPadding(sideInsets),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
             Spacer(Modifier.height(28.dp))
@@ -591,7 +607,7 @@ fun StartScreen(
             }
 
             Row(
-                Modifier.fillMaxWidth().padding(SidePadding + 4.dp, 16.dp),
+                Modifier.width(gridWidth + SidePadding * 2).padding(SidePadding + 4.dp, 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 AddTileButton(onClick = { state.addMenuOpen = true })
