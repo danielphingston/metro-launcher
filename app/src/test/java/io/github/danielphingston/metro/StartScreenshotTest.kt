@@ -519,7 +519,7 @@ class StartScreenshotTest {
                     tiles.zip(layout.tiles).forEach { (tile, p) -> Tile(tile, p) }
                     val region = layout.region
                     if (region != null) {
-                        FolderRegion(region, layout.tiles[tiles.indexOf(open)], columns, cell, gap, 8.dp)
+                        FolderRegion(region, layout.tiles[tiles.indexOf(open)], columns, cell, gap, 8.dp, 8.dp)
                         open!!.children.zip(layout.children).forEach { (tile, p) -> Tile(tile, p) }
                     }
                 }

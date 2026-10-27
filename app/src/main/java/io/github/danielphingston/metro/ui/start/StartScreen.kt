@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -89,6 +90,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.StartBackground
+import io.github.danielphingston.metro.data.StartPadding
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileFolders
 import io.github.danielphingston.metro.data.TileSize
@@ -257,7 +259,6 @@ fun rememberStartState(): StartState {
     return remember(scroll) { StartState(scroll) }
 }
 
-private val SidePadding = 8.dp
 private val TileGap = 4.dp
 
 /** How long a dragged tile must stay over a cell before the other tiles move out of its way, so they don't scatter while it passes over them. */
@@ -364,13 +365,23 @@ fun StartScreen(
         val sides = with(density) { sidesPx.toDp() }
         // Cells grow with the width up to about a phone's, so a tablet shows tiles of the same
         // size, and the grid sits in the middle of a wide screen.
-        val cell: Dp = minOf((maxWidth - sides - SidePadding * 2 + TileGap) / columns, WidgetTiles.MAX_CELL_DP.dp)
+        val statusPx = WindowInsets.statusBars.getTop(density)
+        val navInsetPx = WindowInsets.navigationBars.getBottom(density)
+        // The paddings are shrunk on screens too small to keep the tiles and some room to scroll.
+        val padding = StartPadding.fit(
+            settings,
+            availableWidthDp = (maxWidth - sides).value,
+            availableHeightDp = maxHeight.value - with(density) { (statusPx + navInsetPx).toDp().value },
+            tileGapDp = TileGap.value,
+        )
+        val leftPadding = padding.left.dp
+        val rightPadding = padding.right.dp
+        val cell: Dp = minOf((maxWidth - sides - leftPadding - rightPadding + TileGap) / columns, WidgetTiles.MAX_CELL_DP.dp)
         val gridWidth = cell * columns - TileGap
         val cellPx = with(density) { cell.toPx() }
         val gapPx = with(density) { TileGap.toPx() }
         val viewportPx = with(density) { maxHeight.toPx() }
-        val topInsetPx = WindowInsets.statusBars.getTop(density) + with(density) { 28.dp.toPx() }
-        val navInsetPx = WindowInsets.navigationBars.getBottom(density)
+        val topInsetPx = statusPx + with(density) { padding.top.dp.toPx() }
         val rows = layout.rows
 
         // Tiles unpinned or uninstalled while grouping can't be grouped any more.
@@ -387,7 +398,7 @@ fun StartScreen(
         LaunchedEffect(openFolder?.spec?.id) {
             val region = layout.region ?: return@LaunchedEffect
             val folder = openIndex?.let(placements::getOrNull) ?: return@LaunchedEffect
-            val inset = navInsetPx + with(density) { 16.dp.toPx() }
+            val inset = navInsetPx + with(density) { padding.bottom.dp.toPx() }
             val folderTop = topInsetPx + folder.y * cellPx
             val target = (topInsetPx + (region.y + region.height) * cellPx + inset - viewportPx).coerceAtMost(folderTop).toInt()
             if (target <= state.scroll.value) return@LaunchedEffect
@@ -469,7 +480,7 @@ fun StartScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(padding.top.dp))
 
             if (loadedTiles != null && tiles.isEmpty()) {
                 MetroText(
@@ -482,7 +493,7 @@ fun StartScreen(
 
             Box(
                 Modifier
-                    .padding(horizontal = SidePadding)
+                    .absolutePadding(left = leftPadding, right = rightPadding)
                     .size(width = gridWidth, height = cell * rows),
             ) {
                 tiles.forEachIndexed { index, tile ->
@@ -521,7 +532,7 @@ fun StartScreen(
                 }
                 val folderPlacement = openIndex?.let { placements[it] }
                 if (layout.region != null && folderPlacement != null) {
-                    FolderRegion(layout.region, folderPlacement, columns, cell, TileGap, SidePadding)
+                    FolderRegion(layout.region, folderPlacement, columns, cell, TileGap, leftPadding, rightPadding)
                 }
                 val appearFrom = folderPlacement?.let {
                     IntOffset((it.x * cellPx).roundToInt(), (it.y * cellPx).roundToInt())
@@ -613,12 +624,14 @@ fun StartScreen(
             }
 
             Row(
-                Modifier.width(gridWidth + SidePadding * 2).padding(SidePadding + 4.dp, 16.dp),
+                Modifier
+                    .width(gridWidth + leftPadding + rightPadding)
+                    .absolutePadding(leftPadding + 4.dp, 16.dp, rightPadding + 4.dp, padding.bottom.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                AddTileButton(onClick = { state.addMenuOpen = true })
-                SearchButton(onSearch)
-                AllAppsArrow(onShowApps)
+                AddTileButton(settings.accentArrows, onClick = { state.addMenuOpen = true })
+                SearchButton(settings.accentArrows, onSearch)
+                AllAppsArrow(settings.accentArrows, onShowApps)
             }
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             // Room to scroll the last tiles above the grouping bar.
@@ -1075,10 +1088,11 @@ private fun AddTileMenu(
 @Composable
 private fun RoundGlyphButton(
     label: String,
+    accent: Boolean,
     onClick: () -> Unit,
     glyph: DrawScope.(color: Color, stroke: Float) -> Unit,
 ) {
-    val color = Metro.colors.foreground.copy(alpha = 0.6f)
+    val color = if (accent) Metro.colors.accent else Metro.colors.foreground.copy(alpha = 0.6f)
     Box(
         Modifier
             .size(40.dp)
@@ -1092,7 +1106,7 @@ private fun RoundGlyphButton(
 
 /** Circled plus that opens [AddTileMenu]. */
 @Composable
-private fun AddTileButton(onClick: () -> Unit) = RoundGlyphButton("add a tile", onClick) { color, stroke ->
+private fun AddTileButton(accent: Boolean, onClick: () -> Unit) = RoundGlyphButton("add a tile", accent, onClick) { color, stroke ->
     val c = size.width / 2
     val arm = size.width * 0.18f
     drawLine(color, Offset(c - arm, c), Offset(c + arm, c), stroke, StrokeCap.Round)
@@ -1101,13 +1115,13 @@ private fun AddTileButton(onClick: () -> Unit) = RoundGlyphButton("add a tile", 
 
 /** Circled magnifier that opens the search overlay. */
 @Composable
-private fun SearchButton(onClick: () -> Unit) = RoundGlyphButton("search", onClick) { color, _ ->
+private fun SearchButton(accent: Boolean, onClick: () -> Unit) = RoundGlyphButton("search", accent, onClick) { color, _ ->
     inset(size.width * 0.28f) { drawMagnifier(color) }
 }
 
 /** The circled arrow under the tiles that opens the app list. */
 @Composable
-private fun AllAppsArrow(onClick: () -> Unit) = RoundGlyphButton("all apps", onClick) { color, stroke ->
+private fun AllAppsArrow(accent: Boolean, onClick: () -> Unit) = RoundGlyphButton("all apps", accent, onClick) { color, stroke ->
     val y = size.height / 2
     val l = size.width * 0.3f
     val r = size.width * 0.7f

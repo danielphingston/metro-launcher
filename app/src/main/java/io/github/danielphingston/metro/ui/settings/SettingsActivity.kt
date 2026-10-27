@@ -185,6 +185,38 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
                 { scope.launch { repository.setColumns(if (it) 6 else 4) } },
             )
         }
+        MetroText("Start screen padding", MetroType.caption, color = colors.subtle)
+        PaddingSlider(
+            "Top",
+            settings.startTopPadding,
+            LauncherSettings.MIN_START_TOP_PADDING,
+            LauncherSettings.MAX_START_TOP_PADDING,
+        ) { repository.setStartTopPadding(it) }
+        PaddingSlider(
+            "Bottom",
+            settings.startBottomPadding,
+            LauncherSettings.MIN_START_BOTTOM_PADDING,
+            LauncherSettings.MAX_START_BOTTOM_PADDING,
+        ) { repository.setStartBottomPadding(it) }
+        PaddingSlider(
+            "Left",
+            settings.startLeftPadding,
+            LauncherSettings.MIN_START_SIDE_PADDING,
+            LauncherSettings.MAX_START_SIDE_PADDING,
+        ) { repository.setStartLeftPadding(it) }
+        PaddingSlider(
+            "Right",
+            settings.startRightPadding,
+            LauncherSettings.MIN_START_SIDE_PADDING,
+            LauncherSettings.MAX_START_SIDE_PADDING,
+        ) { repository.setStartRightPadding(it) }
+        Spacer(Modifier.height(10.dp))
+        MetroToggle(
+            "Accent colour arrows",
+            settings.accentArrows,
+            { scope.launch { repository.setAccentArrows(it) } },
+            description = "Draw the buttons under the tiles in the accent colour",
+        )
         MetroToggle(
             "Use themed app icons",
             settings.monochromeIcons,
@@ -364,4 +396,32 @@ internal fun AccentGrid(selectedAccent: Int, onPick: (Int) -> Unit) {
             }
         }
     }
+}
+
+/** A labelled padding slider; it follows the finger and [onSave] runs when it lets go. */
+@Composable
+private fun PaddingSlider(label: String, value: Int, min: Int, max: Int, onSave: suspend (Int) -> Unit) {
+    val scope = rememberCoroutineScope()
+    val range = max - min
+    var dragged by remember { mutableStateOf<Float?>(null) }
+    val fraction = dragged ?: ((value - min).toFloat() / range)
+    val dp = min + (fraction * range).roundToInt()
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        MetroText("$label padding", MetroType.body, modifier = Modifier.weight(1f))
+        MetroText("$dp dp", MetroType.body, color = Metro.colors.accent)
+    }
+    MetroSlider(
+        value = fraction,
+        onValueChange = { dragged = it },
+        modifier = Modifier.padding(top = 2.dp),
+        onValueChangeFinished = {
+            dragged?.let {
+                scope.launch {
+                    onSave(dp)
+                    dragged = null
+                }
+            }
+        },
+    )
 }
