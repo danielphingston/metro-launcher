@@ -17,10 +17,6 @@ android {
         // CI passes the tag (e.g. 0.2.0) and the run number; local builds use the defaults.
         versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
         versionName = providers.gradleProperty("versionName").orNull ?: "0.2.0"
-        // Lets tapping the version text in settings 7 times unlock paid packs without Play Billing,
-        // for testing before the in-app products exist. MUST be false for any release sold with
-        // real billing, or buyers' friends can skip the purchase. Debug builds are always unlocked.
-        buildConfigField("boolean", "TEST_UNLOCK", "true")
     }
 
     signingConfigs {
