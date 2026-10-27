@@ -64,6 +64,9 @@ class SearchScreenshotTest {
     fun searchLight() = capture("search_light", ThemeMode.LIGHT, "mail", accent = 0xFFE51400.toInt())
 
     @Test
+    fun searchPlainIcons() = capture("search_plain_icons", ThemeMode.DARK, "mail", plainIcons = true)
+
+    @Test
     fun searchAddress() = capture("search_address", ThemeMode.DARK, "wikipedia.org/wiki/Zürich", shortcuts = emptyList())
 
     @Test
@@ -75,10 +78,12 @@ class SearchScreenshotTest {
         query: String,
         accent: Int = LauncherSettings.DEFAULT_ACCENT,
         shortcuts: List<ShortcutHit> = this.shortcuts,
+        plainIcons: Boolean = false,
     ) {
         val icons = IconCache(RuntimeEnvironment.getApplication())
         // Icons load on a background thread the capture doesn't wait for: render them up front.
         apps.forEach { icons.load(it, (28 * 3), true) }
+        apps.forEach { icons.load(it, (44 * 3), false) }
         captureRoboImage("build/outputs/roborazzi/$name.png") {
             MetroTheme(LauncherSettings(theme = theme, accent = accent)) {
                 val rows = remember { searchRows(apps, query, shortcuts, SearchEngine.GOOGLE, now) }
@@ -94,6 +99,7 @@ class SearchScreenshotTest {
                             rows = rows,
                             icons = icons,
                             monochrome = true,
+                            plainIcons = plainIcons,
                             focusRequester = focus,
                             onActivate = { _, _ -> },
                             onLongClick = { _, _ -> },
