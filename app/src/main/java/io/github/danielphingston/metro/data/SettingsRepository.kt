@@ -29,6 +29,18 @@ enum class StartBackground {
     SYSTEM_WALLPAPER,
 }
 
+/** What sits behind the big letter that follows the finger on the app list's alphabet scrubber. */
+enum class ScrubberHighlight(val label: String) {
+    /** Just the letter. */
+    NONE("none"),
+
+    /** A soft-edged accent disc. */
+    CIRCLE("circle"),
+
+    /** A soft-edged, generously padded accent rounded rectangle. */
+    ROUNDED_RECT("rounded rectangle"),
+}
+
 data class LauncherSettings(
     val theme: ThemeMode = ThemeMode.DARK,
     val accent: Int = DEFAULT_ACCENT,
@@ -37,6 +49,8 @@ data class LauncherSettings(
     val monochromeIcons: Boolean = true,
     /** App list rows show the bare icon instead of the icon on an accent square. */
     val appListPlainIcons: Boolean = false,
+    /** The backdrop of the alphabet scrubber's big letter. */
+    val scrubberHighlight: ScrubberHighlight = ScrubberHighlight.CIRCLE,
     val showNotificationContent: Boolean = true,
     /** Package of the selected icon pack, or null for the apps' own icons. */
     val iconPack: String? = null,
@@ -53,6 +67,10 @@ data class LauncherSettings(
     val searchEngine: SearchEngine = SearchEngine.GOOGLE,
     /** How far (dp) the start screen must be pulled down, then released, to open search. */
     val pullDistance: Int = DEFAULT_PULL_DISTANCE,
+    /** The wi-fi quick tile names the network; needs the precise location permission. */
+    val showWifiName: Boolean = false,
+    /** The bluetooth quick tile lists connected devices; needs the nearby devices permission. */
+    val showBluetoothDevices: Boolean = false,
 ) {
     /** Whether the start screen shows the picked photo. */
     val showsPhoto: Boolean get() = background == StartBackground.PHOTO_TILES || background == StartBackground.PHOTO_FULL
@@ -93,6 +111,7 @@ class SettingsRepository(private val context: Context) {
         val columns = intPreferencesKey("columns")
         val monochrome = booleanPreferencesKey("monochrome_icons")
         val appListPlainIcons = booleanPreferencesKey("app_list_plain_icons")
+        val scrubberHighlight = stringPreferencesKey("scrubber_highlight")
         val notificationContent = booleanPreferencesKey("notification_content")
         val iconPack = stringPreferencesKey("icon_pack")
         val background = stringPreferencesKey("start_background")
@@ -102,6 +121,8 @@ class SettingsRepository(private val context: Context) {
         val accentFromBackground = booleanPreferencesKey("accent_from_background")
         val searchEngine = stringPreferencesKey("search_engine")
         val pullDistance = intPreferencesKey("pull_distance")
+        val showWifiName = booleanPreferencesKey("show_wifi_name")
+        val showBluetoothDevices = booleanPreferencesKey("show_bluetooth_devices")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -114,6 +135,8 @@ class SettingsRepository(private val context: Context) {
             columns = this[Keys.columns] ?: defaults.columns,
             monochromeIcons = this[Keys.monochrome] ?: defaults.monochromeIcons,
             appListPlainIcons = this[Keys.appListPlainIcons] ?: defaults.appListPlainIcons,
+            scrubberHighlight = this[Keys.scrubberHighlight]?.let { runCatching { ScrubberHighlight.valueOf(it) }.getOrNull() }
+                ?: defaults.scrubberHighlight,
             showNotificationContent = this[Keys.notificationContent] ?: defaults.showNotificationContent,
             iconPack = this[Keys.iconPack]?.takeIf { it.isNotEmpty() },
             background = this[Keys.background]?.let { runCatching { StartBackground.valueOf(it) }.getOrNull() }
@@ -126,6 +149,8 @@ class SettingsRepository(private val context: Context) {
                 ?: defaults.searchEngine,
             pullDistance = this[Keys.pullDistance]?.coerceIn(LauncherSettings.MIN_PULL_DISTANCE, LauncherSettings.MAX_PULL_DISTANCE)
                 ?: defaults.pullDistance,
+            showWifiName = this[Keys.showWifiName] ?: defaults.showWifiName,
+            showBluetoothDevices = this[Keys.showBluetoothDevices] ?: defaults.showBluetoothDevices,
         )
     }
 
@@ -141,6 +166,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setShowNotificationContent(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.notificationContent] = enabled }
+
+    suspend fun setScrubberHighlight(highlight: ScrubberHighlight) =
+        context.metroDataStore.edit { it[Keys.scrubberHighlight] = highlight.name }
 
     suspend fun setBackground(mode: StartBackground) = context.metroDataStore.edit { it[Keys.background] = mode.name }
 
@@ -162,6 +190,11 @@ class SettingsRepository(private val context: Context) {
     suspend fun setPullDistance(dp: Int) = context.metroDataStore.edit {
         it[Keys.pullDistance] = dp.coerceIn(LauncherSettings.MIN_PULL_DISTANCE, LauncherSettings.MAX_PULL_DISTANCE)
     }
+
+    suspend fun setShowWifiName(enabled: Boolean) = context.metroDataStore.edit { it[Keys.showWifiName] = enabled }
+
+    suspend fun setShowBluetoothDevices(enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.showBluetoothDevices] = enabled }
 
     /** The photo can't be read any more: forget it and go back to the plain background. */
     suspend fun clearUnreadablePhoto() = context.metroDataStore.edit {

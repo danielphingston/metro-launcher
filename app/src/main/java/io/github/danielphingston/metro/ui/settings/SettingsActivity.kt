@@ -53,6 +53,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import io.github.danielphingston.metro.BuildConfig
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.ScrubberHighlight
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TapCounter
 import io.github.danielphingston.metro.data.ThemeMode
@@ -95,7 +96,7 @@ class SettingsActivity : ComponentActivity() {
 
 /** Re-evaluates [read] whenever the screen resumes, e.g. after returning from system settings. */
 @Composable
-private fun <T> rememberOnResume(read: () -> T): T {
+internal fun <T> rememberOnResume(read: () -> T): T {
     var value by remember { mutableStateOf(read()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
@@ -192,6 +193,18 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
             { scope.launch { repository.setAppListPlainIcons(it) } },
             description = "Show app icons without the coloured square",
         )
+        MetroText("Scrubber highlight", MetroType.body)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ScrubberHighlight.entries.forEach { highlight ->
+                MetroChoice(
+                    highlight.label,
+                    settings.scrubberHighlight == highlight,
+                    { scope.launch { repository.setScrubberHighlight(highlight) } },
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
 
         IconPackSettingsSection(settings, repository)
 
@@ -233,7 +246,7 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
         PhotosSettingsSection()
         PeopleSettingsSection()
 
-        QuickTilesSettingsSection()
+        QuickTilesSettingsSection(settings, repository)
 
         Section("battery")
         MetroText(

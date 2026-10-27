@@ -1,16 +1,20 @@
 package io.github.danielphingston.metro.ui.tiles
 
+import android.app.ActivityOptions
 import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -18,6 +22,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -26,15 +31,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.QuickSettingKind
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.MetroApplication
+import io.github.danielphingston.metro.live.QuickOptions
 import io.github.danielphingston.metro.live.QuickSettingLogic
 import io.github.danielphingston.metro.live.QuickSettings
 import io.github.danielphingston.metro.live.Torch
+import io.github.danielphingston.metro.ui.AppLauncher
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.tileSurface
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
 
 /** What tapping a quick-setting tile does. */
 object QuickSettingTiles {
@@ -97,7 +109,37 @@ object QuickSettingTiles {
             QuickSettingKind.AIRPLANE -> listOf(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS))
             QuickSettingKind.LOCATION -> listOf(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
             QuickSettingKind.HOTSPOT -> listOf(Intent(TETHER_SETTINGS), Intent(Settings.ACTION_WIRELESS_SETTINGS))
-            QuickSettingKind.BATTERY -> listOf(Intent(Intent.ACTION_POWER_USAGE_SUMMARY))
+            QuickSettingKind.BATTERY -> batteryIntents()
+        }
+    }
+
+    /**
+     * The battery page, as directly as each phone allows. ACTION_POWER_USAGE_SUMMARY goes through
+     * a trampoline inside Settings that can flash the main screen for a moment before the battery
+     * page; that is Settings' own and can't be removed on every OEM. Samsung's Device Care page
+     * can be opened directly, so it goes first there (a missing or unexported one just fails over).
+     */
+    private fun batteryIntents(): List<Intent> {
+        val generic = listOf(Intent(Intent.ACTION_POWER_USAGE_SUMMARY), Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
+        if (!Build.MANUFACTURER.equals("samsung", ignoreCase = true)) return generic
+        val deviceCare = listOf("com.samsung.android.lool", "com.samsung.android.sm_cn", "com.samsung.android.sm").map {
+            Intent().setComponent(ComponentName(it, "com.samsung.android.sm.battery.ui.BatteryActivity"))
+        }
+        return deviceCare + generic
+    }
+
+    /**
+     * Opens what [activate] returned for [kind], the way [QuickSettingLogic.launchStyle] says.
+     * Only the turnstile style goes through [launcher]; the others never touch the turnstile, so
+     * the start screen is not left "away" and nothing replays when the user comes back.
+     */
+    fun open(context: Context, kind: QuickSettingKind, intents: List<Intent>, bounds: ComposeRect?, launcher: AppLauncher) {
+        when (QuickSettingLogic.launchStyle(kind)) {
+            QuickSettingLogic.LaunchStyle.TURNSTILE ->
+                launcher.open(bounds) { screenBounds, options -> start(context, intents, screenBounds, options) }
+            QuickSettingLogic.LaunchStyle.OVER_START -> start(context, intents, null, null)
+            QuickSettingLogic.LaunchStyle.NO_ANIMATION ->
+                start(context, intents, null, ActivityOptions.makeCustomAnimation(context, 0, 0).toBundle())
         }
     }
 
@@ -133,13 +175,21 @@ fun QuickSettingTile(tile: ResolvedTile, cellSize: Dp) {
     QuickSettingFace(kind, tile.spec.size, tile.label, cellSize)
 }
 
+/** The extras the user switched on in settings, as they change. */
+private fun optionsFlow(context: Context): Flow<QuickOptions> =
+    (context.applicationContext as? MetroApplication)?.settings?.settings
+        ?.map { QuickOptions(it.showWifiName, it.showBluetoothDevices) }?.distinctUntilChanged()
+        ?: emptyFlow()
+
 /** The face of [kind], following the live state of the setting while composed. */
 @Composable
 fun QuickSettingFace(kind: QuickSettingKind, size: TileSize, label: String, cellSize: Dp, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    // The extras are the user's choice in settings; without the application (a preview) there are none.
+    val options by remember { optionsFlow(context) }.collectAsStateWithLifecycle(QuickOptions())
     // The flow registers its receivers when collected (STARTED) and drops them when the tile leaves the screen.
-    val state by remember(kind) { QuickSettings.states(context, kind) }
-        .collectAsStateWithLifecycle(remember(kind) { QuickSettings.read(context, kind) })
+    val state by remember(kind, options) { QuickSettings.states(context, kind, options) }
+        .collectAsStateWithLifecycle(remember(kind, options) { QuickSettings.read(context, kind, options) })
     val m = rememberTileMetrics(cellSize)
     val white = Metro.colors.onAccent
     Box(modifier.fillMaxSize().tileSurface()) {
@@ -164,14 +214,21 @@ fun QuickSettingFace(kind: QuickSettingKind, size: TileSize, label: String, cell
             else -> 96f
         }
         QuickSettingGlyph(kind, state, m.dp(glyph), Modifier.align(Alignment.Center))
-        if (state.text.isNotEmpty()) {
-            MetroText(
-                state.text,
-                MetroType.style(m.text(if (size == TileSize.LARGE) 28f else 20f), FontWeight.Light),
-                color = white,
-                maxLines = 1,
-                modifier = Modifier.padding(start = m.dp(8f), end = m.dp(8f), top = m.dp(6f)),
-            )
+        // As many lines as the tile has room for: the state alone on medium, the extras below it on bigger tiles.
+        val maxLines = when (size) {
+            TileSize.MEDIUM -> 1
+            TileSize.WIDE -> 2
+            else -> 3
+        }
+        Column(Modifier.padding(start = m.dp(8f), end = m.dp(8f), top = m.dp(6f))) {
+            QuickSettingLogic.lines(state, maxLines).forEachIndexed { index, line ->
+                MetroText(
+                    line,
+                    MetroType.style(m.text(if (size == TileSize.LARGE) 28f else 20f), FontWeight.Light),
+                    color = if (index == 0) white else white.copy(alpha = 0.8f),
+                    maxLines = 1,
+                )
+            }
         }
         TileLabel(label, m, Modifier.align(Alignment.BottomStart))
     }
