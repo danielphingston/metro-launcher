@@ -133,6 +133,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Emits when the home button is pressed; the value tells whether to animate. */
     val homePresses: SharedFlow<Boolean> = _homePresses.asSharedFlow()
 
+    private val _launcherLeft = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    /** Emits when the user left the launcher without a home intent reaching it; see [MainActivity]. */
+    val launcherLeft: SharedFlow<Unit> = _launcherLeft.asSharedFlow()
+
     private val _pinned = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val pinned: SharedFlow<Unit> = _pinned.asSharedFlow()
 
@@ -149,6 +153,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun onHomePressed(animate: Boolean) {
         _homePresses.tryEmit(animate)
+    }
+
+    fun onLauncherLeft() {
+        _launcherLeft.tryEmit(Unit)
     }
 
     fun refreshPermissions() {

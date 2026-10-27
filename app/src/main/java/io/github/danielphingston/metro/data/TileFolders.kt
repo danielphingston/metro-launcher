@@ -84,6 +84,23 @@ internal object TileFolders {
         },
     )
 
+    /**
+     * Steps folder child [id] to its next size, skipping large (see [forFolder]). Null if [id] is
+     * not a folder child, so the caller can resize a top-level tile instead. The expanded folder
+     * lays its children out afresh from their sizes, so nothing else needs to move.
+     */
+    fun resizeChild(list: List<TileSpec>, id: Long): List<TileSpec>? {
+        if (list.none { spec -> (spec.content as? TileContent.Folder)?.children?.any { it.id == id } == true }) return null
+        return list.map { spec ->
+            val folder = spec.content as? TileContent.Folder ?: return@map spec
+            if (folder.children.none { it.id == id }) return@map spec
+            val children = folder.children.map { child ->
+                if (child.id != id) child else child.copy(size = child.size.next().let { if (it == TileSize.LARGE) it.next() else it })
+            }
+            spec.copy(content = folder.copy(children = children))
+        }
+    }
+
     fun rename(list: List<TileSpec>, id: Long, name: String): List<TileSpec> = list.map { spec ->
         val folder = spec.content as? TileContent.Folder
         if (spec.id == id && folder != null) spec.copy(content = folder.copy(name = name.trim())) else spec

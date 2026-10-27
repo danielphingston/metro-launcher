@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -295,12 +297,16 @@ internal fun SearchContent(
             query,
             onQueryChange,
             onSubmit,
-            Modifier.focusRequester(focusRequester).semantics { contentDescription = "search" },
+            Modifier.swipeUpToClose(onDismiss).focusRequester(focusRequester).semantics { contentDescription = "search" },
         )
+        val list = rememberLazyListState()
+        // Swiping up past the end of the results (or with nothing to scroll) closes the panel too.
+        val swipeUp = rememberSwipeUpToClose(list, onDismiss)
         // Taps on the gaps between results close the panel; the rows consume their own.
-        Box(Modifier.weight(1f).fillMaxWidth().pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
+        Box(Modifier.weight(1f).fillMaxWidth().nestedScroll(swipeUp).pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
             LazyColumn(
                 Modifier.fillMaxSize(),
+                state = list,
                 contentPadding = PaddingValues(
                     start = ListStart,
                     end = 12.dp,

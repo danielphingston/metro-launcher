@@ -18,9 +18,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect as ComposeRect
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.BackgroundPhoto
@@ -28,7 +28,7 @@ import io.github.danielphingston.metro.ui.applist.AppListScreen
 import io.github.danielphingston.metro.ui.applist.AppListState
 import io.github.danielphingston.metro.ui.search.SearchOverlay
 import io.github.danielphingston.metro.ui.search.SearchState
-import io.github.danielphingston.metro.ui.search.rememberPullToSearch
+import io.github.danielphingston.metro.ui.search.pullToSearch
 import io.github.danielphingston.metro.ui.start.LocalTurnstile
 import io.github.danielphingston.metro.ui.start.StartScreen
 import io.github.danielphingston.metro.ui.start.Turnstile
@@ -132,6 +132,10 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
             }
         }
     }
+    // Home may not reach onNewIntent (see MainActivity); leaving the launcher closes search regardless.
+    LaunchedEffect(Unit) {
+        viewModel.launcherLeft.collect { searchState.close() }
+    }
     LaunchedEffect(Unit) {
         viewModel.pinned.collect {
             appListState.reset()
@@ -162,10 +166,11 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
         StartBackdrop.of(settings, image) { startState.scroll.value * BackgroundPhoto.PARALLAX }
     }
 
-    // Pulling the start screen down past its top opens search.
-    val pullToSearch = rememberPullToSearch(
+    // Pulling the start screen down past its top and letting go opens search.
+    val pullToSearch = Modifier.pullToSearch(
         scroll = startState.scroll,
         enabled = !startState.editing && !startState.flyoutOpen && !searchState.isOpen && pager.currentPage == 0,
+        pullDistance = settings.pullDistance.dp,
         onPull = searchState::open,
     )
 
@@ -183,7 +188,7 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
                         Modifier
                             .fillMaxSize()
                             .continuum(pager, page)
-                            .then(if (page == 0) Modifier.nestedScroll(pullToSearch) else Modifier),
+                            .then(if (page == 0) pullToSearch else Modifier),
                     ) {
                         when (page) {
                             0 -> StartScreen(

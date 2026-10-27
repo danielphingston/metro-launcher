@@ -101,6 +101,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Fallback for Home not arriving as a new intent (seen with Samsung's gesture navigation, where
+     * the gesture can act on the task without re-delivering HOME), which would leave search open.
+     * Leaving the launcher is the signal instead: the activity stopping, or losing the top-resumed
+     * state and getting it back ([TopResumeTracker]). Neither fires for the keyboard (a separate
+     * window) or for the shade and system dialogs drawn over the launcher; a translucent activity
+     * on top (a permission dialog) only costs the top-resumed state, so it closes search too, which
+     * is acceptable since search itself never starts one. Split-screen focus switches close it
+     * as well, the price of not needing to know why the launcher lost focus.
+     */
+    override fun onStop() {
+        super.onStop()
+        viewModel.onLauncherLeft()
+    }
+
+    override fun onTopResumedActivityChanged(isTopResumedActivity: Boolean) {
+        super.onTopResumedActivityChanged(isTopResumedActivity)
+        if (topResume.update(isTopResumedActivity)) viewModel.onLauncherLeft()
+    }
+
+    private val topResume = TopResumeTracker()
+
     override fun onResume() {
         super.onResume()
         resumes++

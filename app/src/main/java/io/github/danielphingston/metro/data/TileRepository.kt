@@ -187,8 +187,13 @@ class TileRepository(private val context: Context, scope: CoroutineScope, privat
         return removed
     }
 
-    /** Steps tile [id] to its next size, keeping its top-left corner; see [TilePlacement.resize]. */
-    fun resize(id: Long) = _tiles.update { list -> list?.let { TilePlacement.resize(it, id, columnCount) } }
+    /**
+     * Steps tile [id] to its next size: a folder child in place (see [TileFolders.resizeChild]),
+     * otherwise keeping its top-left corner; see [TilePlacement.resize].
+     */
+    fun resize(id: Long) = _tiles.update { list ->
+        list?.let { TileFolders.resizeChild(it, id) ?: TilePlacement.resize(it, id, columnCount) }
+    }
 
     /** Gives tile [id] a custom footprint of [width] x [height] cells; see [TilePlacement.setSpan]. */
     fun setSpan(id: Long, width: Int, height: Int) =

@@ -49,6 +49,8 @@ data class LauncherSettings(
     val accentFromBackground: Boolean = false,
     /** Where the search overlay's "web" row searches. */
     val searchEngine: SearchEngine = SearchEngine.GOOGLE,
+    /** How far (dp) the start screen must be pulled down, then released, to open search. */
+    val pullDistance: Int = DEFAULT_PULL_DISTANCE,
 ) {
     /** Whether the start screen shows the picked photo. */
     val showsPhoto: Boolean get() = background == StartBackground.PHOTO_TILES || background == StartBackground.PHOTO_FULL
@@ -66,6 +68,10 @@ data class LauncherSettings(
 
         /** Photo and wallpaper backgrounds need some transparency to be seen at all. */
         const val DEFAULT_PHOTO_TRANSPARENCY = 45
+
+        const val MIN_PULL_DISTANCE = 40
+        const val MAX_PULL_DISTANCE = 200
+        const val DEFAULT_PULL_DISTANCE = 72
     }
 }
 
@@ -92,6 +98,7 @@ class SettingsRepository(private val context: Context) {
         val tileTransparency = intPreferencesKey("tile_transparency")
         val accentFromBackground = booleanPreferencesKey("accent_from_background")
         val searchEngine = stringPreferencesKey("search_engine")
+        val pullDistance = intPreferencesKey("pull_distance")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -113,6 +120,8 @@ class SettingsRepository(private val context: Context) {
             accentFromBackground = this[Keys.accentFromBackground] ?: defaults.accentFromBackground,
             searchEngine = this[Keys.searchEngine]?.let { runCatching { SearchEngine.valueOf(it) }.getOrNull() }
                 ?: defaults.searchEngine,
+            pullDistance = this[Keys.pullDistance]?.coerceIn(LauncherSettings.MIN_PULL_DISTANCE, LauncherSettings.MAX_PULL_DISTANCE)
+                ?: defaults.pullDistance,
         )
     }
 
@@ -142,6 +151,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setSearchEngine(engine: SearchEngine) =
         context.metroDataStore.edit { it[Keys.searchEngine] = engine.name }
+
+    suspend fun setPullDistance(dp: Int) = context.metroDataStore.edit {
+        it[Keys.pullDistance] = dp.coerceIn(LauncherSettings.MIN_PULL_DISTANCE, LauncherSettings.MAX_PULL_DISTANCE)
+    }
 
     /** The photo can't be read any more: forget it and go back to the plain background. */
     suspend fun clearUnreadablePhoto() = context.metroDataStore.edit {

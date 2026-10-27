@@ -156,6 +156,22 @@ class TileFoldersTest {
     }
 
     @Test
+    fun resizingAChildStepsSmallMediumWideAndSkipsLarge() {
+        var list = listOf(folder(1, app(2, TileSize.SMALL), app(3)), app(4))
+        fun sizes() = (list[0].content as TileContent.Folder).children.map { it.size }
+        list = TileFolders.resizeChild(list, 2)!!
+        assertEquals(listOf(TileSize.MEDIUM, TileSize.MEDIUM), sizes())
+        list = TileFolders.resizeChild(list, 2)!!
+        assertEquals(TileSize.WIDE, sizes()[0])
+        list = TileFolders.resizeChild(list, 2)!!
+        assertEquals(listOf(TileSize.SMALL, TileSize.MEDIUM), sizes())
+        // Only children are handled here; the folder and other tiles are untouched.
+        assertNull(TileFolders.resizeChild(list, 4))
+        assertNull(TileFolders.resizeChild(list, 1))
+        assertEquals(TileSize.MEDIUM, list[0].size)
+    }
+
+    @Test
     fun childrenReorderInsideTheirFolder() {
         val list = listOf(folder(1, app(2), app(3), app(4)))
         assertEquals(listOf(4L, 2L, 3L), TileFolders.moveInFolder(list, 1, 4, 2).single().children())

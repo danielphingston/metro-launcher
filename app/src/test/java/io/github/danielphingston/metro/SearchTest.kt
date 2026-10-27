@@ -1,7 +1,10 @@
 package io.github.danielphingston.metro
 
 import io.github.danielphingston.metro.data.SearchEngine
+import io.github.danielphingston.metro.ui.TopResumeTracker
+import io.github.danielphingston.metro.ui.search.PullToOpen
 import io.github.danielphingston.metro.ui.search.SearchRanking
+import io.github.danielphingston.metro.ui.search.SwipeUpToClose
 import io.github.danielphingston.metro.ui.search.WebSearch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -99,5 +102,129 @@ class SearchTest {
             SearchEngine.GOOGLE.searchUrl("  a & b=c é "),
         )
         assertEquals("https://duckduckgo.com/?q=%22quoted%22+%23tag", SearchEngine.DUCKDUCKGO.searchUrl("\"quoted\" #tag"))
+    }
+}
+
+class PullToOpenTest {
+    private fun pull(atTop: Boolean = true) = PullToOpen(100f).also { it.begin(atTop) }
+
+    @Test
+    fun opensOnReleaseOnceThePullReachesTheThreshold() {
+        val pull = pull()
+        assertFalse(pull.drag(60f))
+        assertTrue(pull.drag(50f))
+        assertTrue(pull.release())
+        // The gesture is over: a second release opens nothing.
+        assertFalse(pull.release())
+    }
+
+    @Test
+    fun releasingBelowTheThresholdOpensNothing() {
+        val pull = pull()
+        assertFalse(pull.drag(90f))
+        assertFalse(pull.release())
+    }
+
+    @Test
+    fun draggingBackUpBeforeLiftingCancels() {
+        val pull = pull()
+        assertTrue(pull.drag(120f))
+        assertFalse(pull.drag(-40f))
+        assertFalse(pull.release())
+    }
+
+    @Test
+    fun crossingAgainTicksAgain() {
+        val pull = pull()
+        assertTrue(pull.drag(100f))
+        assertFalse(pull.drag(30f))
+        assertFalse(pull.drag(-60f))
+        assertTrue(pull.drag(40f))
+        assertTrue(pull.release())
+    }
+
+    @Test
+    fun ignoresGesturesThatStartBelowTheTop() {
+        val pull = pull(atTop = false)
+        assertFalse(pull.drag(500f))
+        assertFalse(pull.release())
+    }
+
+    @Test
+    fun ignoresMostlySidewaysPulls() {
+        val pull = pull()
+        pull.track(dx = 150f, dy = 110f)
+        assertFalse(pull.drag(110f))
+        assertFalse(pull.release())
+    }
+
+    @Test
+    fun aSidewaysDriftBeforeLiftingCancels() {
+        val pull = pull()
+        pull.track(dx = 10f, dy = 120f)
+        assertTrue(pull.drag(120f))
+        pull.track(dx = 200f, dy = 120f)
+        assertFalse(pull.release())
+    }
+
+    @Test
+    fun theNextGestureStartsClean() {
+        val pull = pull()
+        pull.drag(150f)
+        pull.release()
+        pull.begin(atTop = true)
+        assertFalse(pull.drag(50f))
+        assertFalse(pull.release())
+    }
+}
+
+class SwipeUpToCloseTest {
+    @Test
+    fun closesOnceAfterAnUpwardSwipePastTheThreshold() {
+        val swipe = SwipeUpToClose(100f)
+        swipe.begin(atEnd = true)
+        assertFalse(swipe.drag(-60f))
+        assertTrue(swipe.drag(-50f))
+        assertFalse(swipe.drag(-200f))
+    }
+
+    @Test
+    fun ignoresGesturesThatStartMidList() {
+        val swipe = SwipeUpToClose(100f)
+        swipe.begin(atEnd = false)
+        assertFalse(swipe.drag(-500f))
+        // The next gesture counts again.
+        swipe.end()
+        swipe.begin(atEnd = true)
+        assertTrue(swipe.drag(-500f))
+    }
+
+    @Test
+    fun draggingDownRestartsTheCount() {
+        val swipe = SwipeUpToClose(100f)
+        swipe.begin(atEnd = true)
+        assertFalse(swipe.drag(-80f))
+        assertFalse(swipe.drag(10f))
+        assertFalse(swipe.drag(-80f))
+        assertTrue(swipe.drag(-30f))
+    }
+
+    @Test
+    fun beginKeepsTheFirstAnswerUntilTheGestureEnds() {
+        val swipe = SwipeUpToClose(100f)
+        swipe.begin(atEnd = false)
+        swipe.begin(atEnd = true)
+        assertFalse(swipe.drag(-500f))
+    }
+}
+
+class TopResumeTrackerTest {
+    @Test
+    fun reportsOnlyARegainAfterALoss() {
+        val tracker = TopResumeTracker()
+        assertFalse(tracker.update(true))
+        assertFalse(tracker.update(false))
+        assertTrue(tracker.update(true))
+        assertFalse(tracker.update(true))
     }
 }
