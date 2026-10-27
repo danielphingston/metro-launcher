@@ -243,7 +243,7 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
         PhotosSettingsSection()
         PeopleSettingsSection()
 
-        QuickTilesSettingsSection()
+        QuickTilesSettingsSection(settings, repository)
 
         Section("battery")
         MetroText(

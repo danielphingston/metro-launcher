@@ -67,6 +67,10 @@ data class LauncherSettings(
     val searchEngine: SearchEngine = SearchEngine.GOOGLE,
     /** How far (dp) the start screen must be pulled down, then released, to open search. */
     val pullDistance: Int = DEFAULT_PULL_DISTANCE,
+    /** The wi-fi quick tile names the network; needs the precise location permission. */
+    val showWifiName: Boolean = false,
+    /** The bluetooth quick tile lists connected devices; needs the nearby devices permission. */
+    val showBluetoothDevices: Boolean = false,
 ) {
     /** Whether the start screen shows the picked photo. */
     val showsPhoto: Boolean get() = background == StartBackground.PHOTO_TILES || background == StartBackground.PHOTO_FULL
@@ -117,6 +121,8 @@ class SettingsRepository(private val context: Context) {
         val accentFromBackground = booleanPreferencesKey("accent_from_background")
         val searchEngine = stringPreferencesKey("search_engine")
         val pullDistance = intPreferencesKey("pull_distance")
+        val showWifiName = booleanPreferencesKey("show_wifi_name")
+        val showBluetoothDevices = booleanPreferencesKey("show_bluetooth_devices")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -143,6 +149,8 @@ class SettingsRepository(private val context: Context) {
                 ?: defaults.searchEngine,
             pullDistance = this[Keys.pullDistance]?.coerceIn(LauncherSettings.MIN_PULL_DISTANCE, LauncherSettings.MAX_PULL_DISTANCE)
                 ?: defaults.pullDistance,
+            showWifiName = this[Keys.showWifiName] ?: defaults.showWifiName,
+            showBluetoothDevices = this[Keys.showBluetoothDevices] ?: defaults.showBluetoothDevices,
         )
     }
 
@@ -182,6 +190,11 @@ class SettingsRepository(private val context: Context) {
     suspend fun setPullDistance(dp: Int) = context.metroDataStore.edit {
         it[Keys.pullDistance] = dp.coerceIn(LauncherSettings.MIN_PULL_DISTANCE, LauncherSettings.MAX_PULL_DISTANCE)
     }
+
+    suspend fun setShowWifiName(enabled: Boolean) = context.metroDataStore.edit { it[Keys.showWifiName] = enabled }
+
+    suspend fun setShowBluetoothDevices(enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.showBluetoothDevices] = enabled }
 
     /** The photo can't be read any more: forget it and go back to the plain background. */
     suspend fun clearUnreadablePhoto() = context.metroDataStore.edit {

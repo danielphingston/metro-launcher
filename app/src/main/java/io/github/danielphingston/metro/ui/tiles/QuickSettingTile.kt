@@ -14,6 +14,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -30,6 +31,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.QuickSettingKind
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.MetroApplication
+import io.github.danielphingston.metro.live.QuickOptions
 import io.github.danielphingston.metro.live.QuickSettingLogic
 import io.github.danielphingston.metro.live.QuickSettings
 import io.github.danielphingston.metro.live.Torch
@@ -40,6 +43,10 @@ import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.tileSurface
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
 
 /** What tapping a quick-setting tile does. */
 object QuickSettingTiles {
@@ -168,13 +175,21 @@ fun QuickSettingTile(tile: ResolvedTile, cellSize: Dp) {
     QuickSettingFace(kind, tile.spec.size, tile.label, cellSize)
 }
 
+/** The extras the user switched on in settings, as they change. */
+private fun optionsFlow(context: Context): Flow<QuickOptions> =
+    (context.applicationContext as? MetroApplication)?.settings?.settings
+        ?.map { QuickOptions(it.showWifiName, it.showBluetoothDevices) }?.distinctUntilChanged()
+        ?: emptyFlow()
+
 /** The face of [kind], following the live state of the setting while composed. */
 @Composable
 fun QuickSettingFace(kind: QuickSettingKind, size: TileSize, label: String, cellSize: Dp, modifier: Modifier = Modifier) {
     val context = LocalContext.current
+    // The extras are the user's choice in settings; without the application (a preview) there are none.
+    val options by remember { optionsFlow(context) }.collectAsStateWithLifecycle(QuickOptions())
     // The flow registers its receivers when collected (STARTED) and drops them when the tile leaves the screen.
-    val state by remember(kind) { QuickSettings.states(context, kind) }
-        .collectAsStateWithLifecycle(remember(kind) { QuickSettings.read(context, kind) })
+    val state by remember(kind, options) { QuickSettings.states(context, kind, options) }
+        .collectAsStateWithLifecycle(remember(kind, options) { QuickSettings.read(context, kind, options) })
     val m = rememberTileMetrics(cellSize)
     val white = Metro.colors.onAccent
     Box(modifier.fillMaxSize().tileSurface()) {
@@ -199,14 +214,21 @@ fun QuickSettingFace(kind: QuickSettingKind, size: TileSize, label: String, cell
             else -> 96f
         }
         QuickSettingGlyph(kind, state, m.dp(glyph), Modifier.align(Alignment.Center))
-        if (state.text.isNotEmpty()) {
-            MetroText(
-                state.text,
-                MetroType.style(m.text(if (size == TileSize.LARGE) 28f else 20f), FontWeight.Light),
-                color = white,
-                maxLines = 1,
-                modifier = Modifier.padding(start = m.dp(8f), end = m.dp(8f), top = m.dp(6f)),
-            )
+        // As many lines as the tile has room for: the state alone on medium, the extras below it on bigger tiles.
+        val maxLines = when (size) {
+            TileSize.MEDIUM -> 1
+            TileSize.WIDE -> 2
+            else -> 3
+        }
+        Column(Modifier.padding(start = m.dp(8f), end = m.dp(8f), top = m.dp(6f))) {
+            QuickSettingLogic.lines(state, maxLines).forEachIndexed { index, line ->
+                MetroText(
+                    line,
+                    MetroType.style(m.text(if (size == TileSize.LARGE) 28f else 20f), FontWeight.Light),
+                    color = if (index == 0) white else white.copy(alpha = 0.8f),
+                    maxLines = 1,
+                )
+            }
         }
         TileLabel(label, m, Modifier.align(Alignment.BottomStart))
     }

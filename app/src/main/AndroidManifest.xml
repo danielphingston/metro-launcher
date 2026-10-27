@@ -18,6 +18,10 @@
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Optional: wi-fi tile network name (android hides it from apps without precise location) and
+         bluetooth tile device names. Requested only from the quick tiles settings, never at startup. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!-- Package visibility: only launchable apps and the default apps we pin on first run.
          Deliberately avoids QUERY_ALL_PACKAGES. -->
