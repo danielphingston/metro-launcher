@@ -127,6 +127,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             TileContent.Weather -> ResolvedTile(spec, null, "weather")
             TileContent.Photos -> ResolvedTile(spec, null, "photos")
             TileContent.People -> ResolvedTile(spec, null, "people")
+            is TileContent.QuickSetting -> ResolvedTile(spec, null, c.kind.label)
             is TileContent.Folder -> ResolvedTile(
                 spec, null, c.name.ifBlank { "folder" }, c.children.mapNotNull(::resolve),
             )
