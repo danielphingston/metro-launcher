@@ -29,6 +29,18 @@ enum class StartBackground {
     SYSTEM_WALLPAPER,
 }
 
+/** What sits behind the big letter that follows the finger on the app list's alphabet scrubber. */
+enum class ScrubberHighlight(val label: String) {
+    /** Just the letter. */
+    NONE("none"),
+
+    /** A soft-edged accent disc. */
+    CIRCLE("circle"),
+
+    /** A soft-edged, generously padded accent rounded rectangle. */
+    ROUNDED_RECT("rounded rectangle"),
+}
+
 data class LauncherSettings(
     val theme: ThemeMode = ThemeMode.DARK,
     val accent: Int = DEFAULT_ACCENT,
@@ -37,6 +49,8 @@ data class LauncherSettings(
     val monochromeIcons: Boolean = true,
     /** App list rows show the bare icon instead of the icon on an accent square. */
     val appListPlainIcons: Boolean = false,
+    /** The backdrop of the alphabet scrubber's big letter. */
+    val scrubberHighlight: ScrubberHighlight = ScrubberHighlight.CIRCLE,
     val showNotificationContent: Boolean = true,
     /** Package of the selected icon pack, or null for the apps' own icons. */
     val iconPack: String? = null,
@@ -93,6 +107,7 @@ class SettingsRepository(private val context: Context) {
         val columns = intPreferencesKey("columns")
         val monochrome = booleanPreferencesKey("monochrome_icons")
         val appListPlainIcons = booleanPreferencesKey("app_list_plain_icons")
+        val scrubberHighlight = stringPreferencesKey("scrubber_highlight")
         val notificationContent = booleanPreferencesKey("notification_content")
         val iconPack = stringPreferencesKey("icon_pack")
         val background = stringPreferencesKey("start_background")
@@ -114,6 +129,8 @@ class SettingsRepository(private val context: Context) {
             columns = this[Keys.columns] ?: defaults.columns,
             monochromeIcons = this[Keys.monochrome] ?: defaults.monochromeIcons,
             appListPlainIcons = this[Keys.appListPlainIcons] ?: defaults.appListPlainIcons,
+            scrubberHighlight = this[Keys.scrubberHighlight]?.let { runCatching { ScrubberHighlight.valueOf(it) }.getOrNull() }
+                ?: defaults.scrubberHighlight,
             showNotificationContent = this[Keys.notificationContent] ?: defaults.showNotificationContent,
             iconPack = this[Keys.iconPack]?.takeIf { it.isNotEmpty() },
             background = this[Keys.background]?.let { runCatching { StartBackground.valueOf(it) }.getOrNull() }
@@ -141,6 +158,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setShowNotificationContent(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.notificationContent] = enabled }
+
+    suspend fun setScrubberHighlight(highlight: ScrubberHighlight) =
+        context.metroDataStore.edit { it[Keys.scrubberHighlight] = highlight.name }
 
     suspend fun setBackground(mode: StartBackground) = context.metroDataStore.edit { it[Keys.background] = mode.name }
 

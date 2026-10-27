@@ -35,4 +35,27 @@ object AlphabetScrub {
 
     /** The size of a letter [distance] letters from the finger, relative to its idle size. */
     fun scale(distance: Float): Float = 1f + (MAX_SCALE - 1f) * falloff(distance)
+
+    /** The strip may take at most this share of the room it has, so it stays in reach of a thumb. */
+    const val MAX_STRIP_FRACTION = 0.55f
+
+    /** The height of one letter slot: the room allows [MAX_STRIP_FRACTION] of [available] split over [count], capped at [maxSlot]. */
+    fun slotHeight(available: Float, count: Int, maxSlot: Float): Float {
+        if (count <= 0 || available <= 0f) return 0f
+        return minOf(available * MAX_STRIP_FRACTION / count, maxSlot)
+    }
+
+    /** The top of a strip [strip] tall hugging the bottom of [available], [margin] clear of it. */
+    fun stripTop(available: Float, strip: Float, margin: Float): Float = (available - margin - strip).coerceAtLeast(0f)
+
+    /**
+     * The alpha to paint layer [index] of [layers] stacked, shrinking shapes (outermost first) so the alpha
+     * accumulated over them reaches [peak] at the centre and rises evenly from the edge: a feathered edge.
+     */
+    fun featherAlpha(index: Int, layers: Int, peak: Float = 1f): Float {
+        if (layers <= 0 || index !in 0 until layers) return 0f
+        val before = peak * index / layers
+        val after = peak * (index + 1) / layers
+        return (after - before) / (1f - before)
+    }
 }

@@ -219,12 +219,13 @@ fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: A
         if (state.query.isEmpty()) {
             AlphabetScrubber(
                 letters = scrubLetters,
+                highlight = settings.scrubberHighlight,
                 onScrub = { group ->
                     val index = rows.indexOfFirst { it is AppListRow.Header && it.group == group }
                     if (index >= 0) scope.launch { state.list.scrollToItem(index) }
                 },
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
+                    .align(Alignment.BottomEnd)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                     .statusBarsPadding()
                     .padding(top = SearchBoxHeight, bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
