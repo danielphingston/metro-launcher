@@ -1,6 +1,7 @@
 package io.github.danielphingston.metro
 
 import android.media.AudioManager
+import io.github.danielphingston.metro.data.QuickSettingKind
 import io.github.danielphingston.metro.live.QuickSettingLogic
 import io.github.danielphingston.metro.live.QuickSettingLogic.Brightness
 import org.junit.Assert.assertEquals
@@ -64,5 +65,17 @@ class QuickSettingLogicTest {
         assertEquals("on", QuickSettingLogic.networkText(enabled = true, connected = false))
         assertEquals("on", QuickSettingLogic.networkText(enabled = true, connected = null))
         assertEquals("vibrate", QuickSettingLogic.ringerText(AudioManager.RINGER_MODE_VIBRATE))
+    }
+
+    @Test
+    fun onlyPanelsOpenOverStartAndBatteryLaunchesPlain() {
+        val styles = QuickSettingKind.entries.associateWith(QuickSettingLogic::launchStyle)
+        assertEquals(
+            setOf(QuickSettingKind.WIFI, QuickSettingKind.MOBILE_DATA),
+            styles.filterValues { it == QuickSettingLogic.LaunchStyle.OVER_START }.keys,
+        )
+        assertEquals(QuickSettingLogic.LaunchStyle.NO_ANIMATION, styles[QuickSettingKind.BATTERY])
+        assertEquals(QuickSettingLogic.LaunchStyle.TURNSTILE, styles[QuickSettingKind.BLUETOOTH])
+        assertEquals(QuickSettingLogic.LaunchStyle.TURNSTILE, styles[QuickSettingKind.DO_NOT_DISTURB])
     }
 }

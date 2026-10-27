@@ -1,11 +1,14 @@
 package io.github.danielphingston.metro.ui.tiles
 
+import android.app.ActivityOptions
 import android.app.NotificationManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Rect
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -18,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +33,7 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.QuickSettingLogic
 import io.github.danielphingston.metro.live.QuickSettings
 import io.github.danielphingston.metro.live.Torch
+import io.github.danielphingston.metro.ui.AppLauncher
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.start.TileLabel
@@ -97,7 +102,37 @@ object QuickSettingTiles {
             QuickSettingKind.AIRPLANE -> listOf(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS))
             QuickSettingKind.LOCATION -> listOf(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
             QuickSettingKind.HOTSPOT -> listOf(Intent(TETHER_SETTINGS), Intent(Settings.ACTION_WIRELESS_SETTINGS))
-            QuickSettingKind.BATTERY -> listOf(Intent(Intent.ACTION_POWER_USAGE_SUMMARY))
+            QuickSettingKind.BATTERY -> batteryIntents()
+        }
+    }
+
+    /**
+     * The battery page, as directly as each phone allows. ACTION_POWER_USAGE_SUMMARY goes through
+     * a trampoline inside Settings that can flash the main screen for a moment before the battery
+     * page; that is Settings' own and can't be removed on every OEM. Samsung's Device Care page
+     * can be opened directly, so it goes first there (a missing or unexported one just fails over).
+     */
+    private fun batteryIntents(): List<Intent> {
+        val generic = listOf(Intent(Intent.ACTION_POWER_USAGE_SUMMARY), Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
+        if (!Build.MANUFACTURER.equals("samsung", ignoreCase = true)) return generic
+        val deviceCare = listOf("com.samsung.android.lool", "com.samsung.android.sm_cn", "com.samsung.android.sm").map {
+            Intent().setComponent(ComponentName(it, "com.samsung.android.sm.battery.ui.BatteryActivity"))
+        }
+        return deviceCare + generic
+    }
+
+    /**
+     * Opens what [activate] returned for [kind], the way [QuickSettingLogic.launchStyle] says.
+     * Only the turnstile style goes through [launcher]; the others never touch the turnstile, so
+     * the start screen is not left "away" and nothing replays when the user comes back.
+     */
+    fun open(context: Context, kind: QuickSettingKind, intents: List<Intent>, bounds: ComposeRect?, launcher: AppLauncher) {
+        when (QuickSettingLogic.launchStyle(kind)) {
+            QuickSettingLogic.LaunchStyle.TURNSTILE ->
+                launcher.open(bounds) { screenBounds, options -> start(context, intents, screenBounds, options) }
+            QuickSettingLogic.LaunchStyle.OVER_START -> start(context, intents, null, null)
+            QuickSettingLogic.LaunchStyle.NO_ANIMATION ->
+                start(context, intents, null, ActivityOptions.makeCustomAnimation(context, 0, 0).toBundle())
         }
     }
 

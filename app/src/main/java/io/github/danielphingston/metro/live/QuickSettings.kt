@@ -40,6 +40,30 @@ data class QuickState(val on: Boolean, val text: String, val level: Int = 0)
 object QuickSettingLogic {
     private const val MAX_BRIGHTNESS = 255
 
+    /** How a tap that has to open a screen starts it. */
+    enum class LaunchStyle {
+        /** The usual: the turnstile swings the start screen away and the app fades in. */
+        TURNSTILE,
+
+        /** A system panel that slides up over the start screen, which must stay exactly as it is. */
+        OVER_START,
+
+        /** A plain launch with no transition of ours, no turnstile either. */
+        NO_ANIMATION,
+    }
+
+    /**
+     * Wi-Fi and mobile data open bottom-sheet panels: flipping the tiles away first would leave
+     * the panel over an empty screen. Battery lands through a trampoline inside Settings that our
+     * own transition would only amplify. Other kinds, and the permission screens the toggles
+     * fall back to, are full pages and keep the turnstile.
+     */
+    fun launchStyle(kind: QuickSettingKind): LaunchStyle = when (kind) {
+        QuickSettingKind.WIFI, QuickSettingKind.MOBILE_DATA -> LaunchStyle.OVER_START
+        QuickSettingKind.BATTERY -> LaunchStyle.NO_ANIMATION
+        else -> LaunchStyle.TURNSTILE
+    }
+
     /** The brightness tile's steps, in the order a tap goes through them. */
     enum class Brightness(val label: String, val value: Int?) {
         AUTO("auto", null),

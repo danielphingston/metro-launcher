@@ -1042,7 +1042,7 @@ private fun activateTile(
         TileContent.People -> PeopleTiles.intent(context)?.let { launcher.start(it, bounds) }
         is TileContent.QuickSetting -> QuickSettingTiles.activate(context, content.kind, quickUnlocked)
             .takeIf { it.isNotEmpty() }
-            ?.let { intents -> launcher.open(bounds) { screenBounds, options -> QuickSettingTiles.start(context, intents, screenBounds, options) } }
+            ?.let { intents -> QuickSettingTiles.open(context, content.kind, intents, bounds, launcher) }
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
     }
 }
