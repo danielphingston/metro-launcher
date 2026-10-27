@@ -186,6 +186,12 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
             { scope.launch { repository.setMonochromeIcons(it) } },
             description = "White icons on tiles for apps that provide them",
         )
+        MetroToggle(
+            "Plain icons in app list",
+            settings.appListPlainIcons,
+            { scope.launch { repository.setAppListPlainIcons(it) } },
+            description = "Show app icons without the coloured square",
+        )
 
         IconPackSettingsSection(settings, repository)
 
