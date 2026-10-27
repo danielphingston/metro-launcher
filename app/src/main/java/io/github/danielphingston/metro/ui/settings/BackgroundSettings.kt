@@ -58,8 +58,8 @@ private val Choices = listOf(
 )
 
 /**
- * Section in Metro settings: what is behind the tiles, the photo for the photo modes, tile
- * transparency and the accent colour taken from the photo.
+ * Section in Metro settings: what is behind the tiles, the photo for the photo modes and tile
+ * transparency.
  */
 @Composable
 fun BackgroundSettingsSection(settings: LauncherSettings, repository: SettingsRepository) {
@@ -135,8 +135,13 @@ fun BackgroundSettingsSection(settings: LauncherSettings, repository: SettingsRe
             }
         },
     )
+}
 
-    if (settings.showsPhoto && hasPhoto) {
+/** The accent-from-photo toggle; shown on the appearance page, only while a background photo is in use. */
+@Composable
+fun AccentFromBackgroundToggle(settings: LauncherSettings, repository: SettingsRepository) {
+    val scope = rememberCoroutineScope()
+    if (settings.showsPhoto && settings.backgroundPhoto != null) {
         Spacer(Modifier.height(4.dp))
         MetroToggle(
             "Accent colour from my background",

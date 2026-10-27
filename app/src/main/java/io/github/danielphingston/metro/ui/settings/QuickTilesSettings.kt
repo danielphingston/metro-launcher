@@ -37,7 +37,6 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
     val unlocked by purchases.quickTilesUnlocked.collectAsState()
     val price by purchases.quickTilesPrice.collectAsState()
 
-    Section("quick settings tiles")
     MetroText(
         "Tiles that toggle Wi-Fi, Bluetooth, flashlight and other quick settings from the start screen. " +
             "A one-time purchase, no subscription.",
