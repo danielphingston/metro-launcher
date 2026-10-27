@@ -27,8 +27,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 /**
- * The "Quick settings tiles" one-time purchase. Unlocked when Play says it is owned, and always
- * in debug builds; release builds are tested with Play's license testers.
+ * The "Quick settings tiles" one-time purchase. Unlocked when Play says it is owned, in debug
+ * builds, or in builds that allow the 7-tap test unlock (see [setTestUnlock]).
  *
  * The last known owned state is cached so the pack works offline and before billing connects;
  * it is re-checked with Play each time billing connects. The product may not exist in Play
@@ -38,6 +38,7 @@ class Purchases(context: Context, private val scope: CoroutineScope) {
     private val prefs = context.applicationContext.getSharedPreferences("purchases", Context.MODE_PRIVATE)
 
     private var owned = prefs.getBoolean(KEY_OWNED, false)
+    private val _testUnlock = MutableStateFlow(BuildConfig.TEST_UNLOCK && prefs.getBoolean(KEY_TEST_UNLOCK, false))
     private val _unlocked = MutableStateFlow(computeUnlocked())
     private val _price = MutableStateFlow<String?>(null)
 
@@ -45,6 +46,9 @@ class Purchases(context: Context, private val scope: CoroutineScope) {
 
     /** Play's formatted price, or null while unknown or when the product isn't available. */
     val quickTilesPrice: StateFlow<String?> = _price.asStateFlow()
+
+    /** Whether the test unlock is on. */
+    val testUnlock: StateFlow<Boolean> = _testUnlock.asStateFlow()
 
     private var details: ProductDetails? = null
     private var backoffMs = INITIAL_BACKOFF_MS
@@ -76,6 +80,14 @@ class Purchases(context: Context, private val scope: CoroutineScope) {
         client.launchBillingFlow(activity, params)
     }
 
+    /** Turns the tester unlock on or off. Ignored unless this build allows it ([BuildConfig.TEST_UNLOCK]). */
+    fun setTestUnlock(on: Boolean) {
+        if (!BuildConfig.TEST_UNLOCK) return
+        prefs.edit().putBoolean(KEY_TEST_UNLOCK, on).apply()
+        _testUnlock.value = on
+        _unlocked.value = computeUnlocked()
+    }
+
     /**
      * Asks Play again, e.g. when the launcher comes back to the front: a pending purchase may have
      * completed meanwhile, and an acknowledgement that failed gets another try.
@@ -84,7 +96,7 @@ class Purchases(context: Context, private val scope: CoroutineScope) {
         if (client.isReady) scope.launch { refresh() } else connect()
     }
 
-    private fun computeUnlocked() = owned || BuildConfig.DEBUG
+    private fun computeUnlocked() = owned || BuildConfig.DEBUG || (BuildConfig.TEST_UNLOCK && _testUnlock.value)
 
     private fun connect() {
         if (client.isReady) return
@@ -187,6 +199,7 @@ class Purchases(context: Context, private val scope: CoroutineScope) {
     private companion object {
         const val PRODUCT_ID = "tiles_quick_settings"
         const val KEY_OWNED = "quick_tiles_owned"
+        const val KEY_TEST_UNLOCK = "test_unlock"
         const val INITIAL_BACKOFF_MS = 2_000L
         const val MAX_BACKOFF_MS = 5 * 60_000L
     }
