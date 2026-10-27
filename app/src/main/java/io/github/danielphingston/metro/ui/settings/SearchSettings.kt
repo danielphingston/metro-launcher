@@ -31,7 +31,6 @@ import kotlin.math.roundToInt
 fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsRepository) {
     val scope = rememberCoroutineScope()
 
-    Section("search")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SearchEngine.entries.forEach { engine ->
             MetroChoice(

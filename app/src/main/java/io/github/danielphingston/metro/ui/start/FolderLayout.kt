@@ -74,18 +74,18 @@ private val NotchHeight = 9.dp
 
 /**
  * The translucent band behind an open folder's children, with a notch pointing up at the
- * [folder] tile. Placed in the tile grid's coordinates; the band bleeds [sidePadding] past the
- * grid on both sides so it spans the screen, and takes taps so they don't count as "outside".
+ * [folder] tile. Placed in the tile grid's coordinates; the band bleeds [leftPadding] and [rightPadding] past
+ * the grid so it spans the screen, and takes taps so they don't count as "outside".
  */
 @Composable
-fun FolderRegion(region: Placement, folder: Placement, columns: Int, cell: Dp, gap: Dp, sidePadding: Dp) {
+fun FolderRegion(region: Placement, folder: Placement, columns: Int, cell: Dp, gap: Dp, leftPadding: Dp, rightPadding: Dp) {
     val chrome = Metro.colors.chrome.copy(alpha = 0.92f)
-    val folderCenter = cell * (folder.x + folder.width / 2f) - gap / 2 + sidePadding
+    val folderCenter = cell * (folder.x + folder.width / 2f) - gap / 2 + leftPadding
     Box(
         Modifier
-            .offset(-sidePadding, cell * region.y - gap)
+            .offset(-leftPadding, cell * region.y - gap)
             .wrapContentSize(Alignment.TopStart, unbounded = true)
-            .size(cell * columns - gap + sidePadding * 2, cell * region.height + gap)
+            .size(cell * columns - gap + leftPadding + rightPadding, cell * region.height + gap)
             .pointerInput(Unit) { detectTapGestures { } }
             .drawBehind {
                 drawRect(chrome)

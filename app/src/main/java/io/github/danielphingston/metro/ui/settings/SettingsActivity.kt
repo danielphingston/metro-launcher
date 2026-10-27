@@ -9,9 +9,17 @@ import android.widget.Toast
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -109,223 +117,98 @@ internal fun <T> rememberOnResume(read: () -> T): T {
     return value
 }
 
+/** One page of the settings: a menu entry with a one-line summary of what is inside. */
+internal enum class SettingsPage(val title: String, val summary: String) {
+    START("start", "tiles per row, padding, background, transparency"),
+    APP_LIST("app list", "icons, scrubber highlight and position"),
+    SEARCH("search", "search engine, pull distance"),
+    APPEARANCE("appearance", "theme, accent colour, icon pack"),
+    TILES("tiles", "weather, photos, people, calendar, notifications"),
+    QUICK_TILES("quick settings tiles", "toggles and shortcuts on the start screen"),
+    ABOUT("about", "default home app, app info, crash log, version"),
+}
+
 @Composable
-private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepository) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+internal fun SettingsScreen(
+    settings: LauncherSettings,
+    repository: SettingsRepository,
+    initialPage: SettingsPage? = null,
+) {
     val colors = Metro.colors
-    val roleManager = remember { context.getSystemService(RoleManager::class.java) }
+    var page by rememberSaveable { mutableStateOf(initialPage?.name) }
+    val menuScroll = rememberScrollState()
+    val pageScrolls = SettingsPage.entries.associateWith { rememberScrollState() }
+    BackHandler(enabled = page != null) { page = null }
 
-    val isDefaultHome = rememberOnResume { roleManager.isRoleHeld(RoleManager.ROLE_HOME) }
-    val notificationAccess = rememberOnResume { NotificationAccess.isGranted(context) }
-    var calendarAccess by remember { mutableStateOf(CalendarSource.hasPermission(context)) }
-    val calendarRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        calendarAccess = it
+    AnimatedContent(
+        targetState = page,
+        modifier = Modifier.fillMaxSize().background(colors.background),
+        transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(100)) },
+        label = "settingsPage",
+    ) { name ->
+        val current = SettingsPage.entries.firstOrNull { it.name == name }
+        if (current == null) {
+            SettingsMenu(menuScroll) { page = it.name }
+        } else {
+            SettingsPageFrame(current, pageScrolls.getValue(current)) {
+                when (current) {
+                    SettingsPage.START -> StartPage(settings, repository)
+                    SettingsPage.APP_LIST -> AppListPage(settings, repository)
+                    SettingsPage.SEARCH -> SearchSettingsSection(settings, repository)
+                    SettingsPage.APPEARANCE -> AppearancePage(settings, repository)
+                    SettingsPage.TILES -> TilesPage(settings, repository)
+                    SettingsPage.QUICK_TILES -> QuickTilesSettingsSection(settings, repository)
+                    SettingsPage.ABOUT -> AboutPage()
+                }
+            }
+        }
     }
-    val homeRequest = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
+}
 
+@Composable
+private fun SettingsMenu(scroll: ScrollState, onOpen: (SettingsPage) -> Unit) {
+    val colors = Metro.colors
     Column(
         Modifier
             .fillMaxSize()
-            .background(colors.background)
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scroll)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+    ) {
+        MetroText("METRO LAUNCHER", MetroType.appName, color = colors.subtle)
+        MetroText("settings", MetroType.pageTitle, maxLines = 1)
+        Spacer(Modifier.height(12.dp))
+        SettingsPage.entries.forEach { entry ->
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .metroTilt()
+                    .clickable(role = Role.Button) { onOpen(entry) }
+                    .padding(vertical = 10.dp),
+            ) {
+                MetroText(entry.title, MetroType.sectionTitle.copy(fontSize = 30.sp), maxLines = 1)
+                MetroText(entry.summary, MetroType.caption, color = colors.subtle, maxLines = 1)
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun SettingsPageFrame(page: SettingsPage, scroll: ScrollState, content: @Composable ColumnScope.() -> Unit) {
+    val colors = Metro.colors
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(scroll)
             .statusBarsPadding()
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
         MetroText("METRO SETTINGS", MetroType.appName, color = colors.subtle)
-        MetroText("start+theme", MetroType.pageTitle, maxLines = 1)
-
-        if (!isDefaultHome) {
-            Section("default home app")
-            MetroText(
-                "Make Metro your home screen so the home button opens your start screen.",
-                MetroType.caption,
-                color = colors.subtle,
-            )
-            Spacer(Modifier.height(10.dp))
-            MetroButton("set as default", onClick = {
-                homeRequest.launch(roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME))
-            })
-        }
-
-        Section("theme")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeMode.entries.forEach { mode ->
-                MetroChoice(
-                    mode.name.lowercase(),
-                    settings.theme == mode,
-                    { scope.launch { repository.setTheme(mode) } },
-                    Modifier.weight(1f),
-                )
-            }
-        }
-
-        Section("accent colour")
-        val accentName = MetroAccents.firstOrNull { it.second.toArgb() == settings.accent }?.first ?: "custom"
-        MetroText(accentName, MetroType.caption, color = colors.accent)
-        Spacer(Modifier.height(10.dp))
-        AccentGrid(settings.accent) { scope.launch { repository.setAccent(it) } }
-
-        Section("start screen")
-        if (LocalConfiguration.current.smallestScreenWidthDp >= LARGE_SCREEN_DP) {
-            // Tiles keep about a phone's size on a tablet, so more columns fill the wider screen.
-            MetroText("tiles per row", MetroType.caption, color = colors.subtle)
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(4, 6, 8).forEach { count ->
-                    MetroChoice("$count", settings.columns == count, { scope.launch { repository.setColumns(count) } })
-                }
-            }
-            Spacer(Modifier.height(10.dp))
-        } else {
-            MetroToggle(
-                "Show more tiles",
-                settings.columns > 4,
-                { scope.launch { repository.setColumns(if (it) 6 else 4) } },
-            )
-        }
-        MetroToggle(
-            "Use themed app icons",
-            settings.monochromeIcons,
-            { scope.launch { repository.setMonochromeIcons(it) } },
-            description = "White icons on tiles for apps that provide them",
-        )
-        MetroToggle(
-            "Plain icons in app list",
-            settings.appListPlainIcons,
-            { scope.launch { repository.setAppListPlainIcons(it) } },
-            description = "Show app icons without the coloured square",
-        )
-        MetroText("Scrubber highlight", MetroType.body)
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ScrubberHighlight.entries.forEach { highlight ->
-                MetroChoice(
-                    highlight.label,
-                    settings.scrubberHighlight == highlight,
-                    { scope.launch { repository.setScrubberHighlight(highlight) } },
-                )
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        MetroText("Highlight position", MetroType.body)
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ScrubberHighlightPosition.entries.forEach { position ->
-                MetroChoice(
-                    position.label,
-                    settings.scrubberHighlightPosition == position,
-                    { scope.launch { repository.setScrubberHighlightPosition(position) } },
-                )
-            }
-        }
-        // The slider follows the finger; the setting is saved when it lets go.
-        val positionRange = LauncherSettings.MAX_SCRUBBER_POSITION - LauncherSettings.MIN_SCRUBBER_POSITION
-        var positionDragged by remember { mutableStateOf<Float?>(null) }
-        val positionFraction = positionDragged
-            ?: ((settings.scrubberPosition - LauncherSettings.MIN_SCRUBBER_POSITION).toFloat() / positionRange)
-        val positionPercent = LauncherSettings.MIN_SCRUBBER_POSITION + (positionFraction * positionRange).roundToInt()
-        Spacer(Modifier.height(16.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            MetroText("Scrubber position", MetroType.body, modifier = Modifier.weight(1f))
-            MetroText("$positionPercent%", MetroType.body, color = Metro.colors.accent)
-        }
-        MetroSlider(
-            value = positionFraction,
-            onValueChange = { positionDragged = it },
-            modifier = Modifier.padding(top = 2.dp),
-            onValueChangeFinished = {
-                positionDragged?.let {
-                    scope.launch {
-                        repository.setScrubberPosition(positionPercent)
-                        positionDragged = null
-                    }
-                }
-            },
-        )
-        Spacer(Modifier.height(10.dp))
-
-        IconPackSettingsSection(settings, repository)
-
-        SearchSettingsSection(settings, repository)
-
-        BackgroundSettingsSection(settings, repository)
-
-        Section("live tiles")
-        MetroText(
-            "Live tiles read your notifications on this phone to show counts and the latest " +
-                "message on app tiles. Nothing leaves your device.",
-            MetroType.caption,
-            color = colors.subtle,
-        )
-        Spacer(Modifier.height(12.dp))
-        if (notificationAccess) {
-            MetroText("Notification access is on", MetroType.body)
-        } else {
-            MetroButton("turn on notification access", onClick = {
-                context.startActivity(NotificationAccess.settingsIntent(context))
-            })
-        }
-        MetroToggle(
-            "Show message text on tiles",
-            settings.showNotificationContent,
-            { scope.launch { repository.setShowNotificationContent(it) } },
-            description = if (settings.showNotificationContent) "Tiles flip to show the latest message" else "Counts only",
-        )
-        Spacer(Modifier.height(8.dp))
-        if (calendarAccess) {
-            MetroText("Calendar tile shows your next appointment", MetroType.body)
-        } else {
-            MetroButton("show appointments on calendar tile", onClick = {
-                calendarRequest.launch(Manifest.permission.READ_CALENDAR)
-            })
-        }
-
-        WeatherSettingsSection()
-        PhotosSettingsSection()
-        PeopleSettingsSection()
-
-        QuickTilesSettingsSection(settings, repository)
-
-        Section("battery")
-        MetroText(
-            "Metro does no background work: live tiles update from notifications as they arrive " +
-                "and animate only while you look at them. If tiles stop updating, some phones have " +
-                "put the app to sleep: set battery usage to \"Unrestricted\" in app info.",
-            MetroType.caption,
-            color = colors.subtle,
-        )
-        Spacer(Modifier.height(10.dp))
-        MetroButton("open app info", onClick = {
-            context.startActivity(
-                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
-            )
-        })
-
-        CrashLogSettingsSection()
-
-        Section("about")
-        // Seven quick taps toggle the test unlock (see Purchases.setTestUnlock); inert unless
-        // the build allows it.
-        val purchases = (context.applicationContext as MetroApplication).purchases
-        val versionTaps = remember { TapCounter() }
-        MetroText(
-            "Metro Launcher ${BuildConfig.VERSION_NAME}",
-            MetroType.caption,
-            modifier = Modifier.clickable(remember { MutableInteractionSource() }, null) {
-                if (BuildConfig.TEST_UNLOCK && versionTaps.tap(System.currentTimeMillis())) {
-                    val on = !purchases.testUnlock.value
-                    purchases.setTestUnlock(on)
-                    Toast.makeText(
-                        context,
-                        if (on) "Quick settings tiles unlocked for testing" else "Quick settings tiles locked again",
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                }
-            },
-            color = colors.subtle,
-        )
+        MetroText(page.title, MetroType.pageTitle.copy(fontSize = if (page.title.length > 12) 34.sp else 46.sp), maxLines = 1)
+        content()
         Spacer(Modifier.height(24.dp))
     }
 }
@@ -364,4 +247,32 @@ internal fun AccentGrid(selectedAccent: Int, onPick: (Int) -> Unit) {
             }
         }
     }
+}
+
+/** A labelled padding slider; it follows the finger and [onSave] runs when it lets go. */
+@Composable
+internal fun PaddingSlider(label: String, value: Int, min: Int, max: Int, onSave: suspend (Int) -> Unit) {
+    val scope = rememberCoroutineScope()
+    val range = max - min
+    var dragged by remember { mutableStateOf<Float?>(null) }
+    val fraction = dragged ?: ((value - min).toFloat() / range)
+    val dp = min + (fraction * range).roundToInt()
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        MetroText("$label padding", MetroType.body, modifier = Modifier.weight(1f))
+        MetroText("$dp dp", MetroType.body, color = Metro.colors.accent)
+    }
+    MetroSlider(
+        value = fraction,
+        onValueChange = { dragged = it },
+        modifier = Modifier.padding(top = 2.dp),
+        onValueChangeFinished = {
+            dragged?.let {
+                scope.launch {
+                    onSave(dp)
+                    dragged = null
+                }
+            }
+        },
+    )
 }

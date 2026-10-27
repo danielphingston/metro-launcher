@@ -54,7 +54,7 @@ data class LauncherSettings(
     val theme: ThemeMode = ThemeMode.DARK,
     val accent: Int = DEFAULT_ACCENT,
     /** 4 = classic Windows Phone grid, 6 = "show more tiles". */
-    val columns: Int = 4,
+    val columns: Int = DEFAULT_COLUMNS,
     val monochromeIcons: Boolean = true,
     /** App list rows show the bare icon instead of the icon on an accent square. */
     val appListPlainIcons: Boolean = false,
@@ -81,6 +81,15 @@ data class LauncherSettings(
     /** How far (dp) the start screen must be pulled down, then released, to open search. */
     val pullDistance: Int = DEFAULT_PULL_DISTANCE,
     /** The wi-fi quick tile names the network; needs the precise location permission. */
+    /** The gap (dp) between the status bar and the first row of tiles on the start screen. */
+    val startTopPadding: Int = DEFAULT_START_TOP_PADDING,
+    /** The gap (dp) between the last row of buttons and the navigation bar. */
+    val startBottomPadding: Int = DEFAULT_START_BOTTOM_PADDING,
+    /** The gaps (dp) between the screen's left and right edges and the tiles. */
+    val startLeftPadding: Int = DEFAULT_START_LEFT_PADDING,
+    val startRightPadding: Int = DEFAULT_START_RIGHT_PADDING,
+    /** The round buttons under the tiles take the accent colour instead of the quiet foreground. */
+    val accentArrows: Boolean = false,
     val showWifiName: Boolean = false,
     /** The bluetooth quick tile lists connected devices; needs the nearby devices permission. */
     val showBluetoothDevices: Boolean = false,
@@ -105,6 +114,36 @@ data class LauncherSettings(
         const val MIN_PULL_DISTANCE = 40
         const val MAX_PULL_DISTANCE = 200
         const val DEFAULT_PULL_DISTANCE = 72
+
+        const val MIN_COLUMNS = 4
+        const val MAX_COLUMNS = 8
+        const val DEFAULT_COLUMNS = 4
+
+        const val MIN_START_TOP_PADDING = 0
+        const val MAX_START_TOP_PADDING = 96
+        const val DEFAULT_START_TOP_PADDING = 28
+
+        const val MIN_START_BOTTOM_PADDING = 0
+        const val MAX_START_BOTTOM_PADDING = 96
+        const val DEFAULT_START_BOTTOM_PADDING = 16
+
+        const val MIN_START_SIDE_PADDING = 0
+        const val MAX_START_SIDE_PADDING = 48
+        const val DEFAULT_START_LEFT_PADDING = 8
+        const val DEFAULT_START_RIGHT_PADDING = 8
+
+        // Stored values can be out of range (an older build, a damaged file): these pull them back in.
+        /** An even column count (tiles pair up) between [MIN_COLUMNS] and [MAX_COLUMNS]. */
+        fun clampColumns(columns: Int) = (columns.coerceIn(MIN_COLUMNS, MAX_COLUMNS) + 1) / 2 * 2
+        fun clampTransparency(percent: Int) = percent.coerceIn(0, 100)
+        fun clampPullDistance(dp: Int) = dp.coerceIn(MIN_PULL_DISTANCE, MAX_PULL_DISTANCE)
+        fun clampScrubberPosition(percent: Int) = percent.coerceIn(MIN_SCRUBBER_POSITION, MAX_SCRUBBER_POSITION)
+        fun clampStartTopPadding(dp: Int) = dp.coerceIn(MIN_START_TOP_PADDING, MAX_START_TOP_PADDING)
+        fun clampStartBottomPadding(dp: Int) = dp.coerceIn(MIN_START_BOTTOM_PADDING, MAX_START_BOTTOM_PADDING)
+        fun clampStartSidePadding(dp: Int) = dp.coerceIn(MIN_START_SIDE_PADDING, MAX_START_SIDE_PADDING)
+
+        /** Colours are drawn as stored; a transparent one would be invisible, so force it opaque. */
+        fun opaque(color: Int) = color or 0xFF000000.toInt()
 
         const val MIN_SCRUBBER_POSITION = 0
         const val MAX_SCRUBBER_POSITION = 40
@@ -140,6 +179,11 @@ class SettingsRepository(private val context: Context) {
         val accentFromBackground = booleanPreferencesKey("accent_from_background")
         val searchEngine = stringPreferencesKey("search_engine")
         val pullDistance = intPreferencesKey("pull_distance")
+        val startTopPadding = intPreferencesKey("start_top_padding")
+        val startBottomPadding = intPreferencesKey("start_bottom_padding")
+        val startLeftPadding = intPreferencesKey("start_left_padding")
+        val startRightPadding = intPreferencesKey("start_right_padding")
+        val accentArrows = booleanPreferencesKey("accent_arrows")
         val showWifiName = booleanPreferencesKey("show_wifi_name")
         val showBluetoothDevices = booleanPreferencesKey("show_bluetooth_devices")
     }
@@ -150,8 +194,8 @@ class SettingsRepository(private val context: Context) {
         val defaults = LauncherSettings()
         return LauncherSettings(
             theme = this[Keys.theme]?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: defaults.theme,
-            accent = this[Keys.accent] ?: defaults.accent,
-            columns = this[Keys.columns] ?: defaults.columns,
+            accent = this[Keys.accent]?.let(LauncherSettings::opaque) ?: defaults.accent,
+            columns = this[Keys.columns]?.let(LauncherSettings::clampColumns) ?: defaults.columns,
             monochromeIcons = this[Keys.monochrome] ?: defaults.monochromeIcons,
             appListPlainIcons = this[Keys.appListPlainIcons] ?: defaults.appListPlainIcons,
             scrubberHighlight = this[Keys.scrubberHighlight]?.let { runCatching { ScrubberHighlight.valueOf(it) }.getOrNull() }
@@ -159,29 +203,36 @@ class SettingsRepository(private val context: Context) {
             scrubberHighlightPosition = this[Keys.scrubberHighlightPosition]
                 ?.let { runCatching { ScrubberHighlightPosition.valueOf(it) }.getOrNull() }
                 ?: defaults.scrubberHighlightPosition,
-            scrubberPosition = this[Keys.scrubberPosition]
-                ?.coerceIn(LauncherSettings.MIN_SCRUBBER_POSITION, LauncherSettings.MAX_SCRUBBER_POSITION)
+            scrubberPosition = this[Keys.scrubberPosition]?.let(LauncherSettings::clampScrubberPosition)
                 ?: defaults.scrubberPosition,
             showNotificationContent = this[Keys.notificationContent] ?: defaults.showNotificationContent,
             iconPack = this[Keys.iconPack]?.takeIf { it.isNotEmpty() },
             background = this[Keys.background]?.let { runCatching { StartBackground.valueOf(it) }.getOrNull() }
                 ?: defaults.background,
             backgroundPhoto = this[Keys.backgroundPhoto]?.takeIf { it.isNotEmpty() },
-            backgroundAccent = this[Keys.backgroundAccent],
-            tileTransparency = this[Keys.tileTransparency],
+            backgroundAccent = this[Keys.backgroundAccent]?.let(LauncherSettings::opaque),
+            tileTransparency = this[Keys.tileTransparency]?.let(LauncherSettings::clampTransparency),
             accentFromBackground = this[Keys.accentFromBackground] ?: defaults.accentFromBackground,
             searchEngine = this[Keys.searchEngine]?.let { runCatching { SearchEngine.valueOf(it) }.getOrNull() }
                 ?: defaults.searchEngine,
-            pullDistance = this[Keys.pullDistance]?.coerceIn(LauncherSettings.MIN_PULL_DISTANCE, LauncherSettings.MAX_PULL_DISTANCE)
-                ?: defaults.pullDistance,
+            pullDistance = this[Keys.pullDistance]?.let(LauncherSettings::clampPullDistance) ?: defaults.pullDistance,
+            startTopPadding = this[Keys.startTopPadding]?.let(LauncherSettings::clampStartTopPadding)
+                ?: defaults.startTopPadding,
+            startBottomPadding = this[Keys.startBottomPadding]?.let(LauncherSettings::clampStartBottomPadding)
+                ?: defaults.startBottomPadding,
+            startLeftPadding = this[Keys.startLeftPadding]?.let(LauncherSettings::clampStartSidePadding)
+                ?: defaults.startLeftPadding,
+            startRightPadding = this[Keys.startRightPadding]?.let(LauncherSettings::clampStartSidePadding)
+                ?: defaults.startRightPadding,
+            accentArrows = this[Keys.accentArrows] ?: defaults.accentArrows,
             showWifiName = this[Keys.showWifiName] ?: defaults.showWifiName,
             showBluetoothDevices = this[Keys.showBluetoothDevices] ?: defaults.showBluetoothDevices,
         )
     }
 
     suspend fun setTheme(mode: ThemeMode) = context.metroDataStore.edit { it[Keys.theme] = mode.name }
-    suspend fun setAccent(color: Int) = context.metroDataStore.edit { it[Keys.accent] = color }
-    suspend fun setColumns(columns: Int) = context.metroDataStore.edit { it[Keys.columns] = columns }
+    suspend fun setAccent(color: Int) = context.metroDataStore.edit { it[Keys.accent] = LauncherSettings.opaque(color) }
+    suspend fun setColumns(columns: Int) = context.metroDataStore.edit { it[Keys.columns] = LauncherSettings.clampColumns(columns) }
     suspend fun setMonochromeIcons(enabled: Boolean) = context.metroDataStore.edit { it[Keys.monochrome] = enabled }
     suspend fun setAppListPlainIcons(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.appListPlainIcons] = enabled }
@@ -199,7 +250,7 @@ class SettingsRepository(private val context: Context) {
         context.metroDataStore.edit { it[Keys.scrubberHighlightPosition] = position.name }
 
     suspend fun setScrubberPosition(percent: Int) = context.metroDataStore.edit {
-        it[Keys.scrubberPosition] = percent.coerceIn(LauncherSettings.MIN_SCRUBBER_POSITION, LauncherSettings.MAX_SCRUBBER_POSITION)
+        it[Keys.scrubberPosition] = LauncherSettings.clampScrubberPosition(percent)
     }
 
     suspend fun setBackground(mode: StartBackground) = context.metroDataStore.edit { it[Keys.background] = mode.name }
@@ -207,11 +258,11 @@ class SettingsRepository(private val context: Context) {
     /** Stores the picked photo with the accent derived from it; null [uri] clears both. */
     suspend fun setBackgroundPhoto(uri: String?, accent: Int?) = context.metroDataStore.edit {
         it[Keys.backgroundPhoto] = uri.orEmpty()
-        if (accent != null) it[Keys.backgroundAccent] = accent else it.remove(Keys.backgroundAccent)
+        if (accent != null) it[Keys.backgroundAccent] = LauncherSettings.opaque(accent) else it.remove(Keys.backgroundAccent)
     }
 
     suspend fun setTileTransparency(percent: Int) =
-        context.metroDataStore.edit { it[Keys.tileTransparency] = percent.coerceIn(0, 100) }
+        context.metroDataStore.edit { it[Keys.tileTransparency] = LauncherSettings.clampTransparency(percent) }
 
     suspend fun setAccentFromBackground(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.accentFromBackground] = enabled }
@@ -220,8 +271,26 @@ class SettingsRepository(private val context: Context) {
         context.metroDataStore.edit { it[Keys.searchEngine] = engine.name }
 
     suspend fun setPullDistance(dp: Int) = context.metroDataStore.edit {
-        it[Keys.pullDistance] = dp.coerceIn(LauncherSettings.MIN_PULL_DISTANCE, LauncherSettings.MAX_PULL_DISTANCE)
+        it[Keys.pullDistance] = LauncherSettings.clampPullDistance(dp)
     }
+
+    suspend fun setStartTopPadding(dp: Int) = context.metroDataStore.edit {
+        it[Keys.startTopPadding] = LauncherSettings.clampStartTopPadding(dp)
+    }
+
+    suspend fun setStartBottomPadding(dp: Int) = context.metroDataStore.edit {
+        it[Keys.startBottomPadding] = LauncherSettings.clampStartBottomPadding(dp)
+    }
+
+    suspend fun setStartLeftPadding(dp: Int) = context.metroDataStore.edit {
+        it[Keys.startLeftPadding] = LauncherSettings.clampStartSidePadding(dp)
+    }
+
+    suspend fun setStartRightPadding(dp: Int) = context.metroDataStore.edit {
+        it[Keys.startRightPadding] = LauncherSettings.clampStartSidePadding(dp)
+    }
+
+    suspend fun setAccentArrows(enabled: Boolean) = context.metroDataStore.edit { it[Keys.accentArrows] = enabled }
 
     suspend fun setShowWifiName(enabled: Boolean) = context.metroDataStore.edit { it[Keys.showWifiName] = enabled }
 

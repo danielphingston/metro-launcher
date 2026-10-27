@@ -417,22 +417,31 @@ private fun AppRow(
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // The themed (white) icons are made for the accent square; bare on the page they would vanish.
-        val themed = monochrome && !plainIcons
-        val iconSize = if (plainIcons) IconBox else 28.dp
-        Box(
-            Modifier.size(IconBox).then(if (plainIcons) Modifier else Modifier.background(Metro.colors.accent)),
-            contentAlignment = Alignment.Center,
-        ) {
-            val px = with(LocalDensity.current) { iconSize.roundToPx() }
-            val cached = icons.peek(app, px, themed)
-            val icon by produceState<TileIcon?>(cached, app.key, themed, px, icons.generation) {
-                value = icons.peek(app, px, themed) ?: withContext(Dispatchers.Default) { icons.load(app, px, themed) }
-            }
-            icon?.let { Image(it.bitmap, contentDescription = null, modifier = Modifier.size(iconSize)) }
-        }
+        AppListIcon(app, icons, monochrome, plainIcons)
         Spacer(Modifier.width(14.dp))
         MetroText(app.label, MetroType.listItem, maxLines = 1)
+    }
+}
+
+/**
+ * An app's icon as the app list shows it: on an accent square, or with [plainIcons] bare and
+ * larger. The search results use it too, so both follow the same settings.
+ */
+@Composable
+internal fun AppListIcon(app: AppInfo, icons: IconCache, monochrome: Boolean, plainIcons: Boolean) {
+    // The themed (white) icons are made for the accent square; bare on the page they would vanish.
+    val themed = monochrome && !plainIcons
+    val iconSize = if (plainIcons) IconBox else 28.dp
+    Box(
+        Modifier.size(IconBox).then(if (plainIcons) Modifier else Modifier.background(Metro.colors.accent)),
+        contentAlignment = Alignment.Center,
+    ) {
+        val px = with(LocalDensity.current) { iconSize.roundToPx() }
+        val cached = icons.peek(app, px, themed)
+        val icon by produceState<TileIcon?>(cached, app.key, themed, px, icons.generation) {
+            value = icons.peek(app, px, themed) ?: withContext(Dispatchers.Default) { icons.load(app, px, themed) }
+        }
+        icon?.let { Image(it.bitmap, contentDescription = null, modifier = Modifier.size(iconSize)) }
     }
 }
 

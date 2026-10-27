@@ -12,7 +12,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -69,13 +68,13 @@ import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.ui.AppLauncher
 import io.github.danielphingston.metro.ui.LauncherViewModel
 import io.github.danielphingston.metro.ui.applist.AppGroups
+import io.github.danielphingston.metro.ui.applist.AppListIcon
 import io.github.danielphingston.metro.ui.applist.SearchBox
 import io.github.danielphingston.metro.ui.applist.drawMagnifier
 import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.metroTilt
-import io.github.danielphingston.metro.ui.start.AppIcon
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
@@ -248,6 +247,7 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
             rows = rows,
             icons = viewModel.icons,
             monochrome = settings.monochromeIcons,
+            plainIcons = settings.appListPlainIcons,
             focusRequester = focusRequester,
             onActivate = ::activate,
             onLongClick = { app, _ ->
@@ -286,6 +286,7 @@ internal fun SearchContent(
     rows: List<SearchRow>,
     icons: IconCache,
     monochrome: Boolean,
+    plainIcons: Boolean,
     focusRequester: FocusRequester,
     onActivate: (SearchRow, Rect?) -> Unit,
     onLongClick: (AppInfo, Rect) -> Unit,
@@ -324,26 +325,22 @@ internal fun SearchContent(
                         is SearchRow.App -> ResultRow(
                             title = row.app.label,
                             subtitle = null,
-                            iconBackground = colors.accent,
                             onClick = { onActivate(row, it) },
                             onLongClick = { onLongClick(row.app, it) },
-                        ) { AppIcon(row.app, icons, 28.dp, monochrome) }
+                        ) { AppListIcon(row.app, icons, monochrome, plainIcons) }
                         is SearchRow.Shortcut -> ResultRow(
                             title = row.hit.shortLabel,
                             subtitle = row.app?.label,
-                            iconBackground = colors.accent,
                             onClick = { onActivate(row, it) },
-                        ) { row.app?.let { AppIcon(it, icons, 28.dp, monochrome) } }
+                        ) { row.app?.let { AppListIcon(it, icons, monochrome, plainIcons) } ?: Spacer(Modifier.size(IconBox)) }
                         is SearchRow.OpenUrl -> ResultRow(
                             title = "open ${row.shown}",
                             subtitle = null,
-                            iconBackground = colors.control,
                             onClick = { onActivate(row, it) },
                         ) { Glyph { drawArrow(colors.foreground) } }
                         is SearchRow.Web -> ResultRow(
                             title = "search the web for “${row.query}”",
                             subtitle = row.engine.label,
-                            iconBackground = colors.control,
                             onClick = { onActivate(row, it) },
                         ) { Glyph { drawMagnifier(colors.foreground) } }
                     }
@@ -353,16 +350,15 @@ internal fun SearchContent(
     }
 }
 
-/** An icon square, a title and an optional subtitle; tilts when pressed, and [onLongClick] opens a menu. */
+/** An icon, a title and an optional subtitle; tilts when pressed, and [onLongClick] opens a menu. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ResultRow(
     title: String,
     subtitle: String?,
-    iconBackground: Color,
     onClick: (Rect?) -> Unit,
     onLongClick: ((Rect) -> Unit)? = null,
-    icon: @Composable BoxScope.() -> Unit,
+    icon: @Composable () -> Unit,
 ) {
     var bounds by remember { mutableStateOf<Rect?>(null) }
     Row(
@@ -381,7 +377,7 @@ private fun ResultRow(
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(IconBox).background(iconBackground), contentAlignment = Alignment.Center, content = icon)
+        icon()
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             MetroText(title, MetroType.listItem, maxLines = 2)
@@ -390,10 +386,12 @@ private fun ResultRow(
     }
 }
 
-/** An 18dp square for a hairline glyph. */
+/** A hairline glyph, centred on a control-coloured square the size of an app icon. */
 @Composable
 private fun Glyph(draw: DrawScope.() -> Unit) {
-    Box(Modifier.size(18.dp).drawBehind(draw))
+    Box(Modifier.size(IconBox).background(Metro.colors.control), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(18.dp).drawBehind(draw))
+    }
 }
 
 /** A right-pointing arrow, the same hairline as the start screen's buttons. */
