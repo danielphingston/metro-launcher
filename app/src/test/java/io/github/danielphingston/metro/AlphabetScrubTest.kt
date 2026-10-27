@@ -84,6 +84,22 @@ class AlphabetScrubTest {
     }
 
     @Test
+    fun `the bottom gap is a share of the list height`() {
+        assertEquals(120f, AlphabetScrub.bottomGap(1000f, 12), 1e-4f)
+        assertEquals(0f, AlphabetScrub.bottomGap(1000f, 0), 0f)
+        assertEquals(400f, AlphabetScrub.bottomGap(1000f, 40), 1e-4f)
+        // A tall gap with a tall strip still never rises above the top of the room.
+        assertEquals(0f, AlphabetScrub.stripTop(1000f, 550f, AlphabetScrub.bottomGap(1000f, 60)), 0f)
+        assertEquals(1000f - 120f - 459f, AlphabetScrub.stripTop(1000f, 459f, AlphabetScrub.bottomGap(1000f, 12)), 1e-4f)
+    }
+
+    @Test
+    fun `the fixed highlight sits about a third down the list`() {
+        assertEquals(330f, AlphabetScrub.fixedCentre(1000f), 1e-4f)
+        assertEquals(0f, AlphabetScrub.fixedCentre(0f), 0f)
+    }
+
+    @Test
     fun `feather layers add up to the peak alpha at the centre and none outside`() {
         val layers = 10
         var remaining = 1f

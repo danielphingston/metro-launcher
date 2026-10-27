@@ -41,6 +41,15 @@ enum class ScrubberHighlight(val label: String) {
     ROUNDED_RECT("rounded rectangle"),
 }
 
+/** Where the scrubber's big letter shows while the finger is down. */
+enum class ScrubberHighlightPosition(val label: String) {
+    /** One fixed spot at eye level, beside the strip, not following the finger. */
+    FIXED("fixed spot"),
+
+    /** Beside the finger, following it up and down the strip. */
+    BESIDE_FINGER("beside finger"),
+}
+
 data class LauncherSettings(
     val theme: ThemeMode = ThemeMode.DARK,
     val accent: Int = DEFAULT_ACCENT,
@@ -51,6 +60,10 @@ data class LauncherSettings(
     val appListPlainIcons: Boolean = false,
     /** The backdrop of the alphabet scrubber's big letter. */
     val scrubberHighlight: ScrubberHighlight = ScrubberHighlight.CIRCLE,
+    /** Where the scrubber's big letter appears. */
+    val scrubberHighlightPosition: ScrubberHighlightPosition = ScrubberHighlightPosition.FIXED,
+    /** The gap (percent of the list's height) between the scrubber strip and the bottom of the list. */
+    val scrubberPosition: Int = DEFAULT_SCRUBBER_POSITION,
     val showNotificationContent: Boolean = true,
     /** Package of the selected icon pack, or null for the apps' own icons. */
     val iconPack: String? = null,
@@ -92,6 +105,10 @@ data class LauncherSettings(
         const val MIN_PULL_DISTANCE = 40
         const val MAX_PULL_DISTANCE = 200
         const val DEFAULT_PULL_DISTANCE = 72
+
+        const val MIN_SCRUBBER_POSITION = 0
+        const val MAX_SCRUBBER_POSITION = 40
+        const val DEFAULT_SCRUBBER_POSITION = 12
     }
 }
 
@@ -112,6 +129,8 @@ class SettingsRepository(private val context: Context) {
         val monochrome = booleanPreferencesKey("monochrome_icons")
         val appListPlainIcons = booleanPreferencesKey("app_list_plain_icons")
         val scrubberHighlight = stringPreferencesKey("scrubber_highlight")
+        val scrubberHighlightPosition = stringPreferencesKey("scrubber_highlight_position")
+        val scrubberPosition = intPreferencesKey("scrubber_position")
         val notificationContent = booleanPreferencesKey("notification_content")
         val iconPack = stringPreferencesKey("icon_pack")
         val background = stringPreferencesKey("start_background")
@@ -137,6 +156,12 @@ class SettingsRepository(private val context: Context) {
             appListPlainIcons = this[Keys.appListPlainIcons] ?: defaults.appListPlainIcons,
             scrubberHighlight = this[Keys.scrubberHighlight]?.let { runCatching { ScrubberHighlight.valueOf(it) }.getOrNull() }
                 ?: defaults.scrubberHighlight,
+            scrubberHighlightPosition = this[Keys.scrubberHighlightPosition]
+                ?.let { runCatching { ScrubberHighlightPosition.valueOf(it) }.getOrNull() }
+                ?: defaults.scrubberHighlightPosition,
+            scrubberPosition = this[Keys.scrubberPosition]
+                ?.coerceIn(LauncherSettings.MIN_SCRUBBER_POSITION, LauncherSettings.MAX_SCRUBBER_POSITION)
+                ?: defaults.scrubberPosition,
             showNotificationContent = this[Keys.notificationContent] ?: defaults.showNotificationContent,
             iconPack = this[Keys.iconPack]?.takeIf { it.isNotEmpty() },
             background = this[Keys.background]?.let { runCatching { StartBackground.valueOf(it) }.getOrNull() }
@@ -169,6 +194,13 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setScrubberHighlight(highlight: ScrubberHighlight) =
         context.metroDataStore.edit { it[Keys.scrubberHighlight] = highlight.name }
+
+    suspend fun setScrubberHighlightPosition(position: ScrubberHighlightPosition) =
+        context.metroDataStore.edit { it[Keys.scrubberHighlightPosition] = position.name }
+
+    suspend fun setScrubberPosition(percent: Int) = context.metroDataStore.edit {
+        it[Keys.scrubberPosition] = percent.coerceIn(LauncherSettings.MIN_SCRUBBER_POSITION, LauncherSettings.MAX_SCRUBBER_POSITION)
+    }
 
     suspend fun setBackground(mode: StartBackground) = context.metroDataStore.edit { it[Keys.background] = mode.name }
 

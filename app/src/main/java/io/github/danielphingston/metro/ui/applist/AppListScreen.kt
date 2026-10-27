@@ -220,6 +220,8 @@ fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: A
             AlphabetScrubber(
                 letters = scrubLetters,
                 highlight = settings.scrubberHighlight,
+                highlightPosition = settings.scrubberHighlightPosition,
+                positionPercent = settings.scrubberPosition,
                 onScrub = { group ->
                     val index = rows.indexOfFirst { it is AppListRow.Header && it.group == group }
                     if (index >= 0) scope.launch { state.list.scrollToItem(index) }

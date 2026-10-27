@@ -6,6 +6,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -40,11 +41,14 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.ScrubberHighlight
+import io.github.danielphingston.metro.data.ScrubberHighlightPosition
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
@@ -56,10 +60,9 @@ internal val ScrubberWidth = 28.dp
 private val SlotMax = 17.dp
 private val WaveReach = 56.dp
 
-/** Clear space kept between the strip's last letter and the bottom of the list. */
-private val StripMargin = 16.dp
-private val BubbleSize = 88.dp
-private val BubbleRectWidth = 112.dp
+private val BubbleSize = 128.dp
+private val BubbleRectWidth = 144.dp
+private val BubbleRectHeight = 120.dp
 
 /** How far the rounded rectangle's soft edge reaches in from its outline. */
 private val Feather = 20.dp
@@ -77,6 +80,8 @@ internal fun AlphabetScrubber(
     onScrub: (String) -> Unit,
     modifier: Modifier = Modifier,
     highlight: ScrubberHighlight = ScrubberHighlight.CIRCLE,
+    highlightPosition: ScrubberHighlightPosition = ScrubberHighlightPosition.FIXED,
+    positionPercent: Int = LauncherSettings.DEFAULT_SCRUBBER_POSITION,
 ) {
     if (letters.isEmpty()) return
     val colors = Metro.colors
@@ -98,7 +103,7 @@ internal fun AlphabetScrubber(
     var previewIndex by remember { mutableIntStateOf(0) }
     if (selected >= 0) previewIndex = selected
     val reach = with(density) { WaveReach.toPx() }
-    val bubbleHeight = with(density) { BubbleSize.roundToPx() }
+    val bubbleHeight = with(density) { (if (highlight == ScrubberHighlight.ROUNDED_RECT) BubbleRectHeight else BubbleSize).roundToPx() }
     val bubbleWidth = with(density) { (if (highlight == ScrubberHighlight.ROUNDED_RECT) BubbleRectWidth else BubbleSize).roundToPx() }
     val count = letters.size
 
@@ -108,7 +113,9 @@ internal fun AlphabetScrubber(
         }
         val columnHeight = slot * count
         val columnTop = with(density) {
-            AlphabetScrub.stripTop(maxHeight.toPx(), columnHeight.toPx(), StripMargin.toPx()).toDp()
+            AlphabetScrub.stripTop(
+                maxHeight.toPx(), columnHeight.toPx(), AlphabetScrub.bottomGap(maxHeight.toPx(), positionPercent),
+            ).toDp()
         }
         val top = with(density) { columnTop.toPx() }
         val description = "alphabet scrubber"
@@ -172,7 +179,7 @@ internal fun AlphabetScrubber(
                 }
             }
         }
-        // The big preview, left of the finger and the bulge.
+        // The big preview: at a fixed spot at eye level, or left of the finger and the bulge.
         if (bubbleAlpha.value > 0f && previewIndex in letters.indices) {
             val accent = colors.accent
             Box(
@@ -180,9 +187,14 @@ internal fun AlphabetScrubber(
                     .align(Alignment.TopStart)
                     .offset {
                         val x = inward * (reach + bubbleWidth + 16.dp.toPx()) * 0.9f
-                        IntOffset(x.roundToInt(), (top + fingerY).roundToInt() - bubbleHeight / 2)
+                        val centreY = if (highlightPosition == ScrubberHighlightPosition.FIXED) {
+                            AlphabetScrub.fixedCentre(maxHeight.toPx())
+                        } else {
+                            top + fingerY
+                        }
+                        IntOffset(x.roundToInt(), centreY.roundToInt() - bubbleHeight / 2)
                     }
-                    .size(with(density) { bubbleWidth.toDp() }, BubbleSize)
+                    .size(with(density) { bubbleWidth.toDp() }, with(density) { bubbleHeight.toDp() })
                     .graphicsLayer { alpha = bubbleAlpha.value.coerceIn(0f, 1f) }
                     .drawBehind {
                         when (highlight) {
@@ -213,10 +225,13 @@ internal fun AlphabetScrubber(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                MetroText(
+                // Never truncated or wrapped: the box is generous and wide glyphs may spill past it.
+                BasicText(
                     letters[previewIndex].uppercase(),
-                    MetroType.style(44.sp, FontWeight.Light),
-                    color = if (highlight == ScrubberHighlight.NONE) accent else colors.onAccent,
+                    style = MetroType.style(64.sp, FontWeight.Light)
+                        .copy(color = if (highlight == ScrubberHighlight.NONE) accent else colors.onAccent),
+                    softWrap = false,
+                    overflow = TextOverflow.Visible,
                 )
             }
         }
