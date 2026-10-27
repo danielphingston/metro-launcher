@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -194,7 +196,9 @@ internal fun AlphabetScrubber(
                         }
                         IntOffset(x.roundToInt(), centreY.roundToInt() - bubbleHeight / 2)
                     }
-                    .size(with(density) { bubbleWidth.toDp() }, with(density) { bubbleHeight.toDp() })
+                    // The strip is only ScrubberWidth wide: let the bubble take its own size regardless.
+                    .wrapContentSize(Alignment.TopStart, unbounded = true)
+                    .requiredSize(with(density) { bubbleWidth.toDp() }, with(density) { bubbleHeight.toDp() })
                     .graphicsLayer { alpha = bubbleAlpha.value.coerceIn(0f, 1f) }
                     .drawBehind {
                         when (highlight) {
