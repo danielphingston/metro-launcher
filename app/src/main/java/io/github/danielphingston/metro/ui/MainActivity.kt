@@ -127,6 +127,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         resumes++
         viewModel.refreshPermissions()
+        viewModel.recheckPurchases()
         NotificationAccess.rebindIfNeeded(this)
     }
 }

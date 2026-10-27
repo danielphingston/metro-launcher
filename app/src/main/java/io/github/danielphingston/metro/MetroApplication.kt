@@ -6,6 +6,7 @@ import io.github.danielphingston.metro.data.AppRepository
 import io.github.danielphingston.metro.data.CacheTrim
 import io.github.danielphingston.metro.data.CrashLog
 import io.github.danielphingston.metro.data.IconCache
+import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.live.NotificationAccess
@@ -31,12 +32,15 @@ class MetroApplication : Application(), Configuration.Provider {
         private set
     lateinit var tiles: TileRepository
         private set
+    lateinit var purchases: Purchases
+        private set
 
     override fun onCreate() {
         super.onCreate()
         // First, so a crash anywhere below is recorded too.
         CrashLog.install(this)
         settings = SettingsRepository(this)
+        purchases = Purchases(this, appScope)
         tiles = TileRepository(this, appScope, settings.settings.map { it.columns }.distinctUntilChanged())
         icons = IconCache(this)
         apps = AppRepository(this, appScope, onPackageRemoved = { pkg, serial ->
