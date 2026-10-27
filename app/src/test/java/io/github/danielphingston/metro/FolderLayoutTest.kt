@@ -49,6 +49,19 @@ class FolderLayoutTest {
     }
 
     @Test
+    fun resizingAChildReflowsTheRegion() {
+        val base = packed(MEDIUM, MEDIUM, WIDE)
+        val small = FolderLayout.compute(base, 0, listOf(SMALL, MEDIUM, MEDIUM), columns = 4)
+        val wide = FolderLayout.compute(base, 0, listOf(WIDE, MEDIUM, MEDIUM), columns = 4)
+        assertEquals(Placement(0, 2, 1, 1), small.children[0])
+        assertEquals(Placement(0, 2, 4, 2), wide.children[0])
+        // The wide child takes a row of its own, so the region grows and the tiles below follow.
+        assertEquals(4, wide.region!!.height)
+        assertWellFormed(base, 0, small, 4)
+        assertWellFormed(base, 0, wide, 4)
+    }
+
+    @Test
     fun childrenOpenUnderTheFolderAndPushTheRestDown() {
         // Folder (0,0) and a medium beside it share rows 0-1; the wide below moves down by the region.
         val base = packed(MEDIUM, MEDIUM, WIDE)

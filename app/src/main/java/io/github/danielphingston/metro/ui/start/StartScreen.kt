@@ -601,7 +601,7 @@ fun StartScreen(
                             viewModel.unpin(openChildren[selectedChild].spec.id)
                             state.exitEdit()
                         },
-                        onResize = null,
+                        onResize = { viewModel.resize(openChildren[selectedChild].spec.id) },
                     )
                 }
             }
@@ -928,7 +928,7 @@ internal fun EditBadges(
         drawLine(color, Offset(inset, inset), Offset(size.width - inset, size.height - inset), stroke, StrokeCap.Round)
         drawLine(color, Offset(size.width - inset, inset), Offset(inset, size.height - inset), stroke, StrokeCap.Round)
     }
-    // Resize: bottom-right corner, arrow pointing to the next size. Folder children can't be resized.
+    // Resize: bottom-right corner, arrow pointing to the next size.
     if (onResize != null) EditBadge(
         label = "resize",
         onClick = onResize,
