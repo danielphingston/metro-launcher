@@ -71,13 +71,14 @@ class QuickSettingLogicTest {
     }
 
     @Test
-    fun onlyPanelsOpenOverStartAndBatteryLaunchesPlain() {
+    fun onlyPanelsOpenOverStartAndBatteryAndHotspotLaunchPlain() {
         val styles = QuickSettingKind.entries.associateWith(QuickSettingLogic::launchStyle)
         assertEquals(
             setOf(QuickSettingKind.WIFI, QuickSettingKind.MOBILE_DATA),
             styles.filterValues { it == QuickSettingLogic.LaunchStyle.OVER_START }.keys,
         )
         assertEquals(QuickSettingLogic.LaunchStyle.NO_ANIMATION, styles[QuickSettingKind.BATTERY])
+        assertEquals(QuickSettingLogic.LaunchStyle.NO_ANIMATION, styles[QuickSettingKind.HOTSPOT])
         assertEquals(QuickSettingLogic.LaunchStyle.TURNSTILE, styles[QuickSettingKind.BLUETOOTH])
         assertEquals(QuickSettingLogic.LaunchStyle.TURNSTILE, styles[QuickSettingKind.DO_NOT_DISTURB])
     }

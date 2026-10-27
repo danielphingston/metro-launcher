@@ -45,8 +45,17 @@ object AlphabetScrub {
         return minOf(available * MAX_STRIP_FRACTION / count, maxSlot)
     }
 
-    /** The top of a strip [strip] tall hugging the bottom of [available], [margin] clear of it. */
+    /** The top of a strip [strip] tall [margin] above the bottom of [available], never above its top (the search box). */
     fun stripTop(available: Float, strip: Float, margin: Float): Float = (available - margin - strip).coerceAtLeast(0f)
+
+    /** The fixed highlight's vertical centre sits this far down the list, about eye level. */
+    const val FIXED_CENTRE_FRACTION = 0.33f
+
+    /** The vertical centre of the fixed highlight in a list [available] tall. */
+    fun fixedCentre(available: Float): Float = available * FIXED_CENTRE_FRACTION
+
+    /** The gap between the strip and the bottom of [available] for a setting of [percent] of its height. */
+    fun bottomGap(available: Float, percent: Int): Float = available * percent.coerceIn(0, 100) / 100f
 
     /**
      * The alpha to paint layer [index] of [layers] stacked, shrinking shapes (outermost first) so the alpha

@@ -53,7 +53,11 @@ import androidx.lifecycle.repeatOnLifecycle
 import io.github.danielphingston.metro.BuildConfig
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.LauncherSettings
+import kotlin.math.roundToInt
+import io.github.danielphingston.metro.ui.components.MetroSlider
+import androidx.compose.ui.Alignment
 import io.github.danielphingston.metro.data.ScrubberHighlight
+import io.github.danielphingston.metro.data.ScrubberHighlightPosition
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TapCounter
 import io.github.danielphingston.metro.data.ThemeMode
@@ -204,6 +208,42 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
                 )
             }
         }
+        Spacer(Modifier.height(10.dp))
+        MetroText("Highlight position", MetroType.body)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ScrubberHighlightPosition.entries.forEach { position ->
+                MetroChoice(
+                    position.label,
+                    settings.scrubberHighlightPosition == position,
+                    { scope.launch { repository.setScrubberHighlightPosition(position) } },
+                )
+            }
+        }
+        // The slider follows the finger; the setting is saved when it lets go.
+        val positionRange = LauncherSettings.MAX_SCRUBBER_POSITION - LauncherSettings.MIN_SCRUBBER_POSITION
+        var positionDragged by remember { mutableStateOf<Float?>(null) }
+        val positionFraction = positionDragged
+            ?: ((settings.scrubberPosition - LauncherSettings.MIN_SCRUBBER_POSITION).toFloat() / positionRange)
+        val positionPercent = LauncherSettings.MIN_SCRUBBER_POSITION + (positionFraction * positionRange).roundToInt()
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            MetroText("Scrubber position", MetroType.body, modifier = Modifier.weight(1f))
+            MetroText("$positionPercent%", MetroType.body, color = Metro.colors.accent)
+        }
+        MetroSlider(
+            value = positionFraction,
+            onValueChange = { positionDragged = it },
+            modifier = Modifier.padding(top = 2.dp),
+            onValueChangeFinished = {
+                positionDragged?.let {
+                    scope.launch {
+                        repository.setScrubberPosition(positionPercent)
+                        positionDragged = null
+                    }
+                }
+            },
+        )
         Spacer(Modifier.height(10.dp))
 
         IconPackSettingsSection(settings, repository)

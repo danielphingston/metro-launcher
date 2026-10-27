@@ -89,12 +89,12 @@ object QuickSettingLogic {
     /**
      * Wi-Fi and mobile data open bottom-sheet panels: flipping the tiles away first would leave
      * the panel over an empty screen. Battery lands through a trampoline inside Settings that our
-     * own transition would only amplify. Other kinds, and the permission screens the toggles
+     * own transition would only amplify. The hotspot tile opens the tethering page the same plain way. Other kinds, and the permission screens the toggles
      * fall back to, are full pages and keep the turnstile.
      */
     fun launchStyle(kind: QuickSettingKind): LaunchStyle = when (kind) {
         QuickSettingKind.WIFI, QuickSettingKind.MOBILE_DATA -> LaunchStyle.OVER_START
-        QuickSettingKind.BATTERY -> LaunchStyle.NO_ANIMATION
+        QuickSettingKind.BATTERY, QuickSettingKind.HOTSPOT -> LaunchStyle.NO_ANIMATION
         else -> LaunchStyle.TURNSTILE
     }
 
