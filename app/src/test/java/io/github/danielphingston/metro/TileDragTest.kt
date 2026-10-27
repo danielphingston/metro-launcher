@@ -17,7 +17,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -33,7 +32,7 @@ import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.ResolvedTile
-import io.github.danielphingston.metro.ui.search.rememberPullToSearch
+import io.github.danielphingston.metro.ui.search.pullToSearch
 import io.github.danielphingston.metro.ui.start.DragTracking
 import io.github.danielphingston.metro.ui.start.GridPos
 import io.github.danielphingston.metro.ui.start.Placement
@@ -87,10 +86,10 @@ class TileDragTest {
         rule.setContent {
             MetroTheme(LauncherSettings()) {
                 val pager = rememberPagerState { 2 }
-                val pull = rememberPullToSearch(state.scroll, enabled = !state.editing) {}
+                val pull = Modifier.pullToSearch(state.scroll, enabled = !state.editing) {}
                 val cellPx = with(LocalDensity.current) { 100.dp.toPx() }
                 HorizontalPager(pager, userScrollEnabled = !state.editing) { page ->
-                    Box(Modifier.fillMaxSize().then(if (page == 0) Modifier.nestedScroll(pull) else Modifier)) {
+                    Box(Modifier.fillMaxSize().then(if (page == 0) pull else Modifier)) {
                         if (page == 0) {
                             DragTracking(state, tiles, cellPx, 4)
                             Column(
