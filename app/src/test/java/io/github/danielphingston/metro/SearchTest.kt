@@ -1,7 +1,9 @@
 package io.github.danielphingston.metro
 
 import io.github.danielphingston.metro.data.SearchEngine
+import io.github.danielphingston.metro.ui.TopResumeTracker
 import io.github.danielphingston.metro.ui.search.SearchRanking
+import io.github.danielphingston.metro.ui.search.SwipeUpToClose
 import io.github.danielphingston.metro.ui.search.WebSearch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -99,5 +101,56 @@ class SearchTest {
             SearchEngine.GOOGLE.searchUrl("  a & b=c é "),
         )
         assertEquals("https://duckduckgo.com/?q=%22quoted%22+%23tag", SearchEngine.DUCKDUCKGO.searchUrl("\"quoted\" #tag"))
+    }
+}
+
+class SwipeUpToCloseTest {
+    @Test
+    fun closesOnceAfterAnUpwardSwipePastTheThreshold() {
+        val swipe = SwipeUpToClose(100f)
+        swipe.begin(atEnd = true)
+        assertFalse(swipe.drag(-60f))
+        assertTrue(swipe.drag(-50f))
+        assertFalse(swipe.drag(-200f))
+    }
+
+    @Test
+    fun ignoresGesturesThatStartMidList() {
+        val swipe = SwipeUpToClose(100f)
+        swipe.begin(atEnd = false)
+        assertFalse(swipe.drag(-500f))
+        // The next gesture counts again.
+        swipe.end()
+        swipe.begin(atEnd = true)
+        assertTrue(swipe.drag(-500f))
+    }
+
+    @Test
+    fun draggingDownRestartsTheCount() {
+        val swipe = SwipeUpToClose(100f)
+        swipe.begin(atEnd = true)
+        assertFalse(swipe.drag(-80f))
+        assertFalse(swipe.drag(10f))
+        assertFalse(swipe.drag(-80f))
+        assertTrue(swipe.drag(-30f))
+    }
+
+    @Test
+    fun beginKeepsTheFirstAnswerUntilTheGestureEnds() {
+        val swipe = SwipeUpToClose(100f)
+        swipe.begin(atEnd = false)
+        swipe.begin(atEnd = true)
+        assertFalse(swipe.drag(-500f))
+    }
+}
+
+class TopResumeTrackerTest {
+    @Test
+    fun reportsOnlyARegainAfterALoss() {
+        val tracker = TopResumeTracker()
+        assertFalse(tracker.update(true))
+        assertFalse(tracker.update(false))
+        assertTrue(tracker.update(true))
+        assertFalse(tracker.update(true))
     }
 }

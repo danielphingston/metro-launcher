@@ -132,6 +132,10 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
             }
         }
     }
+    // Home may not reach onNewIntent (see MainActivity); leaving the launcher closes search regardless.
+    LaunchedEffect(Unit) {
+        viewModel.launcherLeft.collect { searchState.close() }
+    }
     LaunchedEffect(Unit) {
         viewModel.pinned.collect {
             appListState.reset()
