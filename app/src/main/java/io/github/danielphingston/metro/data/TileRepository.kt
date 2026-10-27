@@ -58,8 +58,32 @@ sealed interface TileContent {
     data object Photos : TileContent
     data object People : TileContent
 
+    /** A system toggle or shortcut (flashlight, Wi-Fi, battery...) with its live state; one tile per [kind]. */
+    data class QuickSetting(val kind: QuickSettingKind) : TileContent
+
     /** Windows Phone 8.1 tile folder. Children are app or shortcut tiles. */
     data class Folder(val name: String, val children: List<TileSpec>) : TileContent
+}
+
+/** The quick-setting tiles. [id] is the name saved in the layout, so it must never change. */
+enum class QuickSettingKind(val id: String, val label: String) {
+    FLASHLIGHT("flashlight", "flashlight"),
+    DO_NOT_DISTURB("dnd", "do not disturb"),
+    RINGER("ringer", "ringer"),
+    AUTO_ROTATE("rotate", "auto-rotate"),
+    BRIGHTNESS("brightness", "brightness"),
+    WIFI("wifi", "wi-fi"),
+    MOBILE_DATA("data", "mobile data"),
+    BLUETOOTH("bluetooth", "bluetooth"),
+    AIRPLANE("airplane", "airplane mode"),
+    LOCATION("location", "location"),
+    HOTSPOT("hotspot", "hotspot"),
+    BATTERY("battery", "battery");
+
+    companion object {
+        /** Null for a kind this version doesn't know, e.g. one saved by a newer build. */
+        fun fromId(id: String?): QuickSettingKind? = entries.firstOrNull { it.id == id }
+    }
 }
 
 /** A custom footprint in small-tile cells that replaces a tile's [TileSize]; see [TileSpec.span]. */
@@ -276,6 +300,7 @@ internal object TileJson {
             TileContent.Weather -> obj.put("type", "weather")
             TileContent.Photos -> obj.put("type", "photos")
             TileContent.People -> obj.put("type", "people")
+            is TileContent.QuickSetting -> obj.put("type", "quick").put("kind", c.kind.id)
             is TileContent.Folder -> obj.put("type", "folder").put("name", c.name).put("children", encode(c.children))
         }
         return obj
@@ -298,6 +323,7 @@ internal object TileJson {
             "weather" -> TileContent.Weather
             "photos" -> TileContent.Photos
             "people" -> TileContent.People
+            "quick" -> TileContent.QuickSetting(QuickSettingKind.fromId(obj.optString("kind")) ?: return null)
             "folder" -> TileContent.Folder(obj.optString("name"), decode(obj.getJSONArray("children")))
             else -> return null
         }

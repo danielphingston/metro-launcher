@@ -1,6 +1,7 @@
 package io.github.danielphingston.metro
 
 import io.github.danielphingston.metro.data.AppKey
+import io.github.danielphingston.metro.data.QuickSettingKind
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileJson
 import io.github.danielphingston.metro.data.TileSize
@@ -33,6 +34,37 @@ class TileJsonTest {
             TileSpec(7, TileSize.MEDIUM, TileContent.Folder("games", listOf(TileSpec(8, TileSize.SMALL, TileContent.App(app))))),
         )
         assertEquals(tiles, TileJson.decode(JSONArray(TileJson.encode(tiles).toString())))
+    }
+
+    @Test
+    fun everyQuickSettingRoundTrips() {
+        val tiles = QuickSettingKind.entries.mapIndexed { i, kind ->
+            TileSpec(i + 1L, TileSize.MEDIUM, TileContent.QuickSetting(kind), x = i % 4, y = i / 4 * 2)
+        }
+        assertEquals(tiles, TileJson.decode(JSONArray(TileJson.encode(tiles).toString())))
+    }
+
+    @Test
+    fun quickSettingIdsAreUnique() {
+        assertEquals(QuickSettingKind.entries.size, QuickSettingKind.entries.map { it.id }.toSet().size)
+    }
+
+    @Test
+    fun unknownQuickSettingKindsAndTileTypesAreDroppedWithoutLosingTheRest() {
+        val saved = """[
+            {"id":1,"type":"quick","kind":"flashlight","size":"SMALL"},
+            {"id":2,"type":"quick","kind":"teleporter","size":"SMALL"},
+            {"id":3,"type":"quick","size":"SMALL"},
+            {"id":4,"type":"hologram","size":"WIDE"},
+            {"id":5,"type":"people","size":"MEDIUM"}
+        ]"""
+        assertEquals(
+            listOf(
+                TileSpec(1, TileSize.SMALL, TileContent.QuickSetting(QuickSettingKind.FLASHLIGHT)),
+                TileSpec(5, TileSize.MEDIUM, TileContent.People),
+            ),
+            TileJson.decode(JSONArray(saved)),
+        )
     }
 
     @Test

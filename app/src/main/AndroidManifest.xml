@@ -11,6 +11,13 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- Lets the app list offer "uninstall" (system confirmation dialog still shown). -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- Quick settings tiles: auto-rotate and brightness (granted in system settings), do not
+         disturb and silent (policy access, granted in system settings), wi-fi and data state. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- Package visibility: only launchable apps and the default apps we pin on first run.
          Deliberately avoids QUERY_ALL_PACKAGES. -->

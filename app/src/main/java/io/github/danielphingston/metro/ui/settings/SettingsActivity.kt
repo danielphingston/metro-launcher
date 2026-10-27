@@ -5,6 +5,7 @@ import android.app.role.RoleManager
 import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
+import android.widget.Toast
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -14,6 +15,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,6 +54,7 @@ import io.github.danielphingston.metro.BuildConfig
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SettingsRepository
+import io.github.danielphingston.metro.data.TapCounter
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationAccess
@@ -183,6 +186,12 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
             { scope.launch { repository.setMonochromeIcons(it) } },
             description = "White icons on tiles for apps that provide them",
         )
+        MetroToggle(
+            "Plain icons in app list",
+            settings.appListPlainIcons,
+            { scope.launch { repository.setAppListPlainIcons(it) } },
+            description = "Show app icons without the coloured square",
+        )
 
         IconPackSettingsSection(settings, repository)
 
@@ -224,6 +233,8 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
         PhotosSettingsSection()
         PeopleSettingsSection()
 
+        QuickTilesSettingsSection()
+
         Section("battery")
         MetroText(
             "Metro does no background work: live tiles update from notifications as they arrive " +
@@ -242,7 +253,26 @@ private fun SettingsScreen(settings: LauncherSettings, repository: SettingsRepos
         CrashLogSettingsSection()
 
         Section("about")
-        MetroText("Metro Launcher ${BuildConfig.VERSION_NAME}", MetroType.caption, color = colors.subtle)
+        // Seven quick taps toggle the test unlock (see Purchases.setTestUnlock); inert unless
+        // the build allows it.
+        val purchases = (context.applicationContext as MetroApplication).purchases
+        val versionTaps = remember { TapCounter() }
+        MetroText(
+            "Metro Launcher ${BuildConfig.VERSION_NAME}",
+            MetroType.caption,
+            modifier = Modifier.clickable(remember { MutableInteractionSource() }, null) {
+                if (BuildConfig.TEST_UNLOCK && versionTaps.tap(System.currentTimeMillis())) {
+                    val on = !purchases.testUnlock.value
+                    purchases.setTestUnlock(on)
+                    Toast.makeText(
+                        context,
+                        if (on) "Quick settings tiles unlocked for testing" else "Quick settings tiles locked again",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+            color = colors.subtle,
+        )
         Spacer(Modifier.height(24.dp))
     }
 }

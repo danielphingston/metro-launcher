@@ -104,6 +104,9 @@ import io.github.danielphingston.metro.ui.tiles.PeopleTile
 import io.github.danielphingston.metro.ui.tiles.PeopleTiles
 import io.github.danielphingston.metro.ui.tiles.PhotosTile
 import io.github.danielphingston.metro.ui.tiles.PhotosTiles
+import io.github.danielphingston.metro.ui.tiles.QuickSettingPicker
+import io.github.danielphingston.metro.ui.tiles.QuickSettingTile
+import io.github.danielphingston.metro.ui.tiles.QuickSettingTiles
 import io.github.danielphingston.metro.ui.tiles.ShortcutTile
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
 import io.github.danielphingston.metro.ui.tiles.WeatherTile
@@ -171,9 +174,10 @@ class StartState(val scroll: ScrollState) {
     /** Folder currently expanded on the start screen, if any. */
     var openFolderId by mutableStateOf<Long?>(null)
 
-    /** The "add a tile" menu and the widget picker it can open. */
+    /** The "add a tile" menu and the widget and quick-settings pickers it can open. */
     var addMenuOpen by mutableStateOf(false)
     var widgetPickerOpen by mutableStateOf(false)
+    var quickPickerOpen by mutableStateOf(false)
 
     /** Folder whose name is being edited. */
     var renamingFolderId by mutableStateOf<Long?>(null)
@@ -225,13 +229,14 @@ class StartState(val scroll: ScrollState) {
     }
 
     /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || widgetPickerOpen || renamingFolderId != null || grouping
+    val flyoutOpen: Boolean get() = addMenuOpen || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || grouping
 
     /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
         val any = flyoutOpen
         addMenuOpen = false
         widgetPickerOpen = false
+        quickPickerOpen = false
         renamingFolderId = null
         endGrouping()
         return any
@@ -280,6 +285,7 @@ fun StartScreen(
     val defaults by viewModel.defaults.collectAsStateWithLifecycle()
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
     val calendarGranted by viewModel.calendarGranted.collectAsStateWithLifecycle()
+    val quickUnlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
     val tiles = loadedTiles.orEmpty()
 
     // Live sources run only when a tile needs them and only while the launcher is visible
@@ -497,7 +503,7 @@ fun StartScreen(
                             onUnpin = { viewModel.unpin(tile.spec.id) },
                             onResize = { viewModel.resize(tile.spec.id) },
                             onSetSpan = { w, h -> viewModel.setSpan(tile.spec.id, w, h) },
-                            onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state) },
+                            onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state, quickUnlocked) },
                             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
                             onDrop = { completed ->
                                 val cell = state.dragCell
@@ -538,7 +544,7 @@ fun StartScreen(
                             onUnpin = { viewModel.unpin(child.spec.id) },
                             onResize = { viewModel.resize(child.spec.id) },
                             onSetSpan = { w, h -> viewModel.setSpan(child.spec.id, w, h) },
-                            onLaunch = { bounds -> activateTile(context, child, bounds, launcher, defaults, state) },
+                            onLaunch = { bounds -> activateTile(context, child, bounds, launcher, defaults, state, quickUnlocked) },
                             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
                             appearFrom = appearFrom,
                             onRemoveFromFolder = { viewModel.removeFromFolder(openFolder!!.spec.id, child.spec.id) },
@@ -634,11 +640,18 @@ fun StartScreen(
                     state.addMenuOpen = false
                     state.widgetPickerOpen = true
                 },
+                onQuickSettings = {
+                    state.addMenuOpen = false
+                    state.quickPickerOpen = true
+                },
                 onDismiss = { state.addMenuOpen = false },
             )
         }
         if (state.widgetPickerOpen) {
             WidgetPicker(viewModel, onDismiss = { state.widgetPickerOpen = false })
+        }
+        if (state.quickPickerOpen) {
+            QuickSettingPicker(viewModel, onDismiss = { state.quickPickerOpen = false })
         }
         if (state.grouping) {
             GroupingBar(
@@ -1003,6 +1016,7 @@ private fun TileBody(
         TileContent.Weather -> WeatherTile(tile, cell, flipped)
         TileContent.Photos -> PhotosTile(tile, cell, flipped)
         TileContent.People -> PeopleTile(tile, cell, flipped)
+        is TileContent.QuickSetting -> QuickSettingTile(tile, cell)
         is TileContent.Folder -> FolderTile(tile, cell, icons, monochromeIcons, folderOpen)
     }
 }
@@ -1015,6 +1029,7 @@ private fun activateTile(
     launcher: AppLauncher,
     defaults: DefaultApps,
     state: StartState,
+    quickUnlocked: Boolean,
 ) {
     when (val content = tile.spec.content) {
         is TileContent.App -> tile.app?.let { launcher.launch(it, bounds) }
@@ -1025,6 +1040,9 @@ private fun activateTile(
         TileContent.Weather -> WeatherTiles.intent(context)?.let { launcher.start(it, bounds) }
         TileContent.Photos -> PhotosTiles.intent(context, defaults)?.let { launcher.start(it, bounds) }
         TileContent.People -> PeopleTiles.intent(context)?.let { launcher.start(it, bounds) }
+        is TileContent.QuickSetting -> QuickSettingTiles.activate(context, content.kind, quickUnlocked)
+            .takeIf { it.isNotEmpty() }
+            ?.let { intents -> launcher.open(bounds) { screenBounds, options -> QuickSettingTiles.start(context, intents, screenBounds, options) } }
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
     }
 }
@@ -1034,6 +1052,7 @@ private fun activateTile(
 private fun AddTileMenu(
     onAdd: (TileContent, TileSize) -> Unit,
     onWidgets: () -> Unit,
+    onQuickSettings: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     MetroFlyout(onDismiss) {
@@ -1042,6 +1061,7 @@ private fun AddTileMenu(
                 "weather" to { onAdd(TileContent.Weather, TileSize.WIDE) },
                 "photos" to { onAdd(TileContent.Photos, TileSize.WIDE) },
                 "people" to { onAdd(TileContent.People, TileSize.MEDIUM) },
+                "quick settings" to onQuickSettings,
                 "widgets" to onWidgets,
             ),
             modifier = Modifier

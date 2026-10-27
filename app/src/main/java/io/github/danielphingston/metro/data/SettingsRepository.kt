@@ -35,6 +35,8 @@ data class LauncherSettings(
     /** 4 = classic Windows Phone grid, 6 = "show more tiles". */
     val columns: Int = 4,
     val monochromeIcons: Boolean = true,
+    /** App list rows show the bare icon instead of the icon on an accent square. */
+    val appListPlainIcons: Boolean = false,
     val showNotificationContent: Boolean = true,
     /** Package of the selected icon pack, or null for the apps' own icons. */
     val iconPack: String? = null,
@@ -90,6 +92,7 @@ class SettingsRepository(private val context: Context) {
         val accent = intPreferencesKey("accent")
         val columns = intPreferencesKey("columns")
         val monochrome = booleanPreferencesKey("monochrome_icons")
+        val appListPlainIcons = booleanPreferencesKey("app_list_plain_icons")
         val notificationContent = booleanPreferencesKey("notification_content")
         val iconPack = stringPreferencesKey("icon_pack")
         val background = stringPreferencesKey("start_background")
@@ -110,6 +113,7 @@ class SettingsRepository(private val context: Context) {
             accent = this[Keys.accent] ?: defaults.accent,
             columns = this[Keys.columns] ?: defaults.columns,
             monochromeIcons = this[Keys.monochrome] ?: defaults.monochromeIcons,
+            appListPlainIcons = this[Keys.appListPlainIcons] ?: defaults.appListPlainIcons,
             showNotificationContent = this[Keys.notificationContent] ?: defaults.showNotificationContent,
             iconPack = this[Keys.iconPack]?.takeIf { it.isNotEmpty() },
             background = this[Keys.background]?.let { runCatching { StartBackground.valueOf(it) }.getOrNull() }
@@ -129,6 +133,9 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAccent(color: Int) = context.metroDataStore.edit { it[Keys.accent] = color }
     suspend fun setColumns(columns: Int) = context.metroDataStore.edit { it[Keys.columns] = columns }
     suspend fun setMonochromeIcons(enabled: Boolean) = context.metroDataStore.edit { it[Keys.monochrome] = enabled }
+    suspend fun setAppListPlainIcons(enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.appListPlainIcons] = enabled }
+
     suspend fun setIconPack(packageName: String?) =
         context.metroDataStore.edit { it[Keys.iconPack] = packageName.orEmpty() }
 

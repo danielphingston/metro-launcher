@@ -1,5 +1,6 @@
 package io.github.danielphingston.metro.ui
 
+import android.app.Activity
 import android.app.Application
 import android.content.ComponentName
 import android.graphics.Rect
@@ -16,6 +17,7 @@ import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.DefaultLayout
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.data.TileSize
@@ -60,6 +62,12 @@ data class ResolvedTile(
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
     private val metro = application as MetroApplication
     val icons: IconCache = metro.icons
+
+    /** The "Quick settings tiles" pack: whether it is unlocked, its Play price, and how to buy it. */
+    val quickTilesUnlocked: StateFlow<Boolean> = metro.purchases.quickTilesUnlocked
+    val quickTilesPrice: StateFlow<String?> = metro.purchases.quickTilesPrice
+
+    fun buyQuickTiles(activity: Activity) = metro.purchases.buyQuickTiles(activity)
 
     val settings: StateFlow<LauncherSettings> =
         metro.settings.settings.stateIn(viewModelScope, SharingStarted.Eagerly, LauncherSettings())
@@ -119,6 +127,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             TileContent.Weather -> ResolvedTile(spec, null, "weather")
             TileContent.Photos -> ResolvedTile(spec, null, "photos")
             TileContent.People -> ResolvedTile(spec, null, "people")
+            is TileContent.QuickSetting -> ResolvedTile(spec, null, c.kind.label)
             is TileContent.Folder -> ResolvedTile(
                 spec, null, c.name.ifBlank { "folder" }, c.children.mapNotNull(::resolve),
             )
@@ -162,6 +171,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun refreshPermissions() {
         _calendarGranted.value = CalendarSource.hasPermission(getApplication())
     }
+
+    /** Asks Play again whether the quick settings tiles are owned; see [Purchases.recheck]. */
+    fun recheckPurchases() = metro.purchases.recheck()
 
     fun launch(app: AppInfo, bounds: Rect?, options: Bundle?): Boolean = metro.apps.launch(app, bounds, options)
     fun openAppInfo(app: AppInfo) = metro.apps.openAppInfo(app)

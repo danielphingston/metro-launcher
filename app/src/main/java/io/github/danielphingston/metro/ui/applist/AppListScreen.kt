@@ -64,6 +64,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
@@ -163,6 +164,9 @@ private val ListStart = 20.dp
 private val ListEnd = 12.dp
 private val IconBox = 44.dp
 
+/** The search box's height with its padding; the scrubber starts below it. */
+private val SearchBoxHeight = 60.dp
+
 /** The widest the list gets; on a tablet it stays this wide in the middle of the screen. */
 private val ListMaxWidth = 560.dp
 
@@ -176,7 +180,8 @@ fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: A
     val colors = Metro.colors
 
     val rows = remember(apps, state.query) { appListRows(apps, state.query, System.currentTimeMillis()) }
-    val letters = remember(rows) { rows.mapNotNullTo(mutableSetOf()) { (it as? AppListRow.Header)?.group } }
+    val scrubLetters = remember(rows) { rows.mapNotNull { (it as? AppListRow.Header)?.group } }
+    val letters = remember(scrubLetters) { scrubLetters.toSet() }
 
     LaunchedEffect(state.query) { if (state.query.isNotEmpty()) state.list.scrollToItem(0) }
 
@@ -191,6 +196,8 @@ fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: A
             listState = state.list,
             icons = viewModel.icons,
             monochrome = settings.monochromeIcons,
+            plainIcons = settings.appListPlainIcons,
+            scrubberInset = if (scrubLetters.isEmpty()) 0.dp else ScrubberWidth,
             query = state.query,
             onQueryChange = { state.query = it },
             onSubmit = {
@@ -208,6 +215,21 @@ fun AppListScreen(viewModel: LauncherViewModel, state: AppListState, launcher: A
                 state.menu = app to bounds
             },
         )
+        // Search results have no letter groups to scrub through.
+        if (state.query.isEmpty()) {
+            AlphabetScrubber(
+                letters = scrubLetters,
+                onScrub = { group ->
+                    val index = rows.indexOfFirst { it is AppListRow.Header && it.group == group }
+                    if (index >= 0) scope.launch { state.list.scrollToItem(index) }
+                },
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .statusBarsPadding()
+                    .padding(top = SearchBoxHeight, bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+            )
+        }
         // The list sits on a page colour (nearly opaque in the photo modes), so the scrim is the page colour too.
         StatusBarScrim(overPhoto = false)
 
@@ -251,6 +273,9 @@ internal fun AppListContent(
     onLetterClick: () -> Unit,
     onClick: (AppInfo, Rect?) -> Unit,
     onLongClick: (AppInfo, Rect) -> Unit,
+    plainIcons: Boolean = false,
+    /** Room kept free at the end edge for the alphabet scrubber. */
+    scrubberInset: Dp = 0.dp,
 ) {
     BoxWithConstraints(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)),
@@ -265,7 +290,7 @@ internal fun AppListContent(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = margin + ListStart,
-                    end = margin + ListEnd,
+                    end = margin + maxOf(ListEnd, scrubberInset - margin),
                     bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
                 ),
             ) {
@@ -282,6 +307,7 @@ internal fun AppListContent(
                             app = row.app,
                             icons = icons,
                             monochrome = monochrome,
+                            plainIcons = plainIcons,
                             onClick = { bounds -> onClick(row.app, bounds) },
                             onLongClick = { bounds -> onLongClick(row.app, bounds) },
                         )
@@ -367,6 +393,7 @@ private fun AppRow(
     app: AppInfo,
     icons: IconCache,
     monochrome: Boolean,
+    plainIcons: Boolean,
     onClick: (Rect?) -> Unit,
     onLongClick: (Rect) -> Unit,
 ) {
@@ -387,13 +414,19 @@ private fun AppRow(
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(IconBox).background(Metro.colors.accent), contentAlignment = Alignment.Center) {
-            val px = with(LocalDensity.current) { 28.dp.roundToPx() }
-            val cached = icons.peek(app, px, monochrome)
-            val icon by produceState<TileIcon?>(cached, app.key, monochrome, icons.generation) {
-                value = icons.peek(app, px, monochrome) ?: withContext(Dispatchers.Default) { icons.load(app, px, monochrome) }
+        // The themed (white) icons are made for the accent square; bare on the page they would vanish.
+        val themed = monochrome && !plainIcons
+        val iconSize = if (plainIcons) IconBox else 28.dp
+        Box(
+            Modifier.size(IconBox).then(if (plainIcons) Modifier else Modifier.background(Metro.colors.accent)),
+            contentAlignment = Alignment.Center,
+        ) {
+            val px = with(LocalDensity.current) { iconSize.roundToPx() }
+            val cached = icons.peek(app, px, themed)
+            val icon by produceState<TileIcon?>(cached, app.key, themed, px, icons.generation) {
+                value = icons.peek(app, px, themed) ?: withContext(Dispatchers.Default) { icons.load(app, px, themed) }
             }
-            icon?.let { Image(it.bitmap, contentDescription = null, modifier = Modifier.size(28.dp)) }
+            icon?.let { Image(it.bitmap, contentDescription = null, modifier = Modifier.size(iconSize)) }
         }
         Spacer(Modifier.width(14.dp))
         MetroText(app.label, MetroType.listItem, maxLines = 1)
