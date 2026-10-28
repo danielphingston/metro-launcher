@@ -9,6 +9,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -30,8 +31,18 @@ data class MetroColors(
     val accent: Color,
     val isDark: Boolean,
 ) {
-    /** Tile text is always white, as on Windows Phone. */
+    /**
+     * Tile text is always white, as on Windows Phone. Tiles are the accent at the configured
+     * transparency, often over a photo or the dark page, so white is the right ink there whatever
+     * the accent is. For surfaces that are the solid accent colour use [onSolidAccent].
+     */
     val onAccent: Color get() = Color.White
+
+    /**
+     * White or black, whichever reads better on the solid [accent]: white on lime, yellow, amber,
+     * orange, pink and cyan is only 1.5:1 to 3:1. For buttons, toggles and other opaque accent fills.
+     */
+    val onSolidAccent: Color get() = readableOn(accent)
 
     /** Buttons, inactive toggle tracks and other raised controls on the page. */
     val control: Color get() = if (isDark) Color(0xFF333333) else Color(0xFFCCCCCC)
@@ -46,6 +57,22 @@ data class MetroColors(
             MetroColors(Color.White, Color.Black, Color(0xFF6E6E6E), Color(0xFFDDDDDD), accent, false)
         }
     }
+}
+
+/** WCAG 2.x contrast ratio between two opaque colours, 1..21. */
+fun contrastRatio(a: Color, b: Color): Float {
+    val la = a.luminance()
+    val lb = b.luminance()
+    return (maxOf(la, lb) + 0.05f) / (minOf(la, lb) + 0.05f)
+}
+
+/**
+ * White or black text on [background]: whichever has the higher contrast, except that white is
+ * kept while it still passes WCAG AA for normal text (4.5:1), which is the Metro look.
+ */
+fun readableOn(background: Color): Color {
+    val white = contrastRatio(Color.White, background)
+    return if (white >= 4.5f || white >= contrastRatio(Color.Black, background)) Color.White else Color.Black
 }
 
 /** The twenty Windows Phone 8 accent colours. */

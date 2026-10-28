@@ -1,5 +1,6 @@
 package io.github.danielphingston.metro.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
@@ -33,6 +34,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -53,6 +55,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -63,6 +68,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.launch
@@ -192,7 +198,7 @@ fun MetroToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit, de
                     .align(Alignment.CenterStart)
                     .offset(x = thumbX)
                     .size(if (checked) 14.dp else 12.dp)
-                    .background(if (checked) colors.onAccent else colors.foreground, CircleShape),
+                    .background(if (checked) colors.onSolidAccent else colors.foreground, CircleShape),
             )
         }
     }
@@ -210,19 +216,26 @@ fun MetroButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier
             .padding(horizontal = 20.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        MetroText(text, MetroType.button, maxLines = 1)
+        MetroText(text, MetroType.button, maxLines = 2)
     }
 }
 
 /**
  * Slider with a thin track, an accent fill and a square thumb. [value] is 0..1;
  * [onValueChangeFinished] fires when the finger lifts, so callers can save then.
+ *
+ * For TalkBack, [steps] is the number of stops between the ends (0 is continuous), so a swipe
+ * moves one stop instead of an arbitrary amount, and [valueDescription] words the current value
+ * ("24 dp") instead of a bare percentage. A TalkBack change has no finger to lift, so it counts
+ * as finished at once.
  */
 @Composable
 fun MetroSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    steps: Int = 0,
+    valueDescription: ((Float) -> String)? = null,
     onValueChangeFinished: () -> Unit = {},
 ) {
     val colors = Metro.colors
@@ -237,8 +250,15 @@ fun MetroSlider(
             .height(40.dp)
             .onSizeChanged { width = it.width }
             .semantics {
-                progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
-                setProgress { change(it.coerceIn(0f, 1f)); true }
+                progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f, steps)
+                valueDescription?.let { stateDescription = it(fraction) }
+                setProgress {
+                    val stops = (steps + 1).takeIf { steps > 0 }
+                    val target = it.coerceIn(0f, 1f)
+                    change(if (stops == null) target else (target * stops).roundToInt() / stops.toFloat())
+                    finished()
+                    true
+                }
             }
             .pointerInput(Unit) {
                 val thumb = thumbWidth.toPx()
@@ -269,6 +289,51 @@ fun MetroSlider(
     }
 }
 
+/**
+ * A settings slider with its label and the current value above it. The value is an integer in
+ * [range] shown through [format]; the slider follows the finger and [onCommit] runs once it lets
+ * go (or, for TalkBack, after every change), so the setting is saved once, not on every move.
+ */
+@Composable
+fun LabeledSlider(
+    label: String,
+    value: Int,
+    range: IntRange,
+    format: (Int) -> String,
+    modifier: Modifier = Modifier,
+    onCommit: suspend (Int) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    val span = (range.last - range.first).coerceAtLeast(1)
+    var dragged by remember { mutableStateOf<Float?>(null) }
+    fun valueAt(fraction: Float) = range.first + (fraction * span).roundToInt()
+    val fraction = dragged ?: ((value - range.first).toFloat() / span).coerceIn(0f, 1f)
+    Column(modifier) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            MetroText(label, MetroType.body, modifier = Modifier.weight(1f).padding(end = 12.dp))
+            MetroText(format(valueAt(fraction)), MetroType.body, color = Metro.colors.accent)
+        }
+        MetroSlider(
+            value = fraction,
+            onValueChange = { dragged = it },
+            modifier = Modifier.padding(top = 2.dp),
+            // About 5% per TalkBack swipe on wide ranges; one unit on narrow ones.
+            steps = (span - 1).coerceAtMost(19),
+            valueDescription = { format(valueAt(it)) },
+            // Read the drag when it ends, not from this composition: a TalkBack change finishes
+            // before the page has recomposed.
+            onValueChangeFinished = {
+                dragged?.let { f ->
+                    scope.launch {
+                        onCommit(valueAt(f))
+                        dragged = null
+                    }
+                }
+            },
+        )
+    }
+}
+
 /** A selectable choice (theme, icon pack, start background): accent-filled when [selected]. */
 @Composable
 fun MetroChoice(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -281,24 +346,44 @@ fun MetroChoice(label: String, selected: Boolean, onClick: () -> Unit, modifier:
             .semantics { this.selected = selected }
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
-        MetroText(label, MetroType.button, color = if (selected) colors.onAccent else colors.foreground, maxLines = 1)
+        MetroText(label, MetroType.button, color = if (selected) colors.onSolidAccent else colors.foreground, maxLines = 2)
     }
 }
 
 /**
  * A Windows 10 Mobile flyout: the page dims and [content] slides up a little as it fades in.
- * Tapping the dimmed page calls [onDismiss]. Entry is animated, exit is immediate.
+ * Tapping the dimmed page or pressing back calls [onDismiss]. Entry is animated, exit is immediate.
+ *
+ * It is a pane for TalkBack, announced as [paneTitle] and read as one group of its own.
  */
 @Composable
-fun MetroFlyout(onDismiss: () -> Unit, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+fun MetroFlyout(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    paneTitle: String = "menu",
+    content: @Composable BoxScope.() -> Unit,
+) {
     val entered = remember { MutableTransitionState(false).apply { targetState = true } }
-    Box(modifier.fillMaxSize()) {
+    BackHandler(onBack = onDismiss)
+    Box(
+        modifier.fillMaxSize().semantics {
+            this.paneTitle = paneTitle
+            isTraversalGroup = true
+        },
+    ) {
         AnimatedVisibility(entered, Modifier.fillMaxSize(), enter = fadeIn(tween(160)), exit = ExitTransition.None) {
             Box(
                 Modifier
                     .fillMaxSize()
                     .background(Metro.colors.scrim)
-                    .clickable(remember { MutableInteractionSource() }, null, onClickLabel = "close", onClick = onDismiss),
+                    .clickable(
+                        remember { MutableInteractionSource() },
+                        null,
+                        onClickLabel = "dismiss",
+                        role = Role.Button,
+                        onClick = onDismiss,
+                    )
+                    .semantics { contentDescription = "dismiss" },
             )
         }
         AnimatedVisibility(
@@ -327,7 +412,7 @@ fun MetroMenu(items: List<Pair<String, () -> Unit>>, modifier: Modifier = Modifi
                 MetroType.menuItem,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = action)
+                    .clickable(role = Role.Button, onClick = action)
                     .padding(horizontal = 24.dp, vertical = 12.dp),
             )
         }

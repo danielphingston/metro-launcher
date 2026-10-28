@@ -13,7 +13,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
@@ -22,7 +21,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
@@ -40,7 +38,7 @@ import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.ui.LARGE_SCREEN_DP
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroChoice
-import io.github.danielphingston.metro.ui.components.MetroSlider
+import io.github.danielphingston.metro.ui.components.LabeledSlider
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.MetroToggle
 import io.github.danielphingston.metro.ui.theme.Metro
@@ -49,7 +47,6 @@ import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.tiles.PeopleSettingsSection
 import io.github.danielphingston.metro.ui.tiles.PhotosSettingsSection
 import io.github.danielphingston.metro.ui.tiles.WeatherSettingsSection
-import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 // The pages of the settings (see SettingsScreen). Each takes the controls that used to share one long page.
@@ -77,29 +74,23 @@ internal fun StartPage(settings: LauncherSettings, repository: SettingsRepositor
         )
     }
     MetroText("Start screen padding", MetroType.caption, color = colors.subtle)
-    PaddingSlider(
-        "Top",
-        settings.startTopPadding,
-        LauncherSettings.MIN_START_TOP_PADDING,
-        LauncherSettings.MAX_START_TOP_PADDING,
-    ) { repository.setStartTopPadding(it) }
+    PaddingSlider("Top", settings.startTopPadding, LauncherSettings.MIN_START_TOP_PADDING..LauncherSettings.MAX_START_TOP_PADDING) {
+        repository.setStartTopPadding(it)
+    }
     PaddingSlider(
         "Bottom",
         settings.startBottomPadding,
-        LauncherSettings.MIN_START_BOTTOM_PADDING,
-        LauncherSettings.MAX_START_BOTTOM_PADDING,
+        LauncherSettings.MIN_START_BOTTOM_PADDING..LauncherSettings.MAX_START_BOTTOM_PADDING,
     ) { repository.setStartBottomPadding(it) }
     PaddingSlider(
         "Left",
         settings.startLeftPadding,
-        LauncherSettings.MIN_START_SIDE_PADDING,
-        LauncherSettings.MAX_START_SIDE_PADDING,
+        LauncherSettings.MIN_START_SIDE_PADDING..LauncherSettings.MAX_START_SIDE_PADDING,
     ) { repository.setStartLeftPadding(it) }
     PaddingSlider(
         "Right",
         settings.startRightPadding,
-        LauncherSettings.MIN_START_SIDE_PADDING,
-        LauncherSettings.MAX_START_SIDE_PADDING,
+        LauncherSettings.MIN_START_SIDE_PADDING..LauncherSettings.MAX_START_SIDE_PADDING,
     ) { repository.setStartRightPadding(it) }
     Spacer(Modifier.height(10.dp))
     MetroToggle(
@@ -110,6 +101,13 @@ internal fun StartPage(settings: LauncherSettings, repository: SettingsRepositor
     )
 
     BackgroundSettingsSection(settings, repository)
+}
+
+/** A start screen padding slider: the label is "<side> padding", the value in dp. */
+@Composable
+private fun PaddingSlider(side: String, value: Int, range: IntRange, onSave: suspend (Int) -> Unit) {
+    Spacer(Modifier.height(8.dp))
+    LabeledSlider("$side padding", value, range, { "$it dp" }, onCommit = onSave)
 }
 
 @Composable
@@ -152,30 +150,13 @@ internal fun AppListPage(settings: LauncherSettings, repository: SettingsReposit
             )
         }
     }
-    // The slider follows the finger; the setting is saved when it lets go.
-    val positionRange = LauncherSettings.MAX_SCRUBBER_POSITION - LauncherSettings.MIN_SCRUBBER_POSITION
-    var positionDragged by remember { mutableStateOf<Float?>(null) }
-    val positionFraction = positionDragged
-        ?: ((settings.scrubberPosition - LauncherSettings.MIN_SCRUBBER_POSITION).toFloat() / positionRange)
-    val positionPercent = LauncherSettings.MIN_SCRUBBER_POSITION + (positionFraction * positionRange).roundToInt()
     Spacer(Modifier.height(16.dp))
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        MetroText("Scrubber position", MetroType.body, modifier = Modifier.weight(1f))
-        MetroText("$positionPercent%", MetroType.body, color = Metro.colors.accent)
-    }
-    MetroSlider(
-        value = positionFraction,
-        onValueChange = { positionDragged = it },
-        modifier = Modifier.padding(top = 2.dp),
-        onValueChangeFinished = {
-            positionDragged?.let {
-                scope.launch {
-                    repository.setScrubberPosition(positionPercent)
-                    positionDragged = null
-                }
-            }
-        },
-    )
+    LabeledSlider(
+        "Scrubber position",
+        settings.scrubberPosition,
+        LauncherSettings.MIN_SCRUBBER_POSITION..LauncherSettings.MAX_SCRUBBER_POSITION,
+        { "$it%" },
+    ) { repository.setScrubberPosition(it) }
 }
 
 @Composable
@@ -210,9 +191,14 @@ internal fun TilesPage(settings: LauncherSettings, repository: SettingsRepositor
     val scope = rememberCoroutineScope()
     val colors = Metro.colors
     val notificationAccess = rememberOnResume { NotificationAccess.isGranted(context) }
-    var calendarAccess by remember { mutableStateOf(CalendarSource.hasPermission(context)) }
+    // Re-read on resume: the permission can be given or revoked in system settings meanwhile.
+    val calendarGranted = rememberOnResume { CalendarSource.hasPermission(context) }
+    var calendarJustGranted by remember { mutableStateOf(false) }
+    var calendarDeclined by remember { mutableStateOf(false) }
+    val calendarAccess = calendarGranted || calendarJustGranted
     val calendarRequest = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        calendarAccess = it
+        calendarJustGranted = it
+        calendarDeclined = !it
     }
 
     Section("live tiles")
@@ -243,6 +229,20 @@ internal fun TilesPage(settings: LauncherSettings, repository: SettingsRepositor
         MetroButton("show appointments on calendar tile", onClick = {
             calendarRequest.launch(Manifest.permission.READ_CALENDAR)
         })
+        if (calendarDeclined) {
+            Spacer(Modifier.height(8.dp))
+            MetroText(
+                "Calendar access was declined. You can allow it in the app's permissions.",
+                MetroType.caption,
+                color = colors.subtle,
+            )
+            Spacer(Modifier.height(8.dp))
+            MetroButton("open app info", onClick = {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
+                )
+            })
+        }
     }
 
     WeatherSettingsSection()

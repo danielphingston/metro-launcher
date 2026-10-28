@@ -9,16 +9,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -29,7 +22,7 @@ import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.live.PhotoSource
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroChoice
-import io.github.danielphingston.metro.ui.components.MetroSlider
+import io.github.danielphingston.metro.ui.components.LabeledSlider
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.MetroToggle
 import io.github.danielphingston.metro.ui.theme.Metro
@@ -114,27 +107,13 @@ fun BackgroundSettingsSection(settings: LauncherSettings, repository: SettingsRe
         )
     }
 
-    // The slider follows the finger; the setting is saved when it lets go.
-    var dragged by remember { mutableStateOf<Float?>(null) }
-    val transparency = dragged ?: settings.transparencyFraction
     Spacer(Modifier.height(16.dp))
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        MetroText("Tile transparency", MetroType.body, modifier = Modifier.weight(1f))
-        MetroText("${(transparency * 100).roundToInt()}%", MetroType.body, color = colors.accent)
-    }
-    MetroSlider(
-        value = transparency,
-        onValueChange = { dragged = it },
-        modifier = Modifier.padding(top = 2.dp),
-        onValueChangeFinished = {
-            dragged?.let { value ->
-                scope.launch {
-                    repository.setTileTransparency((value * 100).roundToInt())
-                    dragged = null
-                }
-            }
-        },
-    )
+    LabeledSlider(
+        "Tile transparency",
+        (settings.transparencyFraction * 100).roundToInt(),
+        0..100,
+        { "$it%" },
+    ) { repository.setTileTransparency(it) }
 }
 
 /** The accent-from-photo toggle; shown on the appearance page, only while a background photo is in use. */
