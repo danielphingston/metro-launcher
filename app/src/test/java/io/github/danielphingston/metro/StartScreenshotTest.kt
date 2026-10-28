@@ -85,6 +85,7 @@ import io.github.danielphingston.metro.ui.start.TilePlacement
 import io.github.danielphingston.metro.ui.start.TurnstilePhase
 import io.github.danielphingston.metro.ui.start.TurnstileState
 import io.github.danielphingston.metro.ui.start.turnstile
+import io.github.danielphingston.metro.ui.start.LocalTurnstile
 import io.github.danielphingston.metro.ui.theme.LocalStartBackdrop
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroTheme
@@ -192,6 +193,13 @@ class StartScreenshotTest {
     @Test
     fun startFolderOpen() = captureFolders("start_folder_open", ThemeMode.DARK, openFolder = GAMES_ID)
 
+    /** Mid-launch from an open folder: the panel behind the folder's tiles is gone with them. */
+    @Test
+    fun startFolderOpenDuringLaunch() = captureFolders(
+        "start_folder_open_launching", ThemeMode.DARK, openFolder = GAMES_ID,
+        turnstile = TurnstileState().apply { seek(TurnstilePhase.OUT, 110f) },
+    )
+
     @Test
     fun startFolderOpenLight() =
         captureFolders("start_folder_open_light", ThemeMode.LIGHT, openFolder = GAMES_ID, accent = 0xFF0050EF.toInt())
@@ -270,10 +278,11 @@ class StartScreenshotTest {
         openFolder: Long?,
         accent: Int = LauncherSettings.DEFAULT_ACCENT,
         tallTile: Boolean = false,
+        turnstile: TurnstileState = TurnstileState(),
     ) {
         captureRoboImage("src/test/screenshots/$name.png", roborazziOptions = ScreenshotOptions) {
             MetroTheme(LauncherSettings(theme = theme, accent = accent, columns = 4)) {
-                FolderPreview(openFolder, tallTile)
+                CompositionLocalProvider(LocalTurnstile provides turnstile) { FolderPreview(openFolder, tallTile) }
             }
         }
     }
