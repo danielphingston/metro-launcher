@@ -28,16 +28,22 @@ import android.os.BatteryManager
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.telephony.SubscriptionManager
 import android.telephony.SignalStrength
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import io.github.danielphingston.metro.data.QuickSettingKind
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
@@ -153,6 +159,10 @@ object QuickSettingLogic {
 
     fun onOffText(on: Boolean): String = if (on) "on" else "off"
 
+    /** Whether [kind] is a plain on/off setting; the others cycle through steps or only open a screen. */
+    fun isToggle(kind: QuickSettingKind): Boolean =
+        kind != QuickSettingKind.BRIGHTNESS && kind != QuickSettingKind.BATTERY && kind != QuickSettingKind.HOTSPOT && kind != QuickSettingKind.RINGER
+
     private const val SEPARATOR = " · "
 
     /** One line per group, the group's parts joined; empty parts and groups drop out and extra lines are cut. */
@@ -250,6 +260,12 @@ object QuickSettingLogic {
         }
     }
 
+    /**
+     * Whether mobile data is on: the default data subscription's own answer when there is one,
+     * else the global setting, which on a dual-SIM phone describes only one of the subscriptions.
+     */
+    fun dataEnabled(perSubscription: Boolean?, global: Boolean): Boolean = perSubscription ?: global
+
     /** "1 h 20 min to full" from the milliseconds android estimates; null when it can't tell (negative) or is done (0). */
     fun chargeTimeText(ms: Long): String? {
         if (ms <= 0) return null
@@ -270,16 +286,22 @@ object QuickSettingLogic {
     fun temperatureText(celsius: Float): String = String.format(Locale.ROOT, "%.1f°c", celsius)
 }
 
-/** The flashlight: its camera, and the state its callback last reported. */
+/**
+ * The flashlight: its camera, and the state its callback last reported. The state is only kept
+ * fresh while a flashlight tile is collected ([track] and [untrack]); with none, it reads as off
+ * instead of going stale.
+ */
 internal object Torch {
     @Volatile
     var on = false
 
+    private val lock = Any()
     private var resolved = false
     private var id: String? = null
+    private var trackers = 0
 
     /** The first back camera with a flash, or null on a device without one. */
-    fun cameraId(context: Context): String? {
+    fun cameraId(context: Context): String? = synchronized(lock) {
         if (!resolved) {
             id = runCatching {
                 val manager = context.getSystemService(CameraManager::class.java)
@@ -291,7 +313,18 @@ internal object Torch {
             }.getOrNull()
             resolved = true
         }
-        return id
+        id
+    }
+
+    /** A flashlight tile starts listening; [untrack] must follow when it stops. */
+    fun track() = synchronized(lock) { trackers++ }
+
+    /** A tile stopped listening; with none left the remembered state is no longer kept up to date, so it is dropped. */
+    fun untrack() = synchronized(lock) {
+        if (--trackers <= 0) {
+            trackers = 0
+            on = false
+        }
     }
 
     /** Switches the torch; the camera callback then reports the new state. Returns false if the camera refused. */
@@ -369,8 +402,10 @@ object QuickSettings {
                 QuickState(enabled, QuickSettingLogic.networkText(enabled, connected), info = info)
             }
             QuickSettingKind.MOBILE_DATA -> {
-                // The setting is readable by anyone; TelephonyManager.isDataEnabled needs READ_PHONE_STATE.
-                val enabled = Settings.Global.getInt(resolver, MOBILE_DATA, 1) != 0
+                val enabled = QuickSettingLogic.dataEnabled(
+                    dataEnabledForDefaultSubscription(context),
+                    Settings.Global.getInt(resolver, MOBILE_DATA, 1) != 0,
+                )
                 val connected = if (enabled) onTransport(context, NetworkCapabilities.TRANSPORT_CELLULAR) else false
                 QuickState(enabled, QuickSettingLogic.networkText(enabled, connected), info = mobileDetails(context, connected == true, live))
             }
@@ -411,6 +446,23 @@ object QuickSettings {
     private const val WIFI_ON = "wifi_on"
     private const val MOBILE_DATA = "mobile_data"
 
+    /**
+     * Mobile data for the default data subscription, null when it can't be asked (no READ_PHONE_STATE,
+     * no telephony, no default subscription): the global setting is then the answer.
+     */
+    private fun dataEnabledForDefaultSubscription(context: Context): Boolean? = try {
+        val subscription = SubscriptionManager.getDefaultDataSubscriptionId()
+        if (subscription == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+            null
+        } else {
+            context.getSystemService(TelephonyManager::class.java)?.createForSubscriptionId(subscription)?.isDataEnabled
+        }
+    } catch (_: SecurityException) {
+        null
+    } catch (_: UnsupportedOperationException) {
+        null
+    }
+
     private fun wifiEnabled(context: Context): Boolean = try {
         context.getSystemService(WifiManager::class.java).isWifiEnabled
     } catch (_: SecurityException) {
@@ -449,62 +501,117 @@ object QuickSettings {
      * The state of [kind], again after every change the system reports. Receivers and observers
      * exist only while this is collected, so collect it only while the tile is on screen.
      */
-    fun states(context: Context, kind: QuickSettingKind, options: QuickOptions = QuickOptions()): Flow<QuickState> = callbackFlow {
+    fun states(context: Context, kind: QuickSettingKind, options: QuickOptions = QuickOptions()): Flow<QuickState> = flow {
         val app = context.applicationContext
-        val cleanups = mutableListOf<() -> Unit>()
         val live = LiveSources()
-        val changed = { trySend(read(app, kind, options, live)); Unit }
+        emitAll(changes(app, kind, options, live).map { read(app, kind, options, live) })
+    }.flowOn(Dispatchers.Default).distinctUntilChanged() // the reads are binder calls: keep them off the main thread
+
+    /**
+     * A signal for every change the system reports for [kind], conflated so a burst becomes one read.
+     * Each registration is on its own: one the system refuses (no telephony on a Wi-Fi-only tablet,
+     * too many network callbacks) loses only that source, and whatever did register is always undone.
+     * The callbacks still deliver on the main looper and only nudge the channel.
+     */
+    private fun changes(app: Context, kind: QuickSettingKind, options: QuickOptions, live: LiveSources): Flow<Unit> = callbackFlow {
+        val cleanups = mutableListOf<() -> Unit>()
+        val changed = { trySend(Unit); Unit }
+        try {
+            register(app, kind, options, live, cleanups, changed)
+            changed()
+            awaitClose()
+        } finally {
+            cleanups.forEach { runCatching(it) }
+        }
+    }.conflate()
+
+    private fun register(
+        app: Context,
+        kind: QuickSettingKind,
+        options: QuickOptions,
+        live: LiveSources,
+        cleanups: MutableList<() -> Unit>,
+        changed: () -> Unit,
+    ) {
         when (kind) {
             QuickSettingKind.FLASHLIGHT -> Torch.cameraId(app)?.let { camera ->
-                val manager = app.getSystemService(CameraManager::class.java)
-                val callback = object : CameraManager.TorchCallback() {
-                    override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
-                        if (cameraId != camera) return
-                        Torch.on = enabled
-                        changed()
+                cleanups += guarded {
+                    val manager = app.getSystemService(CameraManager::class.java)
+                    val callback = object : CameraManager.TorchCallback() {
+                        override fun onTorchModeChanged(cameraId: String, enabled: Boolean) {
+                            if (cameraId != camera) return
+                            Torch.on = enabled
+                            changed()
+                        }
                     }
+                    Torch.track()
+                    // Reports the current state straight away.
+                    try {
+                        manager.registerTorchCallback(callback, Handler(Looper.getMainLooper()))
+                    } catch (e: RuntimeException) {
+                        Torch.untrack()
+                        throw e
+                    }
+                    val stop: () -> Unit = {
+                        manager.unregisterTorchCallback(callback)
+                        Torch.untrack()
+                    }
+                    stop
                 }
-                // Reports the current state straight away.
-                manager.registerTorchCallback(callback, Handler(Looper.getMainLooper()))
-                cleanups += { manager.unregisterTorchCallback(callback) }
             }
             QuickSettingKind.DO_NOT_DISTURB ->
-                cleanups += broadcasts(app, listOf(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED), changed)
-            QuickSettingKind.RINGER -> cleanups += broadcasts(app, listOf(AudioManager.RINGER_MODE_CHANGED_ACTION), changed)
+                cleanups += guarded { broadcasts(app, listOf(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED), changed) }
+            QuickSettingKind.RINGER -> cleanups += guarded { broadcasts(app, listOf(AudioManager.RINGER_MODE_CHANGED_ACTION), changed) }
             QuickSettingKind.AUTO_ROTATE ->
-                cleanups += observe(app, listOf(Settings.System.getUriFor(Settings.System.ACCELEROMETER_ROTATION)), changed)
-            QuickSettingKind.BRIGHTNESS -> cleanups += observe(
-                app,
-                listOf(
-                    Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS),
-                    Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS_MODE),
-                ),
-                changed,
-            )
+                cleanups += guarded { observe(app, listOf(Settings.System.getUriFor(Settings.System.ACCELEROMETER_ROTATION)), changed) }
+            QuickSettingKind.BRIGHTNESS -> cleanups += guarded {
+                observe(
+                    app,
+                    listOf(
+                        Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS),
+                        Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS_MODE),
+                    ),
+                    changed,
+                )
+            }
             QuickSettingKind.WIFI -> {
-                cleanups += broadcasts(app, listOf(WifiManager.WIFI_STATE_CHANGED_ACTION, CONNECTIVITY_CHANGED), changed)
-                cleanups += watchWifi(app, wifiNameAllowed(app, options), live, changed)
+                cleanups += guarded { broadcasts(app, listOf(WifiManager.WIFI_STATE_CHANGED_ACTION, CONNECTIVITY_CHANGED), changed) }
+                cleanups += guarded { watchWifi(app, wifiNameAllowed(app, options), live, changed) }
             }
             QuickSettingKind.MOBILE_DATA -> {
-                cleanups += broadcasts(app, listOf(CONNECTIVITY_CHANGED), changed)
-                cleanups += observe(app, listOf(Settings.Global.getUriFor(MOBILE_DATA)), changed)
-                cleanups += watchSignal(app, live, changed)
+                cleanups += guarded { broadcasts(app, listOf(CONNECTIVITY_CHANGED), changed) }
+                // On dual-SIM phones the data switch of each subscription lives under its own key.
+                cleanups += guarded {
+                    val subscription = SubscriptionManager.getDefaultDataSubscriptionId()
+                    val uris = listOfNotNull(
+                        Settings.Global.getUriFor(MOBILE_DATA),
+                        Settings.Global.getUriFor("$MOBILE_DATA$subscription")
+                            .takeIf { subscription != SubscriptionManager.INVALID_SUBSCRIPTION_ID },
+                    )
+                    observe(app, uris, changed)
+                }
+                cleanups += guarded { watchSignal(app, live, changed) }
             }
             QuickSettingKind.BLUETOOTH -> {
-                cleanups += broadcasts(app, listOf(BluetoothAdapter.ACTION_STATE_CHANGED), changed)
-                if (bluetoothDevicesAllowed(app, options)) cleanups += watchBluetoothDevices(app, live, changed)
+                cleanups += guarded { broadcasts(app, listOf(BluetoothAdapter.ACTION_STATE_CHANGED), changed) }
+                if (bluetoothDevicesAllowed(app, options)) cleanups += guarded { watchBluetoothDevices(app, live, changed) }
             }
-            QuickSettingKind.AIRPLANE -> cleanups += broadcasts(app, listOf(Intent.ACTION_AIRPLANE_MODE_CHANGED), changed)
-            QuickSettingKind.LOCATION -> cleanups += broadcasts(app, listOf(LocationManager.MODE_CHANGED_ACTION), changed)
+            QuickSettingKind.AIRPLANE -> cleanups += guarded { broadcasts(app, listOf(Intent.ACTION_AIRPLANE_MODE_CHANGED), changed) }
+            QuickSettingKind.LOCATION -> cleanups += guarded { broadcasts(app, listOf(LocationManager.MODE_CHANGED_ACTION), changed) }
             QuickSettingKind.HOTSPOT -> Unit
-            QuickSettingKind.BATTERY -> cleanups += broadcasts(app, listOf(Intent.ACTION_BATTERY_CHANGED), changed)
+            QuickSettingKind.BATTERY -> cleanups += guarded { broadcasts(app, listOf(Intent.ACTION_BATTERY_CHANGED), changed) }
         }
-        changed()
-        awaitClose { cleanups.forEach { it() } }
-    }.conflate().distinctUntilChanged()
+    }
 
     private const val FLAG_INCLUDE_LOCATION_INFO = ConnectivityManager.NetworkCallback.FLAG_INCLUDE_LOCATION_INFO
     private val NO_CLEANUP: () -> Unit = {}
+
+    /** Runs a registration; if the system refuses it (any runtime exception) that source is simply missing, with nothing to undo. */
+    private inline fun guarded(register: () -> () -> Unit): () -> Unit = try {
+        register()
+    } catch (_: RuntimeException) {
+        NO_CLEANUP
+    }
 
     /**
      * Follows the default network's wi-fi details, signal changes included. The flag makes android
@@ -527,7 +634,7 @@ object QuickSettings {
             manager.registerDefaultNetworkCallback(callback, Handler(Looper.getMainLooper()))
             val stop: () -> Unit = { manager.unregisterNetworkCallback(callback) }
             stop
-        } catch (_: SecurityException) {
+        } catch (_: RuntimeException) {
             NO_CLEANUP
         }
     }
@@ -545,7 +652,8 @@ object QuickSettings {
             telephony.registerTelephonyCallback(ContextCompat.getMainExecutor(context), callback)
             val stop: () -> Unit = { telephony.unregisterTelephonyCallback(callback) }
             stop
-        } catch (_: SecurityException) {
+        } catch (_: RuntimeException) {
+            // No telephony stack (Wi-Fi-only tablets) or no permission: the signal just stays unknown.
             NO_CLEANUP
         }
     }
@@ -589,7 +697,7 @@ object QuickSettings {
                 ),
                 refresh,
             )
-        } catch (_: SecurityException) {
+        } catch (_: RuntimeException) {
             NO_CLEANUP
         }
         return {

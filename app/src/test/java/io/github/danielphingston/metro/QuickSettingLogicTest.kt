@@ -189,6 +189,21 @@ class QuickSettingLogicTest {
     }
 
     @Test
+    fun dataEnabledPrefersTheSubscriptionAnswerOverTheGlobalSetting() {
+        assertEquals(false, QuickSettingLogic.dataEnabled(perSubscription = false, global = true))
+        assertEquals(true, QuickSettingLogic.dataEnabled(perSubscription = true, global = false))
+        assertEquals(true, QuickSettingLogic.dataEnabled(perSubscription = null, global = true))
+        assertEquals(false, QuickSettingLogic.dataEnabled(perSubscription = null, global = false))
+    }
+
+    @Test
+    fun onlyPlainOnOffSettingsAreToggles() {
+        assertEquals(true, QuickSettingLogic.isToggle(QuickSettingKind.WIFI))
+        assertEquals(false, QuickSettingLogic.isToggle(QuickSettingKind.BRIGHTNESS))
+        assertEquals(false, QuickSettingLogic.isToggle(QuickSettingKind.BATTERY))
+    }
+
+    @Test
     fun aKindWithoutExtrasReadsAsItsStateLine() {
         assertEquals(listOf("on"), QuickSettingLogic.lines(QuickState(true, "on"), 3))
         assertEquals(emptyList<String>(), QuickSettingLogic.lines(QuickState(true, ""), 3))
