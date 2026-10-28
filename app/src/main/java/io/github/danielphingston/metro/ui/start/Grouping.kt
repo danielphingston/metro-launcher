@@ -99,7 +99,7 @@ internal fun GroupCheckbox(picked: Boolean, modifier: Modifier = Modifier) {
             .size(24.dp)
             .background(if (picked) colors.accent else Color.Black.copy(alpha = 0.35f), CircleShape)
             .border(2.dp, colors.onAccent, CircleShape)
-            .drawBehind { if (picked) drawCheck(colors.onAccent, 2.dp.toPx()) },
+            .drawBehind { if (picked) drawCheck(colors.onSolidAccent, 2.dp.toPx()) },
     )
 }
 

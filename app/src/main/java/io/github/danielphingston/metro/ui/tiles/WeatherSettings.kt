@@ -191,6 +191,6 @@ private fun UnitChoice(label: String, selected: Boolean, onClick: () -> Unit) {
             .semantics { this.selected = selected }
             .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        MetroText(label, MetroType.body, color = if (selected) colors.onAccent else colors.foreground)
+        MetroText(label, MetroType.body, color = if (selected) colors.onSolidAccent else colors.foreground)
     }
 }

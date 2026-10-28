@@ -449,7 +449,7 @@ private fun JumpTile(group: String, enabled: Boolean, modifier: Modifier, onPick
         MetroText(
             group,
             MetroType.style(30.sp, FontWeight.Light),
-            color = if (enabled) colors.onAccent else colors.subtle.copy(alpha = 0.6f),
+            color = if (enabled) colors.onSolidAccent else colors.subtle.copy(alpha = 0.6f),
             modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp, bottom = 4.dp),
         )
     }

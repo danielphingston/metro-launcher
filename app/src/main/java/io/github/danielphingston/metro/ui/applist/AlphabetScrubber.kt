@@ -247,7 +247,7 @@ internal fun AlphabetScrubber(
                 BasicText(
                     letters[previewIndex].uppercase(),
                     style = MetroType.style(64.sp, FontWeight.Light)
-                        .copy(color = if (highlight == ScrubberHighlight.NONE) accent else colors.onAccent),
+                        .copy(color = if (highlight == ScrubberHighlight.NONE) accent else colors.onSolidAccent),
                     softWrap = false,
                     overflow = TextOverflow.Visible,
                 )
