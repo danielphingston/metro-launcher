@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.sp
 import io.github.danielphingston.metro.R
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.ThemeMode
+import io.github.danielphingston.metro.ui.components.LocalMotion
+import io.github.danielphingston.metro.ui.components.Motion
 
 @Immutable
 data class MetroColors(
@@ -148,9 +150,11 @@ fun MetroTheme(settings: LauncherSettings, content: @Composable () -> Unit) {
     val dark = isDarkTheme(settings.theme)
     val colors = remember(dark, settings.effectiveAccent) { MetroColors.of(dark, Color(settings.effectiveAccent)) }
     val selection = remember(colors) { TextSelectionColors(colors.accent, colors.accent.copy(alpha = 0.4f)) }
+    val motion = remember(settings) { Motion.of(settings) }
     CompositionLocalProvider(
         LocalMetroColors provides colors,
         LocalTextSelectionColors provides selection,
+        LocalMotion provides motion,
         content = content,
     )
 }

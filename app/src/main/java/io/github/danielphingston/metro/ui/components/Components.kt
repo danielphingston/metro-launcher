@@ -3,7 +3,6 @@ package io.github.danielphingston.metro.ui.components
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateDpAsState
@@ -32,7 +31,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -42,15 +40,12 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -88,66 +83,6 @@ fun MetroText(
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
     )
-}
-
-/**
- * The Windows Phone "tilt" press effect: the element tips toward the finger, or sinks when
- * pressed in the middle. Observes pointer events without consuming them, so it composes with
- * any click or drag handling on the same element.
- *
- * Turning [enabled] off only stops the effect (and eases back to rest); the modifier chain keeps
- * its shape. Dropping the modifier instead would rebuild the element's pointer input chain, and
- * that cancels a gesture already running on it: a tile that goes into edit mode while pressed
- * would lose the drag that follows.
- */
-fun Modifier.metroTilt(enabled: Boolean = true, maxDegrees: Float = 9f): Modifier = composed {
-    val rotX = remember { Animatable(0f) }
-    val rotY = remember { Animatable(0f) }
-    val scale = remember { Animatable(1f) }
-    val scope = rememberCoroutineScope()
-    val currentEnabled by rememberUpdatedState(enabled)
-    LaunchedEffect(enabled) {
-        if (!enabled) {
-            launch { rotY.animateTo(0f, tween(150)) }
-            launch { rotX.animateTo(0f, tween(150)) }
-            launch { scale.animateTo(1f, tween(150)) }
-        }
-    }
-    this
-        .pointerInput(maxDegrees) {
-            fun animate(x: Float, y: Float, s: Float, millis: Int) {
-                scope.launch { rotY.animateTo(x, tween(millis)) }
-                scope.launch { rotX.animateTo(y, tween(millis)) }
-                scope.launch { scale.animateTo(s, tween(millis)) }
-            }
-            awaitPointerEventScope {
-                var down: androidx.compose.ui.geometry.Offset? = null
-                while (true) {
-                    val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull() ?: continue
-                    val start = down
-                    if (change.pressed && !change.previousPressed) {
-                        down = change.position
-                        val nx = (change.position.x / size.width - 0.5f) * 2 // -1..1
-                        val ny = (change.position.y / size.height - 0.5f) * 2
-                        val edge = maxOf(kotlin.math.abs(nx), kotlin.math.abs(ny)).coerceAtMost(1f)
-                        if (currentEnabled) animate(nx * maxDegrees, -ny * maxDegrees, 1f - 0.04f * (1f - edge), 90)
-                    } else if (start != null &&
-                        (!change.pressed || (change.position - start).getDistance() > viewConfiguration.touchSlop)
-                    ) {
-                        // Released, or the finger started scrolling/dragging: spring back.
-                        down = null
-                        animate(0f, 0f, 1f, 150)
-                    }
-                }
-            }
-        }
-        .graphicsLayer {
-            rotationX = rotX.value
-            rotationY = rotY.value
-            scaleX = scale.value
-            scaleY = scale.value
-            cameraDistance = 14f * density
-        }
 }
 
 /**

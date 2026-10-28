@@ -50,6 +50,27 @@ enum class ScrubberHighlightPosition(val label: String) {
     BESIDE_FINGER("beside finger"),
 }
 
+/** How the start screen and app list animate away when an app is launched (and back when you return). */
+enum class LaunchStyle(val label: String, val description: String) {
+    /** Windows Phone: tiles swing about the left edge on a diagonal stagger, the tapped one last. */
+    TURNSTILE("turnstile", "tiles swing away one after another, the tapped one last"),
+
+    /** Windows Phone order: whole rows swing together, top to bottom, the tapped element last. */
+    TURNSTILE_ROWS("turnstile by rows", "whole rows swing away together, top to bottom"),
+
+    /** Elements slide down and fade, row by row. */
+    SLIDE("slide", "tiles slide down and fade, row by row"),
+
+    /** Elements shrink toward the tapped one and fade, all together. */
+    ZOOM("zoom", "everything shrinks toward the tapped tile and fades"),
+
+    /** Everything fades together. */
+    FADE("fade", "everything fades out together"),
+
+    /** No launcher animation: the system reveals the app from the tapped element. */
+    NONE("none", "no animation of the launcher, the app opens from the tapped tile"),
+}
+
 data class LauncherSettings(
     val theme: ThemeMode = ThemeMode.DARK,
     val accent: Int = DEFAULT_ACCENT,
@@ -93,6 +114,24 @@ data class LauncherSettings(
     val showWifiName: Boolean = false,
     /** The bluetooth quick tile lists connected devices; needs the nearby devices permission. */
     val showBluetoothDevices: Boolean = false,
+    /** The animation that plays when an app is launched. */
+    val launchStyle: LaunchStyle = LaunchStyle.TURNSTILE,
+    /** Percent of normal speed for the launcher's own animations: 100 is as designed, 200 twice as fast. */
+    val animationSpeed: Int = DEFAULT_ANIMATION_SPEED,
+    /** Play the launch animation backwards when the launcher comes back. */
+    val animateReturn: Boolean = true,
+    /** Start the app while the launcher is still animating away, so its startup overlaps the animation. */
+    val openDuringAnimation: Boolean = true,
+    /** Tiles and rows tip toward the finger when pressed. */
+    val tiltEnabled: Boolean = true,
+    /** The most a pressed element tips, in degrees. */
+    val tiltDegrees: Int = DEFAULT_TILT_DEGREES,
+    /** Live tiles flip over by themselves. */
+    val liveTileFlips: Boolean = true,
+    /** The average time (seconds) between one live tile flipping and the next. */
+    val flipIntervalSeconds: Int = DEFAULT_FLIP_INTERVAL,
+    /** The start screen and app list lean while the pager is dragged between them. */
+    val swingPages: Boolean = true,
 ) {
     /** Whether the start screen shows the picked photo. */
     val showsPhoto: Boolean get() = background == StartBackground.PHOTO_TILES || background == StartBackground.PHOTO_FULL
@@ -132,6 +171,18 @@ data class LauncherSettings(
         const val DEFAULT_START_LEFT_PADDING = 8
         const val DEFAULT_START_RIGHT_PADDING = 8
 
+        const val MIN_ANIMATION_SPEED = 50
+        const val MAX_ANIMATION_SPEED = 200
+        const val DEFAULT_ANIMATION_SPEED = 100
+
+        const val MIN_TILT_DEGREES = 3
+        const val MAX_TILT_DEGREES = 15
+        const val DEFAULT_TILT_DEGREES = 9
+
+        const val MIN_FLIP_INTERVAL = 2
+        const val MAX_FLIP_INTERVAL = 15
+        const val DEFAULT_FLIP_INTERVAL = 4
+
         // Stored values can be out of range (an older build, a damaged file): these pull them back in.
         /** An even column count (tiles pair up) between [MIN_COLUMNS] and [MAX_COLUMNS]. */
         fun clampColumns(columns: Int) = (columns.coerceIn(MIN_COLUMNS, MAX_COLUMNS) + 1) / 2 * 2
@@ -141,6 +192,9 @@ data class LauncherSettings(
         fun clampStartTopPadding(dp: Int) = dp.coerceIn(MIN_START_TOP_PADDING, MAX_START_TOP_PADDING)
         fun clampStartBottomPadding(dp: Int) = dp.coerceIn(MIN_START_BOTTOM_PADDING, MAX_START_BOTTOM_PADDING)
         fun clampStartSidePadding(dp: Int) = dp.coerceIn(MIN_START_SIDE_PADDING, MAX_START_SIDE_PADDING)
+        fun clampAnimationSpeed(percent: Int) = percent.coerceIn(MIN_ANIMATION_SPEED, MAX_ANIMATION_SPEED)
+        fun clampTiltDegrees(degrees: Int) = degrees.coerceIn(MIN_TILT_DEGREES, MAX_TILT_DEGREES)
+        fun clampFlipInterval(seconds: Int) = seconds.coerceIn(MIN_FLIP_INTERVAL, MAX_FLIP_INTERVAL)
 
         /** Colours are drawn as stored; a transparent one would be invisible, so force it opaque. */
         fun opaque(color: Int) = color or 0xFF000000.toInt()
@@ -186,6 +240,15 @@ class SettingsRepository(private val context: Context) {
         val accentArrows = booleanPreferencesKey("accent_arrows")
         val showWifiName = booleanPreferencesKey("show_wifi_name")
         val showBluetoothDevices = booleanPreferencesKey("show_bluetooth_devices")
+        val launchStyle = stringPreferencesKey("launch_style")
+        val animationSpeed = intPreferencesKey("animation_speed")
+        val animateReturn = booleanPreferencesKey("animate_return")
+        val openDuringAnimation = booleanPreferencesKey("open_during_animation")
+        val tiltEnabled = booleanPreferencesKey("tilt_enabled")
+        val tiltDegrees = intPreferencesKey("tilt_degrees")
+        val liveTileFlips = booleanPreferencesKey("live_tile_flips")
+        val flipInterval = intPreferencesKey("flip_interval")
+        val swingPages = booleanPreferencesKey("swing_pages")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -227,6 +290,18 @@ class SettingsRepository(private val context: Context) {
             accentArrows = this[Keys.accentArrows] ?: defaults.accentArrows,
             showWifiName = this[Keys.showWifiName] ?: defaults.showWifiName,
             showBluetoothDevices = this[Keys.showBluetoothDevices] ?: defaults.showBluetoothDevices,
+            launchStyle = this[Keys.launchStyle]?.let { runCatching { LaunchStyle.valueOf(it) }.getOrNull() }
+                ?: defaults.launchStyle,
+            animationSpeed = this[Keys.animationSpeed]?.let(LauncherSettings::clampAnimationSpeed)
+                ?: defaults.animationSpeed,
+            animateReturn = this[Keys.animateReturn] ?: defaults.animateReturn,
+            openDuringAnimation = this[Keys.openDuringAnimation] ?: defaults.openDuringAnimation,
+            tiltEnabled = this[Keys.tiltEnabled] ?: defaults.tiltEnabled,
+            tiltDegrees = this[Keys.tiltDegrees]?.let(LauncherSettings::clampTiltDegrees) ?: defaults.tiltDegrees,
+            liveTileFlips = this[Keys.liveTileFlips] ?: defaults.liveTileFlips,
+            flipIntervalSeconds = this[Keys.flipInterval]?.let(LauncherSettings::clampFlipInterval)
+                ?: defaults.flipIntervalSeconds,
+            swingPages = this[Keys.swingPages] ?: defaults.swingPages,
         )
     }
 
@@ -296,6 +371,31 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setShowBluetoothDevices(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.showBluetoothDevices] = enabled }
+
+    suspend fun setLaunchStyle(style: LaunchStyle) = context.metroDataStore.edit { it[Keys.launchStyle] = style.name }
+
+    suspend fun setAnimationSpeed(percent: Int) = context.metroDataStore.edit {
+        it[Keys.animationSpeed] = LauncherSettings.clampAnimationSpeed(percent)
+    }
+
+    suspend fun setAnimateReturn(enabled: Boolean) = context.metroDataStore.edit { it[Keys.animateReturn] = enabled }
+
+    suspend fun setOpenDuringAnimation(enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.openDuringAnimation] = enabled }
+
+    suspend fun setTiltEnabled(enabled: Boolean) = context.metroDataStore.edit { it[Keys.tiltEnabled] = enabled }
+
+    suspend fun setTiltDegrees(degrees: Int) = context.metroDataStore.edit {
+        it[Keys.tiltDegrees] = LauncherSettings.clampTiltDegrees(degrees)
+    }
+
+    suspend fun setLiveTileFlips(enabled: Boolean) = context.metroDataStore.edit { it[Keys.liveTileFlips] = enabled }
+
+    suspend fun setFlipInterval(seconds: Int) = context.metroDataStore.edit {
+        it[Keys.flipInterval] = LauncherSettings.clampFlipInterval(seconds)
+    }
+
+    suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }
 
     /** The photo can't be read any more: forget it and go back to the plain background. */
     suspend fun clearUnreadablePhoto() = context.metroDataStore.edit {
