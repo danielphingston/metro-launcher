@@ -9,6 +9,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -64,6 +65,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.coerceAtLeast
@@ -79,7 +81,12 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.ui.tiles.rememberAppShortcutItems
 import io.github.danielphingston.metro.ui.AppLauncher
 import io.github.danielphingston.metro.ui.LauncherViewModel
+import io.github.danielphingston.metro.ui.components.ClickableRow
+import io.github.danielphingston.metro.ui.components.IconBox
+import io.github.danielphingston.metro.ui.components.ListStart
 import io.github.danielphingston.metro.ui.components.MetroFlyout
+import io.github.danielphingston.metro.ui.components.SearchField
+import io.github.danielphingston.metro.ui.components.drawMagnifier as drawSharedMagnifier
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.StatusBarScrim
@@ -160,9 +167,7 @@ internal fun appListRows(apps: List<AppInfo>, query: String, now: Long): List<Ap
     }
 }
 
-private val ListStart = 20.dp
 private val ListEnd = 12.dp
-private val IconBox = 44.dp
 
 /** The search box's height with its padding; the scrubber starts below it. */
 private val SearchBoxHeight = 60.dp
@@ -321,56 +326,21 @@ internal fun AppListContent(
     }
 }
 
-/** A slim box with a magnifier; the border turns accent while typing. The search overlay reuses it. */
+/** The app list's search field; the search overlay reuses it. */
 @Composable
 internal fun SearchBox(query: String, onQueryChange: (String) -> Unit, onSubmit: () -> Unit, modifier: Modifier = Modifier) {
-    val colors = Metro.colors
-    var focused by remember { mutableStateOf(false) }
-    BasicTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        singleLine = true,
-        textStyle = MetroType.listItem.copy(color = colors.foreground),
-        cursorBrush = SolidColor(colors.accent),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-        modifier = modifier
-            .fillMaxWidth()
-            .turnstile(LocalTurnstile.current, "search")
-            .padding(start = ListStart, end = ListEnd, top = 12.dp, bottom = 8.dp)
-            .onFocusChanged { focused = it.isFocused },
-        decorationBox = { field ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(40.dp)
-                    .background(colors.control.copy(alpha = 0.6f))
-                    .then(if (focused) Modifier.border(2.dp, colors.accent) else Modifier),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(Modifier.weight(1f).padding(start = 12.dp), contentAlignment = Alignment.CenterStart) {
-                    if (query.isEmpty()) MetroText("search", MetroType.listItem, color = colors.subtle, maxLines = 1)
-                    field()
-                }
-                Box(
-                    Modifier
-                        .padding(horizontal = 12.dp)
-                        .size(18.dp)
-                        .drawBehind { drawMagnifier(if (focused) colors.accent else colors.subtle) },
-                )
-            }
-        },
+    SearchField(
+        query = query,
+        onQueryChange = onQueryChange,
+        placeholder = "search",
+        modifier = modifier.turnstile(LocalTurnstile.current, "search"),
+        padding = PaddingValues(start = ListStart, end = ListEnd, top = 12.dp, bottom = 8.dp),
+        onSearch = onSubmit,
     )
 }
 
-internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMagnifier(color: Color) {
-    val stroke = 1.5.dp.toPx()
-    val r = size.width * 0.32f
-    val c = Offset(size.width * 0.42f, size.height * 0.42f)
-    drawCircle(color, r, c, style = Stroke(stroke))
-    val from = c + Offset(r, r) * 0.72f
-    drawLine(color, from, Offset(size.width * 0.92f, size.height * 0.92f), stroke, StrokeCap.Round)
-}
+/** Kept here for the start screen's search button; the drawing lives with [SearchField]. */
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawMagnifier(color: Color) = drawSharedMagnifier(color)
 
 /** The letter that starts each group: an accent outline square that opens the jump grid. */
 @Composable
@@ -380,17 +350,17 @@ private fun LetterTile(group: String, onClick: () -> Unit) {
         Modifier
             .turnstile(LocalTurnstile.current, group)
             .padding(top = 12.dp, bottom = 6.dp)
-            .size(IconBox)
+            // Grows with the font scale instead of clipping the letter.
+            .defaultMinSize(IconBox, IconBox)
             .metroTilt()
             .border(2.dp, colors.accent)
-            .clickable(remember { MutableInteractionSource() }, null, onClickLabel = "jump to letter", onClick = onClick),
+            .clickable(remember { MutableInteractionSource() }, null, onClickLabel = "jump to letter", role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         MetroText(group, MetroType.style(24.sp, FontWeight.Light), color = colors.accent)
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppRow(
     app: AppInfo,
@@ -400,22 +370,11 @@ private fun AppRow(
     onClick: (Rect?) -> Unit,
     onLongClick: (Rect) -> Unit,
 ) {
-    var bounds by remember { mutableStateOf<Rect?>(null) }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .onGloballyPositioned { bounds = it.boundsInRoot() }
-            .turnstile(LocalTurnstile.current, app.key) { bounds }
-            .metroTilt(maxDegrees = 6f)
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = { onClick(bounds) },
-                onLongClick = { bounds?.let(onLongClick) },
-                onLongClickLabel = "more options",
-            )
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val turnstile = LocalTurnstile.current
+    ClickableRow(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        beforeTilt = { bounds -> Modifier.turnstile(turnstile, app.key, bounds) },
     ) {
         AppListIcon(app, icons, monochrome, plainIcons)
         Spacer(Modifier.width(14.dp))

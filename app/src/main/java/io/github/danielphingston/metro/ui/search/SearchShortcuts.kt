@@ -16,16 +16,30 @@ class ShortcutHit(
 )
 
 /**
- * The app shortcuts on the phone, read once from the system when the first search needs them and
- * dropped with the overlay. Empty unless Metro is the default home app, which Android requires
- * for reading other apps' shortcuts.
+ * The app shortcuts on the phone, read from the system when a search needs them and kept for
+ * [ttlMillis] (one process-wide copy, see [shared]), so reopening the panel doesn't reload them.
+ * Nothing tells the search about shortcut or package changes, hence the short lifetime. Empty
+ * unless Metro is the default home app, which Android requires for reading other apps' shortcuts.
  */
-internal class ShortcutIndex(private val context: Context) {
+internal class ShortcutIndex(
+    context: Context,
+    private val ttlMillis: Long = TTL_MILLIS,
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    private val context = context.applicationContext ?: context
+
+    @Volatile
     private var all: List<ShortcutHit>? = null
+
+    @Volatile
+    private var loadedAt = 0L
 
     /** Up to [limit] shortcuts whose short or long label matches [query]. Suspends off the main thread. */
     suspend fun search(query: String, limit: Int = MAX_HITS): List<ShortcutHit> = withContext(Dispatchers.Default) {
-        val hits = all ?: load().also { all = it }
+        val hits = all?.takeIf { clock() - loadedAt < ttlMillis } ?: load().also {
+            all = it
+            loadedAt = clock()
+        }
         SearchRanking.top(hits, query, limit) { listOfNotNull(it.shortLabel, it.longLabel) }.map { it.item }
     }
 
@@ -53,7 +67,15 @@ internal class ShortcutIndex(private val context: Context) {
         }
     }
 
-    private companion object {
-        const val MAX_HITS = 4
+    companion object {
+        private const val MAX_HITS = 4
+        const val TTL_MILLIS = 30_000L
+
+        @Volatile
+        private var instance: ShortcutIndex? = null
+
+        /** The process-wide index. */
+        fun shared(context: Context): ShortcutIndex =
+            instance ?: synchronized(this) { instance ?: ShortcutIndex(context).also { instance = it } }
     }
 }

@@ -70,11 +70,13 @@ import io.github.danielphingston.metro.ui.LauncherViewModel
 import io.github.danielphingston.metro.ui.applist.AppGroups
 import io.github.danielphingston.metro.ui.applist.AppListIcon
 import io.github.danielphingston.metro.ui.applist.SearchBox
-import io.github.danielphingston.metro.ui.applist.drawMagnifier
+import io.github.danielphingston.metro.ui.components.ClickableRow
+import io.github.danielphingston.metro.ui.components.IconBox
+import io.github.danielphingston.metro.ui.components.ListStart
 import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.components.MetroText
-import io.github.danielphingston.metro.ui.components.metroTilt
+import io.github.danielphingston.metro.ui.components.drawMagnifier
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
@@ -158,9 +160,6 @@ internal fun topResult(rows: List<SearchRow>): SearchRow? =
         ?: rows.firstOrNull { it is SearchRow.OpenUrl }
         ?: rows.firstOrNull { it is SearchRow.Web }
 
-private val ListStart = 20.dp
-private val IconBox = 44.dp
-
 /**
  * Windows 10 Mobile style search over the start screen: a panel that slides down with a search
  * field and results as you type. Composed (and so doing any work) only while it is open.
@@ -189,15 +188,16 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     val query = state.query
 
     // Shortcuts come from a binder call, so they follow the typing after a short pause.
-    val index = remember { ShortcutIndex(context) }
-    val shortcuts by produceState(emptyList<ShortcutHit>(), query) {
-        if (query.isBlank()) {
-            value = emptyList()
-            return@produceState
-        }
+    val index = remember { ShortcutIndex.shared(context) }
+    val found by produceState<Pair<String, List<ShortcutHit>>?>(null, query) {
+        // Drop the previous query's hits at once, so no row is shown for text no longer typed.
+        value = null
+        if (query.isBlank()) return@produceState
         delay(SHORTCUT_DEBOUNCE_MILLIS)
-        value = index.search(query)
+        value = query to index.search(query)
     }
+    // Hits of an earlier query are ignored even in the frame before the reset above.
+    val shortcuts = found?.takeIf { it.first == query }?.second.orEmpty()
     val rows = remember(apps, query, shortcuts, settings.searchEngine) {
         searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis())
     }
@@ -351,7 +351,6 @@ internal fun SearchContent(
 }
 
 /** An icon, a title and an optional subtitle; tilts when pressed, and [onLongClick] opens a menu. */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ResultRow(
     title: String,
@@ -360,28 +359,12 @@ private fun ResultRow(
     onLongClick: ((Rect) -> Unit)? = null,
     icon: @Composable () -> Unit,
 ) {
-    var bounds by remember { mutableStateOf<Rect?>(null) }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .onGloballyPositioned { bounds = it.boundsInRoot() }
-            .metroTilt(maxDegrees = 6f)
-            .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                role = Role.Button,
-                onClick = { onClick(bounds) },
-                onLongClick = onLongClick?.let { long -> { bounds?.let(long) } },
-                onLongClickLabel = if (onLongClick != null) "more options" else null,
-            )
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    ClickableRow(onClick = onClick, onLongClick = onLongClick) {
         icon()
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             MetroText(title, MetroType.listItem, maxLines = 2)
-            subtitle?.let { MetroText(it, MetroType.caption, color = Metro.colors.subtle, maxLines = 1) }
+            subtitle?.let { MetroText(it, MetroType.caption, color = Metro.colors.subtle, maxLines = 2) }
         }
     }
 }
