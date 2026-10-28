@@ -28,6 +28,17 @@ data class Motion(
     fun duration(ms: Int): Int = (ms / speed).roundToInt().coerceAtLeast(1)
 
     companion object {
+        /** A flip delay around [intervalMs]: ±40% random jitter, [random] being 0..1. */
+        fun flipDelayMs(intervalMs: Long, random: Float): Long =
+            (intervalMs * (0.6f + 0.8f * random.coerceIn(0f, 1f))).toLong()
+
+
+        /** The speed as the settings show it: "1x", "1.25x", "0.5x". */
+        fun speedLabel(percent: Int): String {
+            val x = LauncherSettings.clampAnimationSpeed(percent) / 100f
+            return "${"%.2f".format(java.util.Locale.US, x).trimEnd('0').trimEnd('.')}x"
+        }
+
         fun of(settings: LauncherSettings) = Motion(
             launchStyle = settings.launchStyle,
             speed = LauncherSettings.clampAnimationSpeed(settings.animationSpeed) / 100f,

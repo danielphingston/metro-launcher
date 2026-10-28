@@ -118,6 +118,7 @@ internal enum class SettingsPage(val title: String, val summary: String) {
     APP_LIST("app list", "icons, scrubber highlight and position"),
     SEARCH("search", "search engine, pull distance"),
     APPEARANCE("appearance", "theme, accent colour, icon pack"),
+    ANIMATIONS("animations", "launch animation, speed, tilt, live tile flips"),
     TILES("tiles", "weather, photos, people, calendar, notifications"),
     QUICK_TILES("quick settings tiles", "toggles and shortcuts on the start screen"),
     ABOUT("about", "default home app, app info, crash log, version"),
@@ -151,6 +152,7 @@ internal fun SettingsScreen(
                     SettingsPage.APP_LIST -> AppListPage(settings, repository)
                     SettingsPage.SEARCH -> SearchSettingsSection(settings, repository)
                     SettingsPage.APPEARANCE -> AppearancePage(settings, repository)
+                    SettingsPage.ANIMATIONS -> AnimationsPage(settings, repository)
                     SettingsPage.TILES -> TilesPage(settings, repository)
                     SettingsPage.QUICK_TILES -> QuickTilesSettingsSection(settings, repository)
                     SettingsPage.ABOUT -> AboutPage()

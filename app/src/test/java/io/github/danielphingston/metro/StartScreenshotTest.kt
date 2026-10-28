@@ -113,9 +113,9 @@ class StartScreenshotTest {
     private val now = Calendar.getInstance().apply { set(2026, Calendar.OCTOBER, 24, 10, 42) }.timeInMillis
     private val hour = 3_600_000L
 
-    private data class Sample(val app: AppInfo, val size: TileSize, val live: LiveContent?, val flipped: Boolean = false)
+    internal data class Sample(val app: AppInfo, val size: TileSize, val live: LiveContent?, val flipped: Boolean = false)
 
-    private fun samples(): List<Sample> {
+    internal fun samples(): List<Sample> {
         val messages = AppNotifications(
             3,
             listOf(NotificationPreview("Mom", "Are you coming for dinner tonight? Bring the cake!", now)),
@@ -335,7 +335,7 @@ class StartScreenshotTest {
     }
 
     @Composable
-    private fun StartPreview(
+    internal fun StartPreview(
         samples: List<Sample>,
         columns: Int,
         backdrop: StartBackdrop,

@@ -65,8 +65,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -125,6 +123,8 @@ import io.github.danielphingston.metro.ui.AppLauncher
 import io.github.danielphingston.metro.ui.LauncherViewModel
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.components.LocalMotion
+import io.github.danielphingston.metro.ui.components.Motion
 import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.LocalStartBackdrop
 import io.github.danielphingston.metro.ui.theme.Metro
@@ -436,13 +436,19 @@ fun StartScreen(
         }
         val canFlip by rememberUpdatedState(isCurrentPage && !state.editing)
         val lifecycle = LocalLifecycleOwner.current.lifecycle
-        LaunchedEffect(lifecycle) {
+        val motion = LocalMotion.current
+        LaunchedEffect(lifecycle, motion.flipsEnabled, motion.flipIntervalMs) {
+            // Flips off: tiles that are showing their back turn over once, and the ticker stops.
+            if (!motion.flipsEnabled) {
+                flipped.keys.toList().forEach { flipped[it] = false }
+                return@LaunchedEffect
+            }
             // One ticker flips a random visible live tile every few seconds, like Windows Phone.
             // It is suspended entirely when the launcher is not in the foreground.
             lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
                 while (true) {
                     snapshotFlow { canFlip && visibleLiveIds.isNotEmpty() }.first { it }
-                    delay(Random.nextLong(2_500, 5_500))
+                    delay(Motion.flipDelayMs(motion.flipIntervalMs, Random.nextFloat()))
                     val ids = visibleLiveIds
                     if (!canFlip || ids.isEmpty()) continue
                     val id = ids.random()
@@ -804,7 +810,7 @@ internal fun TileHost(
         },
         label = "tileAlpha",
     )
-    var bounds by remember { mutableStateOf<Rect?>(null) }
+    val tracker = remember { BoundsTracker() }
 
     val currentPlacement by rememberUpdatedState(placement)
     val currentOnDragMove by rememberUpdatedState(onDragMove)
@@ -836,8 +842,8 @@ internal fun TileHost(
                 scaleY = scale
                 this.alpha = alpha
             }
-            .onGloballyPositioned { bounds = it.boundsInRoot() }
-            .turnstile(LocalTurnstile.current, id) { bounds }
+            .trackBounds(tracker)
+            .turnstile(LocalTurnstile.current, id) { tracker.bounds() }
             .semantics(mergeDescendants = !isWidget) {
                 contentDescription = buildString {
                     if (folder != null) append("${tile.label}, folder, ${tile.children.size} items") else append(tile.label)
@@ -856,7 +862,7 @@ internal fun TileHost(
                 if (!isWidget) onClick {
                     // Assistive launches skip the tap handler that normally ends edit mode.
                     state.exitEdit()
-                    onLaunch(bounds)
+                    onLaunch(tracker.bounds())
                     true
                 }
                 onLongClick("edit") { state.select(id); true }
@@ -931,7 +937,7 @@ internal fun TileHost(
                             state.select(id)
                         }
                     } else {
-                        currentOnLaunch(bounds)
+                        currentOnLaunch(tracker.bounds())
                     }
                 }
             }

@@ -4,6 +4,7 @@ import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect as ComposeRect
@@ -25,12 +27,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
+import io.github.danielphingston.metro.R
 import io.github.danielphingston.metro.data.BackgroundPhoto
 import io.github.danielphingston.metro.ui.applist.AppListScreen
 import io.github.danielphingston.metro.ui.applist.AppListState
+import io.github.danielphingston.metro.ui.components.LocalMotion
+import io.github.danielphingston.metro.ui.components.Motion
 import io.github.danielphingston.metro.ui.search.SearchOverlay
 import io.github.danielphingston.metro.ui.search.SearchState
 import io.github.danielphingston.metro.ui.search.pullToSearch
+import io.github.danielphingston.metro.ui.start.AppWindow
+import io.github.danielphingston.metro.ui.start.LaunchGuard
 import io.github.danielphingston.metro.ui.start.LocalTurnstile
 import io.github.danielphingston.metro.ui.start.StartScreen
 import io.github.danielphingston.metro.ui.start.Turnstile
@@ -47,20 +54,25 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * Starts activities from launcher UI: the visible tiles or rows swing away ([turnstile], the
- * tapped one last) and then the app opens.
+ * Starts activities from launcher UI: the visible tiles or rows animate away in the chosen
+ * [Motion.launchStyle] (the tapped one last) and then the app opens, or during the animation
+ * when [Motion.openDuringAnimation] is on.
  */
 class AppLauncher(
     private val view: View,
     private val viewModel: LauncherViewModel,
     private val turnstile: TurnstileState,
     private val scope: CoroutineScope,
+    private val motion: () -> Motion = { Motion() },
+    private val uptimeMillis: () -> Long = SystemClock::uptimeMillis,
 ) {
+    private val guard = LaunchGuard()
+
     /**
      * Screen-space source bounds and ActivityOptions for a launch from [boundsInRoot]: the system
-     * "reveal from the tapped element" transition, or a plain fade when [fade] is set.
+     * "reveal from the tapped element" transition, or how [window] says the app appears.
      */
-    fun transition(boundsInRoot: ComposeRect?, fade: Boolean = false): Pair<Rect?, Bundle?> {
+    fun transition(boundsInRoot: ComposeRect?, window: AppWindow = AppWindow.CLIP_REVEAL): Pair<Rect?, Bundle?> {
         val rect = boundsInRoot?.let {
             Rect(it.left.roundToInt(), it.top.roundToInt(), it.right.roundToInt(), it.bottom.roundToInt())
         }
@@ -68,8 +80,14 @@ class AppLauncher(
             val origin = IntArray(2).also(view::getLocationOnScreen)
             Rect(it).apply { offset(origin[0], origin[1]) }
         }
+        val context = view.context
         val options = when {
-            fade -> ActivityOptions.makeCustomAnimation(view.context, android.R.anim.fade_in, android.R.anim.fade_out)
+            window == AppWindow.FADE ->
+                ActivityOptions.makeCustomAnimation(context, android.R.anim.fade_in, android.R.anim.fade_out)
+            window == AppWindow.SLIDE_UP ->
+                ActivityOptions.makeCustomAnimation(context, R.anim.launch_slide_in, android.R.anim.fade_out)
+            window == AppWindow.ZOOM_IN ->
+                ActivityOptions.makeCustomAnimation(context, R.anim.launch_zoom_in, android.R.anim.fade_out)
             rect != null -> ActivityOptions.makeClipRevealAnimation(view, rect.left, rect.top, rect.width(), rect.height())
             else -> null
         }
@@ -86,19 +104,28 @@ class AppLauncher(
     }
 
     /**
-     * Plays the turnstile exit (at most about 350ms, skipped when animations are off), then runs
-     * [start]; if the system refuses the launch the elements come straight back. [start] gets
-     * screen-space source bounds and ActivityOptions and returns whether the launch happened.
+     * Plays the exit (at most about 350ms at normal speed, skipped when animations are off or the
+     * style is none), then runs [start]; if the system refuses the launch the elements come
+     * straight back. [start] gets screen-space source bounds and ActivityOptions and returns
+     * whether the launch happened. A second launch within [Turnstile.DOUBLE_LAUNCH_MS] is ignored,
+     * which also covers the cases with no exit to mark the launcher busy.
      */
     fun open(boundsInRoot: ComposeRect?, start: (Rect?, Bundle?) -> Boolean) {
-        if (turnstile.busy) return
+        if (turnstile.busy || !guard.tryLaunch(uptimeMillis())) return
+        val current = motion()
         scope.launch {
-            val swung = turnstile.exit(boundsInRoot)
-            // After a turnstile the tapped element is gone, so revealing from it would open from
-            // empty space: a fade into the app matches the swing better. Without a turnstile
-            // (animations off) keep the system reveal.
-            val (bounds, options) = transition(boundsInRoot, fade = swung)
-            if (!start(bounds, options) && swung) turnstile.reset()
+            var started = false
+            fun go(swung: Boolean) {
+                started = true
+                // After an exit the tapped element is gone, so revealing from it would open from
+                // empty space: the style's own window animation matches better. Without an exit
+                // (animations off, or none) keep the system reveal.
+                val window = if (swung) Turnstile.spec(current.launchStyle).appWindow else AppWindow.CLIP_REVEAL
+                val (bounds, options) = transition(boundsInRoot, window)
+                if (!start(bounds, options) && swung) turnstile.reset()
+            }
+            val swung = turnstile.exit(boundsInRoot, current.launchStyle, current.openDuringAnimation) { go(true) }
+            if (!started) go(swung)
         }
     }
 }
@@ -112,10 +139,19 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
     val searchState = remember { SearchState() }
     val view = LocalView.current
     val context = LocalContext.current
-    val turnstile = remember { TurnstileState { Turnstile.animationsEnabled(context.contentResolver) } }
+    val motion = LocalMotion.current
+    val currentMotion by rememberUpdatedState(motion)
+    val turnstile = remember {
+        TurnstileState(
+            animationsEnabled = { Turnstile.animationsEnabled(context.contentResolver) },
+            timeScale = { Turnstile.timeScale(currentMotion.speed, Turnstile.systemScale(context.contentResolver)) },
+        )
+    }
 
-    val launcher = remember(view, viewModel, turnstile, scope) { AppLauncher(view, viewModel, turnstile, scope) }
-    TurnstileReturn(turnstile)
+    val launcher = remember(view, viewModel, turnstile, scope) {
+        AppLauncher(view, viewModel, turnstile, scope, motion = { currentMotion })
+    }
+    TurnstileReturn(turnstile, animate = motion.animateReturn)
 
     LaunchedEffect(Unit) {
         viewModel.homePresses.collect { animate ->
@@ -194,7 +230,7 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .continuum(pager, page)
+                            .continuum(pager, page, enabled = motion.swingPages)
                             .then(if (page == 0) pullToSearch else Modifier),
                     ) {
                         when (page) {

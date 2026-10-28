@@ -38,6 +38,7 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarEvent
 import io.github.danielphingston.metro.live.ClockState
+import io.github.danielphingston.metro.ui.components.LocalMotion
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.tiles.NowPlayingBack
 import io.github.danielphingston.metro.ui.tiles.NowPlayingFront
@@ -121,7 +122,7 @@ fun FlipCard(
 ) {
     val rotation by animateFloatAsState(
         targetValue = if (showBack) 180f else 0f,
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = LocalMotion.current.duration(650), easing = FastOutSlowInEasing),
         label = "tileFlip",
     )
     Box(

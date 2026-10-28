@@ -8,17 +8,14 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import io.github.danielphingston.metro.ui.start.BoundsTracker
+import io.github.danielphingston.metro.ui.start.trackBounds
 
 /** Where the app list and the search results start from the screen's start edge. */
 internal val ListStart = 20.dp
@@ -40,19 +37,19 @@ internal fun ClickableRow(
     beforeTilt: (bounds: () -> Rect?) -> Modifier = { Modifier },
     content: @Composable RowScope.() -> Unit,
 ) {
-    var bounds by remember { mutableStateOf<Rect?>(null) }
+    val tracker = remember { BoundsTracker() }
     Row(
         modifier
             .fillMaxWidth()
-            .onGloballyPositioned { bounds = it.boundsInRoot() }
-            .then(beforeTilt { bounds })
+            .trackBounds(tracker)
+            .then(beforeTilt { tracker.bounds() })
             .metroTilt(maxDegrees = 6f)
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 role = Role.Button,
-                onClick = { onClick(bounds) },
-                onLongClick = onLongClick?.let { long -> { bounds?.let(long) } },
+                onClick = { onClick(tracker.bounds()) },
+                onLongClick = onLongClick?.let { long -> { tracker.bounds()?.let(long) } },
                 onLongClickLabel = if (onLongClick != null) "more options" else null,
             )
             .padding(vertical = 4.dp),
