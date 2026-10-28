@@ -107,12 +107,9 @@ class MetroNotificationListener : NotificationListenerService() {
 
     private fun previewOf(sbn: StatusBarNotification): NotificationPreview? {
         val n = sbn.notification
-        // Respect apps that mark content as secret or private on the lock screen.
-        val source = when (NotificationPreviewPolicy.sourceFor(n.visibility, n.publicVersion != null)) {
-            PreviewSource.NONE -> return null
-            PreviewSource.PUBLIC -> n.publicVersion
-            PreviewSource.FULL -> n
-        }
+        // Respect apps that mark their content as secret.
+        if (!NotificationPreviewPolicy.showsContent(n.visibility)) return null
+        val source = n
         val extras = source.extras
         val lastMessage = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
             ?.messages?.lastOrNull()?.text
