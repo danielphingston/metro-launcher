@@ -21,6 +21,8 @@ import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.BackgroundPhoto
@@ -124,11 +126,12 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
             searchState.close()
             appListState.reset()
             if (animate) {
-                launch { pager.animateScrollToPage(0) }
-                startState.scroll.animateScrollTo(0)
+                // A touch interrupts these animations; that must not end this collector.
+                launch { interruptible { pager.animateScrollToPage(0) } }
+                interruptible { startState.scroll.animateScrollTo(0) }
             } else {
-                pager.scrollToPage(0)
-                startState.scroll.scrollTo(0)
+                interruptible { pager.scrollToPage(0) }
+                interruptible { startState.scroll.scrollTo(0) }
             }
         }
     }
@@ -139,10 +142,14 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
     LaunchedEffect(Unit) {
         viewModel.pinned.collect {
             appListState.reset()
-            pager.animateScrollToPage(0)
-            startState.scroll.animateScrollTo(startState.scroll.maxValue)
+            val before = startState.scroll.maxValue
+            interruptible { pager.animateScrollToPage(0) }
+            // The new tile is laid out after this event, which grows the scroll range.
+            interruptible { startState.scroll.animateToGrownEnd(before) }
         }
     }
+    // Leaving the launcher: write a tile edit still waiting out the save delay before the process can be killed.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.tileRepository.flush() }
 
     // A launcher never finishes on back: back only unwinds launcher UI state.
     BackHandler {
