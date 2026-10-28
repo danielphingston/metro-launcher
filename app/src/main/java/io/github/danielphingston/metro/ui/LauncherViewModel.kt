@@ -16,6 +16,7 @@ import io.github.danielphingston.metro.data.BackgroundPhoto
 import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.DefaultLayout
 import io.github.danielphingston.metro.data.IconCache
+import io.github.danielphingston.metro.data.PhotoAccess
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.TileContent
@@ -27,6 +28,7 @@ import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationHub
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -86,11 +88,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 withContext(Dispatchers.IO) {
                     BackgroundPhoto.decode(application, Uri.parse(uri), metrics.widthPixels, metrics.heightPixels)
                 }.asImageBitmap()
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: SecurityException) {
-                metro.settings.clearUnreadablePhoto()
+                forgetPhotoIfPermissionGone(application, uri)
                 null
             } catch (_: FileNotFoundException) {
-                metro.settings.clearUnreadablePhoto()
+                forgetPhotoIfPermissionGone(application, uri)
                 null
             } catch (_: Exception) {
                 null // Corrupt or transiently unreadable: plain background for now.
@@ -99,6 +103,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
+     * A failed read is only a reason to drop the user's choice when the app has really lost access to
+     * [uri]. A provider or SD card that is briefly unavailable throws the same exceptions but keeps the
+     * persisted permission, so the background is retried on the next start instead of erased.
+     */
+    private suspend fun forgetPhotoIfPermissionGone(application: Application, uri: String) {
+        val persisted = application.contentResolver.persistedUriPermissions
+            .filter { it.isReadPermission }
+            .map { it.uri.toString() }
+        if (!PhotoAccess.hasPersistedAccess(persisted, uri)) metro.settings.clearUnreadablePhoto()
+    }
 
     val apps: StateFlow<List<AppInfo>> =
         metro.apps.apps.map { it.orEmpty() }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())

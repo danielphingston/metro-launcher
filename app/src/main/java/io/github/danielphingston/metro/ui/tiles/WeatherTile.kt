@@ -44,8 +44,6 @@ import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
 import java.time.format.TextStyle
 import java.util.Locale
 
@@ -88,8 +86,8 @@ fun WeatherTile(tile: ResolvedTile, cellSize: Dp, flipped: Boolean) {
         // Each time the launcher comes back to the front, top up an old forecast.
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             if (latest?.let(WeatherRefresh::isStale) == true) WeatherRefresh.refreshNow(context)
-            // The device location moves; the new place restarts this effect, so finish the update first.
-            withContext(NonCancellable) { WeatherLocation.refreshIfDue(context) }
+            // The device location moves. This stops with the screen; the refresh is retried next time.
+            WeatherLocation.refreshIfDue(context)
         }
     }
 
