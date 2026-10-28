@@ -91,7 +91,7 @@ To refresh `docs/`, copy the PNGs you want from `app/src/test/screenshots/` (see
 
 ## Screenshot tests
 
-The `*ScreenshotTest` classes render screens on the JVM with Roborazzi. A normal `testDebugUnitTest` run **compares** each render with its golden image in `app/src/test/screenshots/` (1% change tolerance) and fails on a difference; a missing golden does not fail the build (it is just reported in the output images). Actual, reference and diff images for failures land in `app/build/outputs/roborazzi/` (uploaded as the `reports` artifact in CI).
+The `*ScreenshotTest` classes render screens on the JVM with Roborazzi. A normal `testDebugUnitTest` run **verifies** each render against its golden image in `app/src/test/screenshots/` (1% change tolerance) and fails on a difference or a missing golden, so a new screenshot test must have its golden recorded and committed. Actual, reference and diff images for failures land in `app/build/outputs/roborazzi/` (uploaded as the `reports` artifact in CI).
 
 After an intentional UI change, re-record and commit the updated PNGs:
 
