@@ -43,6 +43,11 @@ internal class ShortcutIndex(
         SearchRanking.top(hits, query, limit) { listOfNotNull(it.shortLabel, it.longLabel) }.map { it.item }
     }
 
+    /** Forgets the loaded shortcuts, e.g. when an app was installed, updated or removed. */
+    fun invalidate() {
+        all = null
+    }
+
     private fun load(): List<ShortcutHit> {
         val launcherApps = context.getSystemService(LauncherApps::class.java)
         return try {
