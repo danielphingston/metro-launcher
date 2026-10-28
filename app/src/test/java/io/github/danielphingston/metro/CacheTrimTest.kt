@@ -13,9 +13,16 @@ import org.robolectric.annotation.Config
 
 class CacheTrimTest {
     @Test
+    @Suppress("DEPRECATION")
     fun keepsEverythingWhileVisibleAThirdWhenHiddenNothingInTheBackground() {
+        val low = ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
+        val critical = ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+        assertEquals(1f, CacheTrim.keepFraction(ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE), 0f)
+        assertEquals(1f, CacheTrim.keepFraction(low - 1), 0f)
+        assertEquals(1f / 2, CacheTrim.keepFraction(low), 0f)
+        assertEquals(1f / 4, CacheTrim.keepFraction(critical), 0f)
         val hidden = ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
-        assertEquals(1f, CacheTrim.keepFraction(hidden - 1), 0f)
+        assertEquals(1f / 4, CacheTrim.keepFraction(hidden - 1), 0f)
         assertEquals(1f / 3, CacheTrim.keepFraction(hidden), 0f)
         assertEquals(1f / 3, CacheTrim.keepFraction(hidden + 1), 0f)
         val background = ComponentCallbacks2.TRIM_MEMORY_BACKGROUND

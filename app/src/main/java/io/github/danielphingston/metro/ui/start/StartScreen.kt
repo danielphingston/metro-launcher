@@ -309,17 +309,30 @@ fun StartScreen(
     val nowPlaying by remember(needsMedia) {
         if (needsMedia) MediaSource.nowPlaying(context) else flowOf(emptyMap())
     }.collectAsStateWithLifecycle(emptyMap())
-    val is24Hour = remember(clock) { android.text.format.DateFormat.is24HourFormat(context) }
-
-    fun liveFor(tile: ResolvedTile): LiveContent? {
-        val key = tile.spec.appKey ?: return null
-        val pkg = key.packageName
-        nowPlaying[key.notificationKey]?.let { return LiveContent.NowPlaying(it) }
-        return when {
-            pkg == defaults.clock -> LiveContent.Clock(clock ?: ClockState(System.currentTimeMillis(), null), is24Hour)
-            pkg == defaults.calendar -> LiveContent.Calendar(clock?.now ?: System.currentTimeMillis(), events, is24Hour)
-            else -> notifications[key.notificationKey]?.let {
-                LiveContent.Notifications(it, settings.showNotificationContent)
+    // The live states (clock, events, media, notifications) are only read when this runs, which
+    // the tiles do from their own composition: a notification or a clock tick recomposes the
+    // tiles it concerns, not the whole screen.
+    val liveFor: (ResolvedTile) -> LiveContent? = { tile ->
+        val key = tile.spec.appKey
+        if (key == null) {
+            null
+        } else {
+            val pkg = key.packageName
+            val playing = nowPlaying[key.notificationKey]
+            when {
+                playing != null -> LiveContent.NowPlaying(playing)
+                pkg == defaults.clock || pkg == defaults.calendar -> {
+                    val now = clock
+                    val is24Hour = android.text.format.DateFormat.is24HourFormat(context)
+                    if (pkg == defaults.clock) {
+                        LiveContent.Clock(now ?: ClockState(System.currentTimeMillis(), null), is24Hour)
+                    } else {
+                        LiveContent.Calendar(now?.now ?: System.currentTimeMillis(), events, is24Hour)
+                    }
+                }
+                else -> notifications[key.notificationKey]?.let {
+                    LiveContent.Notifications(it, settings.showNotificationContent)
+                }
             }
         }
     }
@@ -406,22 +419,19 @@ fun StartScreen(
             withTimeoutOrNull(500) { snapshotFlow { state.scroll.maxValue }.first { it >= target } }
             state.scroll.animateScrollTo(target)
         }
-        // Which live tiles are on screen: only those may flip.
-        val liveTiles by rememberUpdatedState(
-            (tiles.zip(placements) + openChildren.zip(layout.children)).mapNotNull { (tile, placement) ->
-                val flips = when (tile.spec.content) {
-                    TileContent.Weather, TileContent.Photos, TileContent.People -> tile.spec.size != TileSize.SMALL
-                    else -> liveFor(tile)?.hasBack(tile.spec.size) == true
-                }
-                if (flips) tile.spec.id to placement else null
-            },
-        )
+        // Which live tiles are on screen: only those may flip. Computed inside the derived state
+        // so the live sources are read there, not by this composition.
+        val liveTiles by rememberUpdatedState(tiles.zip(placements) + openChildren.zip(layout.children))
+        val currentLiveFor by rememberUpdatedState(liveFor)
         val visibleLiveIds by remember {
             derivedStateOf {
                 val top = state.scroll.value - topInsetPx
-                liveTiles.filter { (_, p) ->
-                    p.y * cellPx < top + viewportPx && (p.y + p.height) * cellPx > top
-                }.map { it.first }
+                liveTiles.filter { (tile, p) ->
+                    p.y * cellPx < top + viewportPx && (p.y + p.height) * cellPx > top && when (tile.spec.content) {
+                        TileContent.Weather, TileContent.Photos, TileContent.People -> tile.spec.size != TileSize.SMALL
+                        else -> currentLiveFor(tile)?.hasBack(tile.spec.size) == true
+                    }
+                }.map { it.first.spec.id }
             }
         }
         val canFlip by rememberUpdatedState(isCurrentPage && !state.editing)
@@ -463,6 +473,39 @@ fun StartScreen(
 
         DragTracking(state, tiles, cellPx, columns)
 
+        // A top-level tile and a folder child differ only in the drag callbacks and where they appear from.
+        @Composable
+        fun host(
+            tile: ResolvedTile,
+            placement: Placement,
+            appearFrom: IntOffset? = null,
+            onRemoveFromFolder: (() -> Unit)? = null,
+            onDragMove: () -> Unit = {},
+            onDrop: (completed: Boolean) -> Unit,
+        ) = TileHost(
+            tile = tile,
+            placement = placement,
+            cellPx = cellPx,
+            gapPx = gapPx,
+            cell = cell,
+            columns = columns,
+            state = state,
+            live = null,
+            liveOf = { liveFor(tile) },
+            flipped = flipped[tile.spec.id] == true && !state.editing,
+            monochromeIcons = settings.monochromeIcons,
+            icons = viewModel.icons,
+            onUnpin = { viewModel.unpin(tile.spec.id) },
+            onResize = { viewModel.resize(tile.spec.id) },
+            onSetSpan = { w, h -> viewModel.setSpan(tile.spec.id, w, h) },
+            onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state, quickUnlocked) },
+            onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+            appearFrom = appearFrom,
+            onRemoveFromFolder = onRemoveFromFolder,
+            onDragMove = onDragMove,
+            onDrop = onDrop,
+        )
+
         Column(
             Modifier
                 .fillMaxSize()
@@ -497,25 +540,9 @@ fun StartScreen(
                     .size(width = gridWidth, height = cell * rows),
             ) {
                 tiles.forEachIndexed { index, tile ->
-                    val placement = placements[index]
                     androidx.compose.runtime.key(tile.spec.id) {
-                        TileHost(
-                            tile = tile,
-                            placement = placement,
-                            cellPx = cellPx,
-                            gapPx = gapPx,
-                            cell = cell,
-                            columns = columns,
-                            state = state,
-                            live = liveFor(tile),
-                            flipped = flipped[tile.spec.id] == true && !state.editing,
-                            monochromeIcons = settings.monochromeIcons,
-                            icons = viewModel.icons,
-                            onUnpin = { viewModel.unpin(tile.spec.id) },
-                            onResize = { viewModel.resize(tile.spec.id) },
-                            onSetSpan = { w, h -> viewModel.setSpan(tile.spec.id, w, h) },
-                            onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state, quickUnlocked) },
-                            onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                        host(
+                            tile, placements[index],
                             onDrop = { completed ->
                                 val cell = state.dragCell
                                 state.preview = null
@@ -540,23 +567,8 @@ fun StartScreen(
                 openChildren.forEachIndexed { index, child ->
                     val placement = layout.children[index]
                     androidx.compose.runtime.key(child.spec.id) {
-                        TileHost(
-                            tile = child,
-                            placement = placement,
-                            cellPx = cellPx,
-                            gapPx = gapPx,
-                            cell = cell,
-                            columns = columns,
-                            state = state,
-                            live = liveFor(child),
-                            flipped = flipped[child.spec.id] == true && !state.editing,
-                            monochromeIcons = settings.monochromeIcons,
-                            icons = viewModel.icons,
-                            onUnpin = { viewModel.unpin(child.spec.id) },
-                            onResize = { viewModel.resize(child.spec.id) },
-                            onSetSpan = { w, h -> viewModel.setSpan(child.spec.id, w, h) },
-                            onLaunch = { bounds -> activateTile(context, child, bounds, launcher, defaults, state, quickUnlocked) },
-                            onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                        host(
+                            child, placement,
                             appearFrom = appearFrom,
                             onRemoveFromFolder = { viewModel.removeFromFolder(openFolder!!.spec.id, child.spec.id) },
                             onDragMove = {
@@ -741,7 +753,13 @@ internal fun TileHost(
     /** Set for the children of an open folder. */
     onRemoveFromFolder: (() -> Unit)? = null,
     onDrop: (completed: Boolean) -> Unit = {},
+    /**
+     * Reads the live content from inside this tile, so changes to it recompose only this tile.
+     * When set it replaces [live].
+     */
+    liveOf: (() -> LiveContent?)? = null,
 ) {
+    val liveContent = liveOf?.invoke() ?: live
     val id = tile.spec.id
     val folder = tile.spec.content as? TileContent.Folder
     // A hosted widget does its own touch handling and accessibility, and is never flipped or tilted.
@@ -792,6 +810,13 @@ internal fun TileHost(
     val currentOnDragMove by rememberUpdatedState(onDragMove)
     val currentOnDrop by rememberUpdatedState(onDrop)
     val currentGroupTarget by rememberUpdatedState(groupTarget)
+    // The gestures below outlive a recomposition (re-keying would cancel a gesture in progress),
+    // so they read what changes - purchases, default apps, an updated app, the cell size after
+    // a rotation or fold - through these.
+    val currentOnLaunch by rememberUpdatedState(onLaunch)
+    val currentOnLongPress by rememberUpdatedState(onLongPress)
+    val currentFolder by rememberUpdatedState(folder)
+    val currentCellPx by rememberUpdatedState(cellPx)
     val folderOpen = state.openFolderId == id
     val widthDp = cell * placement.width - TileGap
     val heightDp = cell * placement.height - TileGap
@@ -816,7 +841,7 @@ internal fun TileHost(
             .semantics(mergeDescendants = !isWidget) {
                 contentDescription = buildString {
                     if (folder != null) append("${tile.label}, folder, ${tile.children.size} items") else append(tile.label)
-                    (live as? LiveContent.Notifications)?.let { append(", ${it.data.count} new") }
+                    (liveContent as? LiveContent.Notifications)?.let { append(", ${it.data.count} new") }
                 }
                 if (grouping) {
                     // Grouping mode: tiles are picked, not opened; only those that can join respond.
@@ -862,12 +887,12 @@ internal fun TileHost(
                     val start = if (immediate) {
                         awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
                     } else {
-                        awaitLongPressOrCancellation(down.id)?.also { onLongPress() }
+                        awaitLongPressOrCancellation(down.id)?.also { currentOnLongPress() }
                     } ?: return@awaitEachGesture
                     state.select(id)
                     state.dragTopLeft = Offset(
-                        currentPlacement.x * cellPx,
-                        currentPlacement.y * cellPx,
+                        currentPlacement.x * currentCellPx,
+                        currentPlacement.y * currentCellPx,
                     )
                     state.dragId = id
                     state.preview = null
@@ -894,19 +919,19 @@ internal fun TileHost(
                     }
                 }
             }
-            .pointerInput(id, cellPx) {
+            .pointerInput(id) {
                 detectTapGestures { offset ->
                     if (state.grouping) {
                         if (currentGroupTarget) state.toggleGrouped(id)
                     } else if (state.editing) {
                         // The name strip of a folder opens the rename field.
-                        if (folder != null && offset.y > size.height - cellPx * FOLDER_NAME_STRIP) {
+                        if (currentFolder != null && offset.y > size.height - currentCellPx * FOLDER_NAME_STRIP) {
                             state.renamingFolderId = id
                         } else if (state.selectedId != id) {
                             state.select(id)
                         }
                     } else {
-                        onLaunch(bounds)
+                        currentOnLaunch(bounds)
                     }
                 }
             }
@@ -914,7 +939,7 @@ internal fun TileHost(
             .then(if (isWidget) Modifier else Modifier.metroTilt(enabled = !state.editing)),
     ) {
         TileBody(
-            tile, live, flipped, monochromeIcons, icons, cell, folderOpen,
+            tile, liveContent, flipped, monochromeIcons, icons, cell, folderOpen,
             editing = state.editing,
             onWidgetLongPress = { onLongPress(); state.select(id) },
         )

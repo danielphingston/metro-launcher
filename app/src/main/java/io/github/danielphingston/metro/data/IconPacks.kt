@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Resources
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.util.Xml
@@ -24,6 +25,15 @@ class IconPacks(private val context: Context) {
      */
     private val filters = ConcurrentHashMap<String, Map<ComponentName, String>>()
 
+    /**
+     * Resources per pack package: getResourcesForApplication builds a new Resources every call,
+     * which is far too slow to repeat for each icon. Dropped by [invalidate].
+     */
+    private val resourcesByPack = ConcurrentHashMap<String, Resources>()
+
+    private fun resourcesOf(pack: String): Resources =
+        resourcesByPack[pack] ?: context.packageManager.getResourcesForApplication(pack).also { resourcesByPack[pack] = it }
+
     /** Installed icon packs, sorted by label. Blocking: call off the main thread. */
     fun installed(): List<IconPackInfo> {
         val pm = context.packageManager
@@ -41,7 +51,7 @@ class IconPacks(private val context: Context) {
         if (name == null) {
             null
         } else {
-            val resources = context.packageManager.getResourcesForApplication(packPackage)
+            val resources = resourcesOf(packPackage)
             val id = resources.getIdentifier(name, "drawable", packPackage).takeIf { it != 0 }
                 ?: resources.getIdentifier(name, "mipmap", packPackage)
             if (id == 0) null else resources.getDrawableForDensity(id, density, null)
@@ -50,14 +60,15 @@ class IconPacks(private val context: Context) {
         null
     }
 
-    /** Forgets the parsed filter of [packageName], e.g. after the pack was updated. */
+    /** Forgets the parsed filter and resources of [packageName], e.g. after the pack was updated. */
     fun invalidate(packageName: String) {
         filters.remove(packageName)
+        resourcesByPack.remove(packageName)
     }
 
     /** Null when loading failed, which must not be remembered. */
     private fun loadFilter(pack: String): Map<ComponentName, String>? = try {
-        val resources = context.packageManager.getResourcesForApplication(pack)
+        val resources = resourcesOf(pack)
         val id = resources.getIdentifier("appfilter", "xml", pack)
         if (id != 0) {
             resources.getXml(id).use { parseAppFilter(it) }
