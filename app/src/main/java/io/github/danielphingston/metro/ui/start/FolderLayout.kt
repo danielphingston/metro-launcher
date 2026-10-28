@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -81,8 +82,12 @@ private val NotchHeight = 9.dp
 fun FolderRegion(region: Placement, folder: Placement, columns: Int, cell: Dp, gap: Dp, leftPadding: Dp, rightPadding: Dp) {
     val chrome = Metro.colors.chrome.copy(alpha = 0.92f)
     val folderCenter = cell * (folder.x + folder.width / 2f) - gap / 2 + leftPadding
+    val turnstile = LocalTurnstile.current
     Box(
         Modifier
+            // The tiles in the folder swing away on a launch; a panel left standing behind them
+            // would show through the gaps, so it goes for the whole run and returns with the tiles.
+            .graphicsLayer { alpha = if (turnstile.busy) 0f else 1f }
             .offset(-leftPadding, cell * region.y - gap)
             .wrapContentSize(Alignment.TopStart, unbounded = true)
             .size(cell * columns - gap + leftPadding + rightPadding, cell * region.height + gap)
