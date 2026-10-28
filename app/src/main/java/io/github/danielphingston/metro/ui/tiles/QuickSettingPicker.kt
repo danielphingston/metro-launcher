@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -97,6 +99,7 @@ internal fun PaidTilesPanel(
     onBuy: () -> Unit,
     onAdd: (TileContent, TileSize) -> Unit,
     modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState(),
 ) {
     val assistantName = assistantApp?.let { AssistantChoice.displayName(it.key.packageName, it.label) }
     LazyColumn(
@@ -106,6 +109,7 @@ internal fun PaidTilesPanel(
             .background(Metro.colors.chrome)
             // Keeps taps on the panel from dismissing it.
             .clickable(enabled = false, onClick = {}),
+        state = listState,
         contentPadding = PaddingValues(
             top = 20.dp,
             bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,

@@ -125,7 +125,7 @@ internal fun <T> rememberOnResume(read: () -> T): T {
 internal enum class SettingsPage(val title: String, val summary: String) {
     START("start", "tiles per row, padding, background, transparency"),
     APP_LIST("app list", "icons, scrubber highlight and position"),
-    SEARCH("search", "search engine, pull distance"),
+    SEARCH("search", "search engine, pull distance, ask assistant"),
     APPEARANCE("appearance", "theme, accent colour, icon pack"),
     ANIMATIONS("animations", "launch animation, speed, tilt, live tile flips"),
     TILES("tiles", "weather, photos, people, calendar, notifications"),
