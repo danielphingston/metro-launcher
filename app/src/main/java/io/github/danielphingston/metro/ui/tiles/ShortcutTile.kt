@@ -33,6 +33,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.unit.Dp
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.drawable.toBitmap
@@ -41,12 +44,14 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.trimTo
+import io.github.danielphingston.metro.live.UserSerials
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.start.AppIcon
 import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -115,16 +120,26 @@ object ShortcutTiles {
         } ?: emptyList()
     }
 
-    /** Blocking: call off the main thread. Null when the shortcut is gone or access is missing. */
-    internal fun info(context: Context, shortcut: TileContent.Shortcut): ShortcutInfo? {
+    /**
+     * Blocking: call off the main thread. Tells a shortcut that is truly gone ([ShortcutLookup.Missing])
+     * from a query that couldn't be answered ([ShortcutLookup.Failed]: profile locked, not the default
+     * home app, binder error), which is worth retrying.
+     */
+    internal fun info(context: Context, shortcut: TileContent.Shortcut): ShortcutLookup {
         val launcherApps = context.getSystemService(LauncherApps::class.java)
-        val user = userFor(context, shortcut.userSerial) ?: return null
-        if (!hasHostPermission(launcherApps)) return null
+        // No such user any more: the shortcut can never come back.
+        val user = userFor(context, shortcut.userSerial) ?: return ShortcutLookup.Missing
+        if (!hasHostPermission(launcherApps)) return ShortcutLookup.Failed
+        if (guarded { context.getSystemService(UserManager::class.java).isUserUnlocked(user) } != true) {
+            return ShortcutLookup.Failed
+        }
         val query = LauncherApps.ShortcutQuery()
             .setQueryFlags(QUERY_FLAGS)
             .setPackage(shortcut.packageName)
             .setShortcutIds(listOf(shortcut.shortcutId))
-        return guarded { launcherApps.getShortcuts(query, user)?.firstOrNull() }
+        // A null list means the system couldn't answer; an empty one means it has no such shortcut.
+        val found = guarded { launcherApps.getShortcuts(query, user) } ?: return ShortcutLookup.Failed
+        return found.firstOrNull()?.let { ShortcutLookup.Found(it) } ?: ShortcutLookup.Missing
     }
 
     internal fun iconDrawable(context: Context, info: ShortcutInfo): Drawable? = guarded {
@@ -135,8 +150,7 @@ object ShortcutTiles {
     /** Gives memory back, keeping the [keep] (0..1) share of the icons used last. */
     fun trimMemory(keep: Float) = ShortcutIconCache.trimMemory(keep)
 
-    internal fun serialOf(context: Context, user: UserHandle): Long =
-        context.getSystemService(UserManager::class.java).getSerialNumberForUser(user)
+    internal fun serialOf(context: Context, user: UserHandle): Long = UserSerials.of(context, user)
 
     private fun userFor(context: Context, serial: Long): UserHandle? =
         context.getSystemService(UserManager::class.java).getUserForSerialNumber(serial)
@@ -161,6 +175,20 @@ object ShortcutTiles {
     }
 }
 
+/** The outcome of looking a pinned shortcut up; only [Failed] is worth retrying. */
+internal sealed interface ShortcutLookup {
+    class Found(val info: ShortcutInfo) : ShortcutLookup
+    data object Missing : ShortcutLookup
+    data object Failed : ShortcutLookup
+}
+
+/** The outcome of loading a shortcut's icon, see [ShortcutLookup]. */
+private sealed interface IconLoad {
+    class Loaded(val bitmap: ImageBitmap) : IconLoad
+    data object Missing : IconLoad
+    data object Failed : IconLoad
+}
+
 /** What [ShortcutTile] draws; [settled] is false while the icon is still loading. */
 private class ShortcutIcon(val bitmap: ImageBitmap?, val settled: Boolean)
 
@@ -176,20 +204,25 @@ private object ShortcutIconCache {
     fun peek(key: String): ImageBitmap? = cache.get(key)
 
     /** Blocking: call off the main thread. */
-    fun load(context: Context, shortcut: TileContent.Shortcut, sizePx: Int, monochrome: Boolean): ImageBitmap? {
+    fun load(context: Context, shortcut: TileContent.Shortcut, sizePx: Int, monochrome: Boolean): IconLoad {
         val key = key(shortcut, sizePx, monochrome)
-        cache.get(key)?.let { return it }
-        val info = ShortcutTiles.info(context, shortcut) ?: return null
-        val drawable = ShortcutTiles.iconDrawable(context, info) ?: return null
+        cache.get(key)?.let { return IconLoad.Loaded(it) }
+        val info = when (val lookup = ShortcutTiles.info(context, shortcut)) {
+            is ShortcutLookup.Found -> lookup.info
+            ShortcutLookup.Missing -> return IconLoad.Missing
+            ShortcutLookup.Failed -> return IconLoad.Failed
+        }
+        val drawable = ShortcutTiles.iconDrawable(context, info) ?: return IconLoad.Failed
         val bitmap = try {
             render(drawable, sizePx, monochrome)
         } catch (_: RuntimeException) {
-            return null // The app's own drawable failed (e.g. Resources.NotFoundException): show the plain tile.
+            // The app's own drawable failed (e.g. Resources.NotFoundException): plain tile, retried later.
+            return IconLoad.Failed
         } catch (_: OutOfMemoryError) {
-            return null
+            return IconLoad.Failed
         }
         cache.put(key, bitmap)
-        return bitmap
+        return IconLoad.Loaded(bitmap)
     }
 
     fun trimMemory(keep: Float) = cache.trimTo(keep)
@@ -212,6 +245,9 @@ private object ShortcutIconCache {
     }
 }
 
+/** Pauses between retries of a failed shortcut load while its tile stays on screen. */
+private val RETRY_DELAYS_MS = longArrayOf(2_000, 5_000, 15_000)
+
 @Composable
 fun ShortcutTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: Boolean) {
     val shortcut = tile.spec.content as? TileContent.Shortcut ?: return PlaceholderTile(tile, cellSize)
@@ -225,11 +261,38 @@ fun ShortcutTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome:
     val context = LocalContext.current
     val px = with(LocalDensity.current) { iconSize.roundToPx() }
     val key = remember(shortcut, px, monochrome) { ShortcutIconCache.key(shortcut, px, monochrome) }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val icon by produceState(ShortcutIcon(ShortcutIconCache.peek(key), settled = false), key) {
         // The key changed (size or monochrome), so the value may be for the old one: always reload.
-        val cached = ShortcutIconCache.peek(key)
-        val bitmap = cached ?: withContext(Dispatchers.Default) { ShortcutIconCache.load(context, shortcut, px, monochrome) }
-        value = ShortcutIcon(bitmap, settled = true)
+        // Each time the tile comes back on screen a failed load is tried again (a locked work profile
+        // may have been unlocked meanwhile), and while it is visible it backs off before retrying.
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var attempt = 0
+            while (true) {
+                val cached = ShortcutIconCache.peek(key)
+                val load = if (cached != null) {
+                    IconLoad.Loaded(cached)
+                } else {
+                    withContext(Dispatchers.Default) { ShortcutIconCache.load(context, shortcut, px, monochrome) }
+                }
+                when (load) {
+                    is IconLoad.Loaded -> {
+                        value = ShortcutIcon(load.bitmap, settled = true)
+                        return@repeatOnLifecycle
+                    }
+                    IconLoad.Missing -> {
+                        value = ShortcutIcon(null, settled = true)
+                        return@repeatOnLifecycle
+                    }
+                    IconLoad.Failed -> {
+                        // Show the plain tile meanwhile, but keep trying.
+                        value = ShortcutIcon(null, settled = true)
+                        if (attempt >= RETRY_DELAYS_MS.size) return@repeatOnLifecycle
+                        delay(RETRY_DELAYS_MS[attempt++])
+                    }
+                }
+            }
+        }
     }
     val bitmap = icon.bitmap
     if (bitmap == null && icon.settled) {
