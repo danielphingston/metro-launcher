@@ -62,6 +62,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
+import io.github.danielphingston.metro.data.AssistantChoice
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.SearchEngine
 import io.github.danielphingston.metro.data.TileContent
@@ -111,6 +112,11 @@ internal sealed interface SearchRow {
         val url: String get() = engine.searchUrl(query)
         override val key get() = "web"
     }
+
+    /** Ask the assistant [target] the question [query]. */
+    data class Assistant(val query: String, val target: AssistantTarget) : SearchRow {
+        override val key get() = "assistant"
+    }
 }
 
 private const val MAX_APPS = 8
@@ -126,6 +132,7 @@ internal fun searchRows(
     shortcuts: List<ShortcutHit>,
     engine: SearchEngine,
     now: Long,
+    assistant: AssistantTarget? = null,
 ): List<SearchRow> {
     val q = query.trim()
     if (q.isEmpty()) {
@@ -148,6 +155,7 @@ internal fun searchRows(
         }
         add(SearchRow.Caption("web"))
         add(SearchRow.Web(q, engine))
+        assistant?.let { add(SearchRow.Assistant(q, it)) }
     }
 }
 
@@ -198,8 +206,13 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     }
     // Hits of an earlier query are ignored even in the frame before the reset above.
     val shortcuts = found?.takeIf { it.first == query }?.second.orEmpty()
-    val rows = remember(apps, query, shortcuts, settings.searchEngine) {
-        searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis())
+    val assistant = remember(apps, settings.assistant) {
+        val pkg = AssistantChoice.resolve(settings.assistant, apps.mapTo(HashSet()) { it.key.packageName })
+        val app = pkg?.let { p -> apps.firstOrNull { it.key.packageName == p && it.key.userSerial == 0L } ?: apps.firstOrNull { it.key.packageName == p } }
+        app?.let { AssistantTarget(it, AssistantChoice.displayName(it.key.packageName, it.label)) }
+    }
+    val rows = remember(apps, query, shortcuts, settings.searchEngine, assistant) {
+        searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), assistant)
     }
 
     val focusRequester = remember { FocusRequester() }
@@ -228,6 +241,12 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
             }
             is SearchRow.Web -> launcher.open(bounds) { screenBounds, options ->
                 WebSearch.open(context, row.url, screenBounds, options, inBrowser = true)
+            }
+            is SearchRow.Assistant -> {
+                viewModel.recordAssistantQuestion(row.query)
+                launcher.open(bounds) { screenBounds, options ->
+                    AssistantAsk.ask(context, row.target.app.key.packageName, row.query, screenBounds, options)
+                }
             }
             is SearchRow.Caption -> Unit
         }
@@ -343,6 +362,11 @@ internal fun SearchContent(
                             subtitle = row.engine.label,
                             onClick = { onActivate(row, it) },
                         ) { Glyph { drawMagnifier(colors.foreground) } }
+                        is SearchRow.Assistant -> ResultRow(
+                            title = "ask ${row.target.name}",
+                            subtitle = row.query,
+                            onClick = { onActivate(row, it) },
+                        ) { AppListIcon(row.target.app, icons, monochrome, plainIcons) }
                     }
                 }
             }

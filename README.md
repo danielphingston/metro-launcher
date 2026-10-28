@@ -28,7 +28,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Tablets and unfolded foldables: tiles keep about a phone's size and, by default, the number of tiles per row ("auto") follows the width so the grid fills the screen edge to edge, also after rotating or folding; the app list sits in the middle of the screen. Settings also offer four, six or eight tiles per row there.
 - Tiles keep the place you give them and only ever slide straight up into free space, never sideways into gaps; resizing or dropping a tile pushes the ones in its way down. Any tile can rise one row into a row left half empty, such as under a pair of small tiles. New tiles go at the bottom.
 - Press and hold a tile to edit: drag to move (dragging never makes a folder), the corner badges unpin, resize or group into a folder. Back, Home or a tap on empty space leaves edit mode.
-- "+" under the tiles adds weather, photos, people, widget and quick settings tiles; the arrow opens the app list. Settings can tint these buttons ("+", magnifier, arrow) in the accent colour.
+- "+" under the tiles adds weather, photos, people, widget and paid tiles (quick settings and assistant); the arrow opens the app list. Settings can tint these buttons ("+", magnifier, arrow) in the accent colour.
 - Padding is adjustable on all four edges (top, bottom, left, right). TalkBack gets custom actions (open folder, group into folder, remove from folder, unpin, resize) as an alternative to dragging.
 
 **Tiles and live tiles**
@@ -51,20 +51,25 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Press and hold an app for pin to start, app shortcuts, uninstall and app info.
 
 **Search**
-- Pull down on the start screen, or tap the magnifier under the tiles. Search opens when you release, ignores sideways pulls and gives a haptic tick at the threshold; the pull distance is adjustable. Swipe up or press Home to close it. Results appear as you type: apps, app shortcuts (when Metro is the default home app) and a web row that opens google, bing or duckduckgo (settings) in your default browser. A typed address gets an "open" row. Search or Enter opens the best app match, else the web search.
+- Pull down on the start screen, or tap the magnifier under the tiles. Search opens when you release, ignores sideways pulls and gives a haptic tick at the threshold; the pull distance is adjustable. Swipe up or press Home to close it. Results appear as you type: apps, app shortcuts (when Metro is the default home app) and a web row that opens google, bing or duckduckgo (settings) in your default browser. A typed address gets an "open" row. With an assistant app set (see below) an "ask Claude" row follows the web row. Search or Enter opens the best app match, else the web search.
 - Search results follow the app list's icon style, so "plain icons" applies there too.
 - Metro makes no network requests while you type; nothing leaves the phone until you open a web result, and then your browser does it.
 
-**Quick settings tiles** (paid pack)
-- A one-time Google Play purchase (product `tiles_quick_settings`), always unlocked in debug builds; locked tiles show "unlock to use". Add them from "+" under the tiles; settings has a "quick settings tiles" page.
-- Kinds: flashlight, do not disturb, ringer (ring, vibrate, silent), auto-rotate, brightness (auto, 25%, 50%, 100%), wi-fi, mobile data, bluetooth, airplane mode, location, hotspot and battery. Larger tiles show extra detail such as signal bars, carrier or charge state.
+**Paid tiles** (one paid pack)
+- A one-time Google Play purchase (product `tiles_quick_settings`), always unlocked in debug builds; locked tiles show "unlock to use". Add them from "+" under the tiles; settings has a "paid tiles" page. The picker and the page have two sections: "quick settings" and "assistant".
+- *Quick settings.* Kinds: flashlight, do not disturb, ringer (ring, vibrate, silent), auto-rotate, brightness (auto, 25%, 50%, 100%), wi-fi, mobile data, bluetooth, airplane mode, location, hotspot and battery. Larger tiles show extra detail such as signal bars, carrier or charge state.
 - Tapping flashlight, do not disturb, ringer, auto-rotate and brightness changes the setting in place (the first tap on do not disturb or silent, or on brightness or auto-rotate, opens the system screen where you grant do not disturb access or "modify system settings"). Android doesn't let apps toggle Wi-Fi, mobile data or Bluetooth directly, so those open the system panel or settings page; airplane mode, location, hotspot and battery open their settings pages.
 - Opt-in extras, off by default: the Wi-Fi network name (needs precise location) and connected Bluetooth devices (needs nearby devices permission).
+- *Assistant.* One tile that follows the shared assistant choice: the app's icon and unread count, the latest reply (conversation title over the reply text, read from its notifications; the last message of a MessagingStyle notification is preferred and SECRET notifications are never shown), a "you asked: ..." footer, and a flip to the last question you asked from search. A notification titled with just the app's name shows the reply text only. Tap opens the assistant app; with no assistant chosen it shows "choose an assistant in settings". Nothing is polled: it reacts to notification changes.
+
+**Ask an assistant** (free, no APIs)
+- Settings, "search", "ask assistant": off, one of the installed known apps (Claude, ChatGPT, Gemini, Perplexity, Copilot) or "other app" (any launchable app that accepts shared text). Until you choose, Claude is used if installed, else the first installed known assistant, else it stays off.
+- Typing a query adds an "ask <app>" row after the web row. Tapping it sends the question with a plain `ACTION_SEND` text/plain intent to that app; if the app can't take shared text, the question is copied to the clipboard, the app opens and a toast says "question copied". The last question is kept on the phone for the assistant tile.
 
 **Backgrounds and personalisation**
 - Theme: dark, light or follow system. The 20 Windows Phone accent colours.
 - Start background: solid; photo tiles (each tile is a window onto one photo); full photo with parallax; or the system wallpaper.
-- Settings are a menu of pages: start, app list, search, appearance, animations, tiles, quick settings tiles and about.
+- Settings are a menu of pages: start, app list, search, appearance, animations, tiles, paid tiles and about.
 - Tile transparency slider, and "accent colour from my background" for the photo modes.
 - Themed (monochrome) app icons on Android 13+, and icon packs (ADW, Nova and Apex formats).
 - "Metro settings" lives in the app list and also sets Metro as the default home app.
@@ -75,7 +80,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Tilt on press (on/off and strength), live tile flips (on/off and interval) and a subtle swing while paging between start and the app list (on/off).
 
 **Accessibility**
-- TalkBack custom actions on the alphabet scrubber and on tiles; sliders work with TalkBack; quick settings tiles announce on or off.
+- TalkBack custom actions on the alphabet scrubber and on tiles; sliders work with TalkBack; quick settings tiles announce on or off and the assistant tile reads app, unread count and latest reply title.
 - Labels wrap at large font sizes, and text stays readable on light accent colours.
 
 ## Battery design
@@ -94,16 +99,16 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 | `ACCESS_COARSE_LOCATION` | Weather for "my location" (rounded to about 1 km, no continuous updates) | When you tap "use my location" in settings |
 | `READ_CONTACTS` | Photos for the people tile | When you tap "show contacts on people tile" in settings |
 | `READ_CALENDAR` | Next appointment on the calendar tile | When you tap "show appointments on calendar tile" in settings |
-| `ACCESS_FINE_LOCATION` | Wi-Fi name on the quick settings Wi-Fi tile (Android hides it without precise location) | When you turn on "show Wi-Fi name" in quick settings tiles settings |
-| `BLUETOOTH_CONNECT` | Names of connected devices on the Bluetooth quick tile | When you turn on "show Bluetooth devices" in quick settings tiles settings |
+| `ACCESS_FINE_LOCATION` | Wi-Fi name on the quick settings Wi-Fi tile (Android hides it without precise location) | When you turn on "show Wi-Fi name" in paid tiles settings |
+| `BLUETOOTH_CONNECT` | Names of connected devices on the Bluetooth quick tile | When you turn on "show Bluetooth devices" in paid tiles settings |
 | `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` | Read Wi-Fi and mobile data state for the quick settings tiles | Normal permissions, granted at install; read only while such a tile is shown |
 | `WRITE_SETTINGS` | Auto-rotate and brightness quick tiles | Only when you tap one of those tiles; Metro opens the system "modify system settings" screen |
 | `ACCESS_NOTIFICATION_POLICY` | Do not disturb and silent on the quick settings tiles | Only when you tap one of those tiles; Metro opens the system "do not disturb access" screen |
-| `BILLING` (`com.android.vending.BILLING`, added by the Play Billing library) | The one-time quick settings tiles purchase | Only when you choose to buy |
+| `BILLING` (`com.android.vending.BILLING`, added by the Play Billing library) | The one-time paid tiles purchase | Only when you choose to buy |
 | `REQUEST_DELETE_PACKAGES` | "Uninstall" in the app list (the system still asks to confirm) | Only when you choose uninstall |
 | Notification access (`BIND_NOTIFICATION_LISTENER_SERVICE`) | Counts, latest message and now-playing on tiles | You enable it in system settings from a button in Metro settings, after an in-app explanation |
 
-Background and tile photos use the system photo picker, so no media permission is needed. Nothing else is requested, and `QUERY_ALL_PACKAGES` is not used (`<queries>` lists launchable apps).
+Background and tile photos use the system photo picker, so no media permission is needed. Nothing else is requested, and `QUERY_ALL_PACKAGES` is not used: `<queries>` lists launchable apps, the `ACTION_SEND` text/plain intent (to find apps that take shared text for the assistant row) and the five known assistant packages.
 
 ## Building
 
@@ -120,7 +125,7 @@ To refresh `docs/`, copy the PNGs you want from `app/src/test/screenshots/` (see
 
 ## Screenshot tests
 
-The `*ScreenshotTest` classes render screens on the JVM with Roborazzi (46 goldens covering the start screen, app list, search, launch animations and settings pages). A normal `testDebugUnitTest` run **verifies** each render against its golden image in `app/src/test/screenshots/` (1% change tolerance) and fails on a difference or a missing golden, so a new screenshot test must have its golden recorded and committed. Actual, reference and diff images for failures land in `app/build/outputs/roborazzi/` (uploaded as the `reports` artifact in CI).
+The `*ScreenshotTest` classes render screens on the JVM with Roborazzi (56 goldens covering the start screen, app list, search, launch animations and settings pages). A normal `testDebugUnitTest` run **verifies** each render against its golden image in `app/src/test/screenshots/` (1% change tolerance) and fails on a difference or a missing golden, so a new screenshot test must have its golden recorded and committed. Actual, reference and diff images for failures land in `app/build/outputs/roborazzi/` (uploaded as the `reports` artifact in CI).
 
 After an intentional UI change, re-record and commit the updated PNGs:
 

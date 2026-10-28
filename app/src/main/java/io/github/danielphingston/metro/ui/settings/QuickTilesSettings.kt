@@ -30,7 +30,7 @@ import io.github.danielphingston.metro.ui.components.findActivity
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 
-/** The one-time "Quick settings tiles" purchase: unlocked, a buy button with Play's price, or not on sale yet. */
+/** The one-time "paid tiles" purchase: unlocked, a buy button with Play's price, or not on sale yet. */
 @Composable
 fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRepository) {
     val context = LocalContext.current
@@ -39,8 +39,8 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
     val price by purchases.quickTilesPrice.collectAsState()
 
     MetroText(
-        "Tiles that toggle Wi-Fi, Bluetooth, flashlight and other quick settings from the start screen. " +
-            "A one-time purchase, no subscription.",
+        "Paid tiles: quick settings tiles that toggle Wi-Fi, Bluetooth, flashlight and more, and an " +
+            "assistant tile. A one-time purchase, no subscription.",
         MetroType.caption,
         color = Metro.colors.subtle,
     )
@@ -53,7 +53,7 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
         else -> MetroText("Not available yet", MetroType.body, color = Metro.colors.subtle)
     }
 
-    Spacer(Modifier.height(8.dp))
+    Section("quick settings")
     PermissionToggle(
         "Show Wi-Fi network name",
         // Android 12 and up ignore a request for precise location alone: it has to come with coarse.
@@ -71,6 +71,17 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
         { repository.setShowBluetoothDevices(it) },
         "android only shares device names with apps allowed nearby devices",
     )
+
+    Section("assistant")
+    MetroText(
+        "The assistant tile shows the latest reply of the app you pick (read from its notifications, " +
+            "on this phone only) and flips to the last question you asked from search. It follows the " +
+            "same choice as search's \"ask\" row.",
+        MetroType.caption,
+        color = Metro.colors.subtle,
+    )
+    Spacer(Modifier.height(10.dp))
+    AssistantChoiceControl(settings, repository)
 }
 
 /**

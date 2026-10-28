@@ -86,6 +86,7 @@ class SettingsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val repository = (application as MetroApplication).settings
+        val initialPage = SettingsPage.entries.firstOrNull { it.name == intent.getStringExtra(EXTRA_PAGE) }
         setContent {
             val settings by repository.settings.collectAsState(initial = null)
             val current = settings ?: return@setContent
@@ -95,9 +96,17 @@ class SettingsActivity : ComponentActivity() {
                     applySystemBars(darkIcons = !colors.isDark)
                     window.setBackgroundDrawable(ColorDrawable(colors.background.toArgb()))
                 }
-                SettingsScreen(current, repository)
+                SettingsScreen(current, repository, initialPage)
             }
         }
+    }
+
+    internal companion object {
+        private const val EXTRA_PAGE = "page"
+
+        /** Opens settings on [page], e.g. so a tile that needs a choice can take the user to it. */
+        fun intent(context: android.content.Context, page: SettingsPage): android.content.Intent =
+            android.content.Intent(context, SettingsActivity::class.java).putExtra(EXTRA_PAGE, page.name)
     }
 }
 
@@ -116,11 +125,11 @@ internal fun <T> rememberOnResume(read: () -> T): T {
 internal enum class SettingsPage(val title: String, val summary: String) {
     START("start", "tiles per row, padding, background, transparency"),
     APP_LIST("app list", "icons, scrubber highlight and position"),
-    SEARCH("search", "search engine, pull distance"),
+    SEARCH("search", "search engine, pull distance, ask assistant"),
     APPEARANCE("appearance", "theme, accent colour, icon pack"),
     ANIMATIONS("animations", "launch animation, speed, tilt, live tile flips"),
     TILES("tiles", "weather, photos, people, calendar, notifications"),
-    QUICK_TILES("quick settings tiles", "toggles and shortcuts on the start screen"),
+    QUICK_TILES("paid tiles", "quick settings and assistant tiles"),
     ABOUT("about", "default home app, app info, crash log, version"),
 }
 

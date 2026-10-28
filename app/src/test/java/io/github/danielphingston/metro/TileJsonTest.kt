@@ -31,6 +31,7 @@ class TileJsonTest {
             TileSpec(4, TileSize.WIDE, TileContent.Weather),
             TileSpec(5, TileSize.LARGE, TileContent.Photos),
             TileSpec(6, TileSize.MEDIUM, TileContent.People),
+            TileSpec(9, TileSize.WIDE, TileContent.Assistant),
             TileSpec(7, TileSize.MEDIUM, TileContent.Folder("games", listOf(TileSpec(8, TileSize.SMALL, TileContent.App(app))))),
         )
         assertEquals(tiles, TileJson.decode(JSONArray(TileJson.encode(tiles).toString())))

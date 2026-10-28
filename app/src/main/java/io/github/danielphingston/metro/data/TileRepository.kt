@@ -64,6 +64,9 @@ sealed interface TileContent {
     /** A system toggle or shortcut (flashlight, Wi-Fi, battery...) with its live state; one tile per [kind]. */
     data class QuickSetting(val kind: QuickSettingKind) : TileContent
 
+    /** The assistant tile (paid): follows the shared assistant setting; shows its latest reply and the last question asked. */
+    data object Assistant : TileContent
+
     /** Windows Phone 8.1 tile folder. Children are app or shortcut tiles. */
     data class Folder(val name: String, val children: List<TileSpec>) : TileContent
 }
@@ -446,6 +449,7 @@ internal object TileJson {
             TileContent.Photos -> obj.put("type", "photos")
             TileContent.People -> obj.put("type", "people")
             is TileContent.QuickSetting -> obj.put("type", "quick").put("kind", c.kind.id)
+            TileContent.Assistant -> obj.put("type", "assistant")
             is TileContent.Folder -> obj.put("type", "folder").put("name", c.name).put("children", encode(c.children).apply { unread.children[tile.id]?.forEach { put(it) } })
         }
         return obj
@@ -467,6 +471,7 @@ internal object TileJson {
             "photos" -> TileContent.Photos
             "people" -> TileContent.People
             "quick" -> TileContent.QuickSetting(QuickSettingKind.fromId(obj.optString("kind")) ?: return null)
+            "assistant" -> TileContent.Assistant
             "folder" -> {
                 val unread = ArrayList<JSONObject>()
                 val kids = decodeAll(obj.getJSONArray("children"), unread, HashMap())

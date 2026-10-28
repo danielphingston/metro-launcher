@@ -47,4 +47,15 @@ fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsReposi
         MetroType.caption,
         color = Metro.colors.subtle,
     )
+
+    Section("ask assistant")
+    AssistantChoiceControl(settings, repository)
+    Spacer(Modifier.height(10.dp))
+    MetroText(
+        "Typing a question shows an \"ask\" row that sends it to this app (as shared text) when you tap it. " +
+            "If the app can't take shared text, the question is copied and the app opens. Nothing is sent " +
+            "until you tap the row. The assistant tile follows the same choice.",
+        MetroType.caption,
+        color = Metro.colors.subtle,
+    )
 }

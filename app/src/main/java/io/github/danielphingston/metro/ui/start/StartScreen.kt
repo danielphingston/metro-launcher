@@ -108,6 +108,10 @@ import io.github.danielphingston.metro.ui.tiles.PeopleTiles
 import io.github.danielphingston.metro.ui.tiles.PhotosTile
 import io.github.danielphingston.metro.ui.tiles.PhotosTiles
 import io.github.danielphingston.metro.ui.tiles.QuickSettingPicker
+import io.github.danielphingston.metro.ui.tiles.AssistantTile
+import io.github.danielphingston.metro.data.AssistantModel
+import io.github.danielphingston.metro.ui.settings.SettingsActivity
+import io.github.danielphingston.metro.ui.settings.SettingsPage
 import io.github.danielphingston.metro.ui.tiles.QuickSettingTile
 import io.github.danielphingston.metro.ui.tiles.QuickSettingTiles
 import io.github.danielphingston.metro.ui.tiles.ShortcutTile
@@ -317,7 +321,16 @@ fun StartScreen(
     // tiles it concerns, not the whole screen.
     val liveFor: (ResolvedTile) -> LiveContent? = { tile ->
         val key = tile.spec.appKey
-        if (key == null) {
+        if (tile.spec.content == TileContent.Assistant) {
+            LiveContent.Assistant(
+                AssistantModel.of(
+                    tile.label,
+                    tile.app?.let { notifications[it.key.notificationKey] },
+                    settings.showNotificationContent,
+                    settings.lastAsked,
+                ),
+            )
+        } else if (key == null) {
             null
         } else {
             val pkg = key.packageName
@@ -864,6 +877,7 @@ internal fun TileHost(
                 contentDescription = buildString {
                     if (folder != null) append("${tile.label}, folder, ${tile.children.size} items") else append(tile.label)
                     (liveContent as? LiveContent.Notifications)?.let { append(", ${it.data.count} new") }
+                    (liveContent as? LiveContent.Assistant)?.let { clear(); append(it.model.description()) }
                 }
                 if (grouping) {
                     // Grouping mode: tiles are picked, not opened; only those that can join respond.
@@ -1077,6 +1091,7 @@ private fun TileBody(
         TileContent.Photos -> PhotosTile(tile, cell, flipped)
         TileContent.People -> PeopleTile(tile, cell, flipped)
         is TileContent.QuickSetting -> QuickSettingTile(tile, cell)
+        TileContent.Assistant -> AssistantTile(tile, live as? LiveContent.Assistant, flipped, monochromeIcons, icons, cell)
         is TileContent.Folder -> FolderTile(tile, cell, icons, monochromeIcons, folderOpen)
     }
 }
@@ -1103,6 +1118,11 @@ private fun activateTile(
         is TileContent.QuickSetting -> QuickSettingTiles.activate(context, content.kind, quickUnlocked)
             .takeIf { it.isNotEmpty() }
             ?.let { intents -> QuickSettingTiles.open(context, content.kind, intents, bounds, launcher) }
+        TileContent.Assistant -> when {
+            !quickUnlocked -> android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
+            tile.app != null -> launcher.launch(tile.app, bounds)
+            else -> launcher.start(SettingsActivity.intent(context, SettingsPage.QUICK_TILES), bounds)
+        }
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
     }
 }
@@ -1121,7 +1141,7 @@ private fun AddTileMenu(
                 "weather" to { onAdd(TileContent.Weather, TileSize.WIDE) },
                 "photos" to { onAdd(TileContent.Photos, TileSize.WIDE) },
                 "people" to { onAdd(TileContent.People, TileSize.MEDIUM) },
-                "quick settings" to onQuickSettings,
+                "paid tiles" to onQuickSettings,
                 "widgets" to onWidgets,
             ),
             modifier = Modifier
