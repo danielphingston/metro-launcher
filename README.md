@@ -165,6 +165,6 @@ If Metro crashes, the stack trace is saved to `last_crash.txt` in the app's priv
 - Wallpaper mode sets the status bar icons from the wallpaper's own brightness hint; text on the page itself still follows the theme, so on a very bright or dark wallpaper some text can be hard to read. Android does not let apps read the wallpaper image, so the accent can't be taken from it.
 - Only app and shortcut tiles can go into folders (not widgets, weather, photos or people), and folder children are at most wide.
 - Widgets keep receiving updates while the app list is showing. A long-press on a widget that takes every touch (rare) enters edit mode, but the tile is then dragged with a second touch.
-- A launcher can only animate its own window. The opened app's window gets a simple fade, slide or zoom, and the close animation is the system's, so the launch style cannot change either.
+- A launcher can only animate its own window. The opened app's window gets a simple fade, slide or zoom, and the close animation is the system's; the launch style only changes how the launcher itself moves.
 - Phones are portrait only. Notification access can be dropped by aggressive battery savers; set battery usage to "Unrestricted" if tiles stop updating.
 - Weather needs a network and a manual place or location permission; there is no forecast for places Open-Meteo can't find.
