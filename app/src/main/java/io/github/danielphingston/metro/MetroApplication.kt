@@ -11,6 +11,7 @@ import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.live.PeopleSource
+import io.github.danielphingston.metro.ui.search.ShortcutIndex
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
 import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +51,7 @@ class MetroApplication : Application(), Configuration.Provider {
         }, onPackageChanged = { pkg ->
             icons.evict(pkg)
             icons.invalidatePack(pkg)
+            ShortcutIndex.shared(this).invalidate()
         })
         NotificationAccess.rebindIfNeeded(this)
         appScope.launch {

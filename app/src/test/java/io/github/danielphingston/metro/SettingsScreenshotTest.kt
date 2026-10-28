@@ -45,7 +45,7 @@ class SettingsScreenshotTest {
     private fun capture(name: String, page: SettingsPage?) {
         val settings = LauncherSettings()
         val repository = SettingsRepository(RuntimeEnvironment.getApplication())
-        captureRoboImage("build/outputs/roborazzi/$name.png") {
+        captureRoboImage("src/test/screenshots/$name.png", roborazziOptions = ScreenshotOptions) {
             MetroTheme(settings) { SettingsScreen(settings, repository, page) }
         }
     }

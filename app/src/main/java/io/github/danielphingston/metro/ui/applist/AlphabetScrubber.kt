@@ -39,9 +39,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -95,6 +98,7 @@ internal fun AlphabetScrubber(
     var fingerPos by remember { mutableFloatStateOf(0f) }
     var fingerY by remember { mutableFloatStateOf(0f) }
     var touching by remember { mutableStateOf(false) }
+    var jumped by remember { mutableStateOf("") }
     val active = animateFloatAsState(
         if (touching) 1f else 0f,
         spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
@@ -129,7 +133,17 @@ internal fun AlphabetScrubber(
                 .height(columnHeight)
                 .clearAndSetSemantics {
                     contentDescription = description
-                    customActions = letters.map { CustomAccessibilityAction("jump to $it") { onScrub(it); true } }
+                    // The action jumps the list without the finger-driven preview, so say where it went:
+                    // a polite live region announces each change of this state.
+                    liveRegion = LiveRegionMode.Polite
+                    if (jumped.isNotEmpty()) stateDescription = jumped
+                    customActions = letters.map { letter ->
+                        CustomAccessibilityAction("jump to $letter") {
+                            onScrub(letter)
+                            jumped = "jumped to ${letter.uppercase()}"
+                            true
+                        }
+                    }
                 }
                 .pointerInput(letters) {
                     awaitEachGesture {
@@ -233,7 +247,7 @@ internal fun AlphabetScrubber(
                 BasicText(
                     letters[previewIndex].uppercase(),
                     style = MetroType.style(64.sp, FontWeight.Light)
-                        .copy(color = if (highlight == ScrubberHighlight.NONE) accent else colors.onAccent),
+                        .copy(color = if (highlight == ScrubberHighlight.NONE) accent else colors.onSolidAccent),
                     softWrap = false,
                     overflow = TextOverflow.Visible,
                 )

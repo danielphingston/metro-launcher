@@ -25,6 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -34,6 +39,7 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.live.QuickOptions
 import io.github.danielphingston.metro.live.QuickSettingLogic
+import io.github.danielphingston.metro.live.QuickState
 import io.github.danielphingston.metro.live.QuickSettings
 import io.github.danielphingston.metro.live.Torch
 import io.github.danielphingston.metro.ui.AppLauncher
@@ -44,6 +50,7 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.map
@@ -188,11 +195,21 @@ fun QuickSettingFace(kind: QuickSettingKind, size: TileSize, label: String, cell
     // The extras are the user's choice in settings; without the application (a preview) there are none.
     val options by remember { optionsFlow(context) }.collectAsStateWithLifecycle(QuickOptions())
     // The flow registers its receivers when collected (STARTED) and drops them when the tile leaves the screen.
-    val state by remember(kind, options) { QuickSettings.states(context, kind, options) }
-        .collectAsStateWithLifecycle(remember(kind, options) { QuickSettings.read(context, kind, options) })
+    // A source the device can't provide must not take the tile (and the launcher) down: it falls back to a static face.
+    val state by remember(kind, options) {
+        QuickSettings.states(context, kind, options).catch { emit(QuickState(false, "unavailable")) }
+    }.collectAsStateWithLifecycle(remember(kind, options) { QuickSettings.read(context, kind, options) })
     val m = rememberTileMetrics(cellSize)
     val white = Metro.colors.onAccent
-    Box(modifier.fillMaxSize().tileSurface()) {
+    // The dimming is not enough for a screen reader: say what the tile is, what it does and its state.
+    val stateText = state.text.ifEmpty { QuickSettingLogic.onOffText(state.on) }
+    Box(
+        modifier.fillMaxSize().tileSurface().semantics(mergeDescendants = true) {
+            contentDescription = label
+            stateDescription = stateText
+            role = if (QuickSettingLogic.isToggle(kind)) Role.Switch else Role.Button
+        },
+    ) {
         // An off setting is the same tile under a dark veil.
         if (!state.on) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
         if (size == TileSize.SMALL) {

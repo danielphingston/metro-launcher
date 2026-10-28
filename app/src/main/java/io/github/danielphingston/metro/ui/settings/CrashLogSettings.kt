@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -21,6 +22,7 @@ import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Lines of the newest report that the section shows: the header and the top of the stack trace. */
@@ -34,6 +36,7 @@ private const val PREVIEW_LINES = 10
 fun CrashLogSettingsSection() {
     val context = LocalContext.current
     val colors = Metro.colors
+    val scope = rememberCoroutineScope()
     var reports by remember { mutableStateOf<List<String>>(emptyList()) }
     LaunchedEffect(Unit) { reports = withContext(Dispatchers.IO) { CrashLog.read(context) } }
     val latest = reports.firstOrNull() ?: return
@@ -57,12 +60,14 @@ fun CrashLogSettingsSection() {
             val send = Intent(Intent.ACTION_SEND)
                 .setType("text/plain")
                 .putExtra(Intent.EXTRA_SUBJECT, "Metro Launcher crash report")
-                .putExtra(Intent.EXTRA_TEXT, reports.joinToString(CrashLog.SEPARATOR))
+                .putExtra(Intent.EXTRA_TEXT, CrashLog.shareText(reports))
             runCatching { context.startActivity(Intent.createChooser(send, "share crash report")) }
         })
         MetroButton("clear", modifier = Modifier.weight(1f), onClick = {
-            CrashLog.clear(context)
-            reports = emptyList()
+            scope.launch {
+                withContext(Dispatchers.IO) { CrashLog.clear(context) }
+                reports = emptyList()
+            }
         })
     }
 }

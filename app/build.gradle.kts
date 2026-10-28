@@ -17,10 +17,6 @@ android {
         // CI passes the tag (e.g. 0.2.0) and the run number; local builds use the defaults.
         versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
         versionName = providers.gradleProperty("versionName").orNull ?: "0.2.0"
-        // Lets tapping the version text in settings 7 times unlock paid packs without Play Billing,
-        // for testing before the in-app products exist. MUST be false for any release sold with
-        // real billing, or buyers' friends can skip the purchase. Debug builds are always unlocked.
-        buildConfigField("boolean", "TEST_UNLOCK", "true")
     }
 
     signingConfigs {
@@ -54,8 +50,13 @@ android {
         unitTests {
             isIncludeAndroidResources = true
             all {
-                // Screenshot tests write PNGs to app/build/outputs/roborazzi.
-                it.systemProperty("roborazzi.test.record", "true")
+                // Default: verify screenshots against the goldens in src/test/screenshots, failing on a diff (diff and
+                // compare images go to build/outputs/roborazzi). -Proborazzi.record=true re-records them.
+                if (providers.gradleProperty("roborazzi.record").orNull == "true") {
+                    it.systemProperty("roborazzi.test.record", "true")
+                } else {
+                    it.systemProperty("roborazzi.test.verify", "true")
+                }
             }
         }
     }
@@ -63,6 +64,19 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+// Fails the build (before any work starts) when a release is being produced without a real key.
+if (providers.gradleProperty("requireReleaseSigning").orNull == "true" && System.getenv("METRO_KEYSTORE_PATH") == null) {
+    val releaseTasks = setOf("assembleRelease", "bundleRelease", "packageRelease", "packageReleaseBundle", "signReleaseBundle")
+    gradle.taskGraph.whenReady {
+        if (allTasks.any { it.project == project && it.name in releaseTasks }) {
+            throw GradleException(
+                "-PrequireReleaseSigning=true but METRO_KEYSTORE_PATH is not set: refusing to sign a release with the debug key. " +
+                    "Configure the KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD secrets.",
+            )
+        }
     }
 }
 

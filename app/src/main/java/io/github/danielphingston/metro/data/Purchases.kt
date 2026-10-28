@@ -27,18 +27,21 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 /**
- * The "Quick settings tiles" one-time purchase. Unlocked when Play says it is owned, in debug
- * builds, or in builds that allow the 7-tap test unlock (see [setTestUnlock]).
+ * The "Quick settings tiles" one-time purchase. Unlocked when Play says it is owned, or always in
+ * debug builds.
  *
  * The last known owned state is cached so the pack works offline and before billing connects;
  * it is re-checked with Play each time billing connects. The product may not exist in Play
  * Console yet: then the price stays null and nothing else happens.
  */
-class Purchases(context: Context, private val scope: CoroutineScope) {
+class Purchases(
+    context: Context,
+    private val scope: CoroutineScope,
+    clock: () -> Long = System::currentTimeMillis,
+) {
     private val prefs = context.applicationContext.getSharedPreferences("purchases", Context.MODE_PRIVATE)
 
     private var owned = prefs.getBoolean(KEY_OWNED, false)
-    private val _testUnlock = MutableStateFlow(BuildConfig.TEST_UNLOCK && prefs.getBoolean(KEY_TEST_UNLOCK, false))
     private val _unlocked = MutableStateFlow(computeUnlocked())
     private val _price = MutableStateFlow<String?>(null)
 
@@ -47,18 +50,22 @@ class Purchases(context: Context, private val scope: CoroutineScope) {
     /** Play's formatted price, or null while unknown or when the product isn't available. */
     val quickTilesPrice: StateFlow<String?> = _price.asStateFlow()
 
-    /** Whether the test unlock is on. */
-    val testUnlock: StateFlow<Boolean> = _testUnlock.asStateFlow()
-
     private var details: ProductDetails? = null
     private var backoffMs = INITIAL_BACKOFF_MS
     private var reconnect: Job? = null
+
+    /** True from startConnection until Play answers or drops us, so connection attempts never pile up. */
+    private var connecting = false
+    private val throttle = RecheckThrottle(clock)
 
     private val client: BillingClient = BillingClient.newBuilder(context.applicationContext)
         .setListener { result, purchases ->
             // Fires after the purchase flow ends; purchases is null on cancel or error.
             if (result.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
                 scope.launch { handle(purchases, authoritative = false) }
+            } else if (result.responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) {
+                // Our cache missed an earlier purchase (e.g. a new device): ask Play for the truth.
+                scope.launch { refresh() }
             }
         }
         .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
@@ -72,6 +79,8 @@ class Purchases(context: Context, private val scope: CoroutineScope) {
     fun buyQuickTiles(activity: Activity) {
         val product = details ?: return
         if (!client.isReady) return
+        // The sheet covers the launcher: when it closes, onResume must re-read what Play says.
+        throttle.forceNext()
         val params = BillingFlowParams.newBuilder()
             .setProductDetailsParamsList(
                 listOf(BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(product).build()),
@@ -80,30 +89,33 @@ class Purchases(context: Context, private val scope: CoroutineScope) {
         client.launchBillingFlow(activity, params)
     }
 
-    /** Turns the tester unlock on or off. Ignored unless this build allows it ([BuildConfig.TEST_UNLOCK]). */
-    fun setTestUnlock(on: Boolean) {
-        if (!BuildConfig.TEST_UNLOCK) return
-        prefs.edit().putBoolean(KEY_TEST_UNLOCK, on).apply()
-        _testUnlock.value = on
-        _unlocked.value = computeUnlocked()
-    }
-
     /**
      * Asks Play again, e.g. when the launcher comes back to the front: a pending purchase may have
-     * completed meanwhile, and an acknowledgement that failed gets another try.
+     * completed meanwhile, and an acknowledgement that failed gets another try. Throttled to once
+     * per [RecheckThrottle.INTERVAL_MS] so resuming the launcher doesn't hit Play every time,
+     * except right after a purchase flow, which is always re-read.
      */
     fun recheck() {
-        if (client.isReady) scope.launch { refresh() } else connect()
+        if (!throttle.shouldRun()) return
+        if (client.isReady) {
+            scope.launch { refresh() }
+        } else {
+            connect()
+        }
     }
 
-    private fun computeUnlocked() = owned || BuildConfig.DEBUG || (BuildConfig.TEST_UNLOCK && _testUnlock.value)
+    private fun computeUnlocked() = owned || BuildConfig.DEBUG
 
     private fun connect() {
-        if (client.isReady) return
+        // A pending reconnect or an attempt in flight will deliver the refresh; don't stack another.
+        if (client.isReady || connecting || reconnect?.isActive == true) return
+        connecting = true
         client.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
+                connecting = false
                 if (result.responseCode == BillingClient.BillingResponseCode.OK) {
                     backoffMs = INITIAL_BACKOFF_MS
+                    throttle.markRan()
                     scope.launch { refresh() }
                 } else {
                     // Billing unavailable here (no Play Store, unsupported device...): try again later.
@@ -111,7 +123,10 @@ class Purchases(context: Context, private val scope: CoroutineScope) {
                 }
             }
 
-            override fun onBillingServiceDisconnected() = scheduleReconnect()
+            override fun onBillingServiceDisconnected() {
+                connecting = false
+                scheduleReconnect()
+            }
         })
     }
 
@@ -199,8 +214,40 @@ class Purchases(context: Context, private val scope: CoroutineScope) {
     private companion object {
         const val PRODUCT_ID = "tiles_quick_settings"
         const val KEY_OWNED = "quick_tiles_owned"
-        const val KEY_TEST_UNLOCK = "test_unlock"
         const val INITIAL_BACKOFF_MS = 2_000L
         const val MAX_BACKOFF_MS = 5 * 60_000L
+    }
+}
+
+/**
+ * Decides when [Purchases.recheck] may actually talk to Play: at most once per [INTERVAL_MS]
+ * unless [forceNext] was called. Separate from [Purchases] so it can be tested with a fake clock.
+ */
+class RecheckThrottle(private val clock: () -> Long, private val intervalMs: Long = INTERVAL_MS) {
+    private var lastRun: Long? = null
+    private var forced = false
+
+    /** True when a check is due; records it as run. */
+    fun shouldRun(): Boolean {
+        val now = clock()
+        val last = lastRun
+        if (!forced && last != null && now - last in 0 until intervalMs) return false
+        forced = false
+        lastRun = now
+        return true
+    }
+
+    /** Notes that a check just happened by other means (e.g. a fresh connection). */
+    fun markRan() {
+        lastRun = clock()
+    }
+
+    /** The next [shouldRun] is true regardless of the interval, e.g. after a purchase flow. */
+    fun forceNext() {
+        forced = true
+    }
+
+    companion object {
+        const val INTERVAL_MS = 10 * 60_000L
     }
 }

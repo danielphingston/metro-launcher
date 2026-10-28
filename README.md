@@ -82,16 +82,26 @@ Requires JDK 17+ and the Android SDK (platform 36).
 
 ```sh
 ./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # unit tests; also renders screenshots to app/build/outputs/roborazzi/
+./gradlew testDebugUnitTest    # unit tests; also compares screenshots with the goldens in app/src/test/screenshots/
 ./gradlew lintDebug
 ./gradlew assembleRelease bundleRelease
 ```
 
-To refresh `docs/`, run the tests and copy the PNGs you want from `app/build/outputs/roborazzi/`.
+To refresh `docs/`, copy the PNGs you want from `app/src/test/screenshots/` (see Screenshot tests below).
+
+## Screenshot tests
+
+The `*ScreenshotTest` classes render screens on the JVM with Roborazzi. A normal `testDebugUnitTest` run **verifies** each render against its golden image in `app/src/test/screenshots/` (1% change tolerance) and fails on a difference or a missing golden, so a new screenshot test must have its golden recorded and committed. Actual, reference and diff images for failures land in `app/build/outputs/roborazzi/` (uploaded as the `reports` artifact in CI).
+
+After an intentional UI change, re-record and commit the updated PNGs:
+
+```
+./gradlew testDebugUnitTest --tests '*Screenshot*' -Proborazzi.record=true
+```
 
 ## CI and releases
 
-`.github/workflows/build.yml` runs tests, lint, a release APK and AAB on pushes to `master`, pull requests, `v*` tags and manual runs (changes that only touch docs are skipped), and uploads them with the lint and screenshot reports as workflow artifacts. The version name is `0.2.0-dev.<run>` on branches and the tag without its `v` on tags; the version code is the run number.
+`.github/workflows/build.yml` runs tests, lint, a release APK and AAB on pushes to `master`, pull requests, `v*` tags and manual runs (changes that only touch docs are skipped), and uploads them with the lint and screenshot reports as workflow artifacts. Publishing a release (a `v*` tag or a manual run with `release_tag`) passes `-PrequireReleaseSigning=true`, which fails the build unless the signing secrets are set; other builds fall back to the debug key. The version name is `0.2.0-dev.<run>` on branches and the tag without its `v` on tags; the version code is the run number.
 
 Pushing a `v*` tag (for example `git tag v0.3.0 && git push origin v0.3.0`) also publishes a GitHub release with `metro-launcher-<version>.apk` and `.aab` and generated notes. You can also publish from the Actions tab: run **Build** manually with a `release_tag` such as `v0.3.0`, and the workflow creates the tag on the built commit. A manual release stops early if that tag or release already exists, so pick a new version each time. It also skips tests and lint when a push build of the same commit already passed them.
 

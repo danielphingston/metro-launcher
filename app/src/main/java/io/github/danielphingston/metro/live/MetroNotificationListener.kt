@@ -1,31 +1,62 @@
 package io.github.danielphingston.metro.live
 
 import android.app.Notification
-import android.os.UserManager
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
 import io.github.danielphingston.metro.data.AppKey
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Feeds live tiles from the notification shade. The system binds and calls this only when
  * notifications change, so it costs nothing while the phone is idle.
  */
 class MetroNotificationListener : NotificationListenerService() {
-    private val userManager by lazy { getSystemService(UserManager::class.java) }
+    /**
+     * Rebuilds run on one background thread, one at a time, so results are published in order and
+     * the binder calls and extras parsing stay off the main thread.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
+    private val requests = Channel<Unit>(Channel.CONFLATED)
+
+    override fun onCreate() {
+        super.onCreate()
+        scope.launch {
+            for (request in requests) {
+                // A burst of posts/removals (e.g. clear all) becomes a single rebuild.
+                delay(REBUILD_DEBOUNCE_MS)
+                rebuild()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        scope.cancel()
+        super.onDestroy()
+    }
 
     override fun onListenerConnected() {
         NotificationHub.setConnected(true)
-        rebuild()
+        requests.trySend(Unit)
     }
 
     override fun onListenerDisconnected() {
         NotificationHub.setConnected(false)
     }
 
-    override fun onNotificationPosted(sbn: StatusBarNotification?) = rebuild()
+    override fun onNotificationPosted(sbn: StatusBarNotification?) {
+        requests.trySend(Unit)
+    }
 
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) = rebuild()
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        requests.trySend(Unit)
+    }
 
     private fun rebuild() {
         val active = try {
@@ -35,13 +66,20 @@ class MetroNotificationListener : NotificationListenerService() {
         } catch (_: RuntimeException) {
             return // Service not yet fully bound.
         }
+        // Disconnected while the rebuild was pending: don't resurrect what setConnected(false) cleared.
+        if (!NotificationHub.connected.value) return
         val grouped = active
             .filter(::countsTowardTile)
-            .groupBy { AppKey.notificationKey(it.packageName, userManager.getSerialNumberForUser(it.user)) }
+            .groupBy { AppKey.notificationKey(it.packageName, UserSerials.of(this, it.user)) }
         NotificationHub.publish(
             grouped.mapValues { (_, list) ->
-                val newestFirst = list.sortedByDescending { it.postTime }
-                AppNotifications(count = list.size, previews = newestFirst.mapNotNull(::preview).take(3))
+                // Lazily, so only as many notifications as the (at most 3) previews need get parsed.
+                val previews = list.sortedByDescending { it.postTime }
+                    .asSequence()
+                    .mapNotNull(::preview)
+                    .take(MAX_PREVIEWS)
+                    .toList()
+                AppNotifications(count = list.size, previews = previews)
             },
         )
     }
@@ -69,10 +107,11 @@ class MetroNotificationListener : NotificationListenerService() {
 
     private fun previewOf(sbn: StatusBarNotification): NotificationPreview? {
         val n = sbn.notification
-        // Respect apps that mark content as secret on the lock screen.
-        if (n.visibility == Notification.VISIBILITY_SECRET) return null
-        val extras = n.extras
-        val lastMessage = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)
+        // Respect apps that mark their content as secret.
+        if (!NotificationPreviewPolicy.showsContent(n.visibility)) return null
+        val source = n
+        val extras = source.extras
+        val lastMessage = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(source)
             ?.messages?.lastOrNull()?.text
         val title = extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)
             ?: extras.getCharSequence(Notification.EXTRA_TITLE)
@@ -81,5 +120,10 @@ class MetroNotificationListener : NotificationListenerService() {
             ?: extras.getCharSequence(Notification.EXTRA_TEXT)
         if (title.isNullOrBlank() && text.isNullOrBlank()) return null
         return NotificationPreview(title?.toString().orEmpty(), text?.toString().orEmpty(), sbn.postTime)
+    }
+
+    private companion object {
+        const val REBUILD_DEBOUNCE_MS = 150L
+        const val MAX_PREVIEWS = 3
     }
 }

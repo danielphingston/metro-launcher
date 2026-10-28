@@ -1,10 +1,10 @@
 package io.github.danielphingston.metro.ui.settings
 
 import android.Manifest
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +26,7 @@ import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.MetroToggle
+import io.github.danielphingston.metro.ui.components.findActivity
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 
@@ -55,6 +56,8 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
     Spacer(Modifier.height(8.dp))
     PermissionToggle(
         "Show Wi-Fi network name",
+        // Android 12 and up ignore a request for precise location alone: it has to come with coarse.
+        arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION),
         Manifest.permission.ACCESS_FINE_LOCATION,
         settings.showWifiName,
         { repository.setShowWifiName(it) },
@@ -62,6 +65,7 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
     )
     PermissionToggle(
         "Show Bluetooth devices",
+        arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
         Manifest.permission.BLUETOOTH_CONNECT,
         settings.showBluetoothDevices,
         { repository.setShowBluetoothDevices(it) },
@@ -70,13 +74,16 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
 }
 
 /**
- * A toggle that needs the runtime [permission] to work. Turning it on asks for it here, the only
- * place it is asked for; if refused it stays off and [why] says what the permission is for.
+ * A toggle that needs runtime permissions to work. Turning it on asks for [request] here, the only
+ * place it is asked for, and counts as granted only when [required] is among them; if refused it
+ * stays off and [why] says what the permission is for. After a refusal the system stops showing
+ * its dialog, so the toggle then offers the app info page, where the user can allow it.
  */
 @Composable
 private fun PermissionToggle(
     label: String,
-    permission: String,
+    request: Array<String>,
+    required: String,
     enabled: Boolean,
     save: suspend (Boolean) -> Unit,
     why: String,
@@ -84,34 +91,41 @@ private fun PermissionToggle(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     // Granted in system settings too, so look again whenever the screen resumes.
-    val granted = rememberOnResume { context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED }
+    val granted = rememberOnResume { context.checkSelfPermission(required) == PackageManager.PERMISSION_GRANTED }
     var denied by remember { mutableStateOf(false) }
-    val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+    var permanentlyDenied by remember { mutableStateOf(false) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+        val ok = PermissionLogic.satisfied(results, required)
         denied = !ok
+        permanentlyDenied = PermissionLogic.permanentlyDenied(
+            denied = !ok,
+            shouldShowRationale = context.findActivity()?.shouldShowRequestPermissionRationale(required) ?: true,
+        )
         if (ok) scope.launch { save(true) }
+    }
+    val openAppInfo = {
+        context.startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
     }
     MetroToggle(
         label,
         enabled && granted,
         { on ->
-            when {
-                !on -> {
-                    denied = false
-                    scope.launch { save(false) }
+            if (!on) {
+                denied = false
+                permanentlyDenied = false
+                scope.launch { save(false) }
+            } else {
+                when (PermissionLogic.step(granted, permanentlyDenied)) {
+                    PermissionStep.SAVE -> scope.launch { save(true) }
+                    PermissionStep.REQUEST -> launcher.launch(request)
+                    PermissionStep.OPEN_APP_INFO -> openAppInfo()
                 }
-                granted -> scope.launch { save(true) }
-                else -> request.launch(permission)
             }
         },
     )
     if (denied && !granted) MetroText(why, MetroType.caption, color = Metro.colors.subtle)
-}
-
-private fun Context.findActivity(): Activity? {
-    var c: Context? = this
-    while (c is ContextWrapper) {
-        if (c is Activity) return c
-        c = c.baseContext
-    }
-    return null
+    if (permanentlyDenied && !granted) MetroButton("open app info", onClick = openAppInfo)
 }

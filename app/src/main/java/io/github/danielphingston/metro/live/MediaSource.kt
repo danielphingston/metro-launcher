@@ -3,6 +3,9 @@ package io.github.danielphingston.metro.live
 import android.content.ComponentName
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Rect
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
@@ -10,7 +13,6 @@ import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
-import android.os.UserManager
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import io.github.danielphingston.metro.data.AppKey
@@ -44,11 +46,11 @@ object MediaSource {
         val app = context.applicationContext
         val manager = app.getSystemService(MediaSessionManager::class.java)
         val component = ComponentName(app, MetroNotificationListener::class.java)
-        val serial = app.getSystemService(UserManager::class.java).getSerialNumberForUser(Process.myUserHandle())
+        val serial = UserSerials.of(app, Process.myUserHandle())
         val handler = Handler(Looper.getMainLooper())
         val lock = Any()
         var watched = emptyList<Pair<MediaController, MediaController.Callback>>()
-        // Converted art by package and title, so playback-state ticks don't convert it again.
+        // Converted art by package, title, album, artist and duration, so playback-state ticks don't convert it again.
         val artCache = HashMap<String, ImageBitmap>()
 
         fun publish() {
@@ -63,7 +65,13 @@ object MediaSource {
                         metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE),
                     )
                     if (title.isEmpty() || !MediaSessionFilter.isShown(state)) continue
-                    val cacheKey = "${controller.packageName}\u0000$title"
+                    val cacheKey = MediaSessionFilter.artKey(
+                        controller.packageName,
+                        title,
+                        metadata.getString(MediaMetadata.METADATA_KEY_ALBUM),
+                        metadata.getString(MediaMetadata.METADATA_KEY_ARTIST),
+                        metadata.getLong(MediaMetadata.METADATA_KEY_DURATION),
+                    )
                     current += cacheKey
                     playing[AppKey.notificationKey(controller.packageName, serial)] = NowPlaying(
                         title = title,
@@ -126,9 +134,15 @@ object MediaSource {
             ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
             ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
             ?: return null
+        // The media app owns this bitmap and may recycle it at any time, so never hand it to Compose:
+        // always draw it into a bitmap of our own, bounded in size.
+        if (bitmap.isRecycled) return null
         val (width, height) = MediaSessionFilter.fit(bitmap.width, bitmap.height, MAX_ART_PX)
-        if (width == bitmap.width && height == bitmap.height) return bitmap.asImageBitmap()
-        return runCatching { Bitmap.createScaledBitmap(bitmap, width, height, true).asImageBitmap() }.getOrNull()
+        return runCatching {
+            val copy = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            Canvas(copy).drawBitmap(bitmap, null, Rect(0, 0, width, height), Paint(Paint.FILTER_BITMAP_FLAG))
+            copy.asImageBitmap()
+        }.getOrNull()
     }
 }
 
@@ -143,6 +157,13 @@ internal object MediaSessionFilter {
         -> true
         else -> false
     }
+
+    /**
+     * Cache key for a track's art. The title alone isn't enough: a new album with a same-named track
+     * would show the old cover.
+     */
+    fun artKey(pkg: String, title: String, album: String?, artist: String?, durationMs: Long): String =
+        listOf(pkg, title, album.orEmpty(), artist.orEmpty(), durationMs.toString()).joinToString("\u0000")
 
     /** The first of [candidates] that isn't blank, or an empty string. */
     fun firstNotBlank(vararg candidates: String?): String = candidates.firstOrNull { !it.isNullOrBlank() }.orEmpty()

@@ -1,5 +1,6 @@
 package io.github.danielphingston.metro.data
 
+import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import androidx.datastore.preferences.core.edit
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -126,8 +128,22 @@ data class TileSpec(
  * layout (upward gravity only) after every change, using the current column count from
  * [columns]; the first value is read before the saved layout is migrated.
  */
-class TileRepository(private val context: Context, scope: CoroutineScope, private val columns: Flow<Int>) {
+class TileRepository(private val context: Context, private val scope: CoroutineScope, private val columns: Flow<Int>) {
     private val key = stringPreferencesKey("tiles")
+
+    /** The layout as it was before the latest save, kept while it still parses; see [TileStore.load]. */
+    private val backupKey = stringPreferencesKey("tiles_backup")
+
+    /**
+     * Entries of the stored layout this version can't decode (a tile kind from a newer build, say).
+     * They are written back with every save, so downgrading and upgrading again loses nothing.
+     */
+    @Volatile
+    private var carried = TileJson.Unread()
+
+    /** Edits not yet written; the debounce in [persistChanges] waits, [flush] doesn't. */
+    @Volatile
+    private var dirty = false
 
     @Volatile
     private var columnCount = 4
@@ -142,9 +158,12 @@ class TileRepository(private val context: Context, scope: CoroutineScope, privat
     init {
         scope.launch {
             columnCount = columns.first()
-            val stored = context.metroDataStore.data.first()[key]
+            val prefs = context.metroDataStore.data.first()
+            val stored = prefs[key]
             isFirstRun = stored == null
-            _tiles.value = stored?.let(::decode)?.let(::migrate).orEmpty()
+            val loaded = TileStore.load(stored, prefs[backupKey])
+            carried = loaded.unread
+            _tiles.value = loaded.tiles.let(::migrate).let(::pruneDeadWidgets)
             launch { columns.collect { columnCount = it } }
             persistChanges()
         }
@@ -152,11 +171,55 @@ class TileRepository(private val context: Context, scope: CoroutineScope, privat
 
     @OptIn(FlowPreview::class)
     private suspend fun persistChanges() {
-        _tiles.filterNotNull().drop(1).debounce(400).collect { list ->
+        _tiles.filterNotNull().drop(1).onEach { dirty = true }.debounce(400).collect { save(it) }
+    }
+
+    private suspend fun save(list: List<TileSpec>) {
+        dirty = false
+        val encoded = TileJson.encode(list, carried).toString()
+        try {
+            context.metroDataStore.edit { prefs ->
+                // Keep the previous layout as a fallback, but never replace a good backup with a bad one.
+                prefs[key]?.takeIf { it != encoded && TileJson.isReadable(it) }?.let { prefs[backupKey] = it }
+                prefs[key] = encoded
+            }
+        } catch (_: IOException) {
+            dirty = true // Disk full or unwritable: the next change (or flush) saves the whole layout again.
+        }
+    }
+
+    /**
+     * Writes an edit that is still waiting out the debounce right now. Called when the launcher
+     * stops: the process may be killed any time after that, and an edit made just before leaving
+     * would otherwise be lost.
+     */
+    fun flush() {
+        if (!dirty) return
+        val list = _tiles.value ?: return
+        scope.launch { save(list) }
+    }
+
+    /**
+     * Drops widget tiles whose app widget id is unknown to the system, as after restoring a
+     * backup onto another device: they could only ever show a placeholder. Conservative: see
+     * [WidgetPruning.isDead].
+     */
+    private fun pruneDeadWidgets(tiles: List<TileSpec>): List<TileSpec> {
+        if (tiles.none { it.content is TileContent.Widget }) return tiles
+        val manager = AppWidgetManager.getInstance(context)
+        return tiles.filterNot { spec ->
+            val widget = spec.content as? TileContent.Widget ?: return@filterNot false
             try {
-                context.metroDataStore.edit { it[key] = encode(list) }
-            } catch (_: IOException) {
-                // Disk full or unwritable: keep collecting, the next change saves the whole layout again.
+                val provider = ComponentName.unflattenFromString(widget.provider)
+                WidgetPruning.isDead(
+                    ownProfile = widget.userSerial == 0L,
+                    infoKnown = manager.getAppWidgetInfo(widget.appWidgetId) != null,
+                    providerInstalled = provider != null && manager.installedProviders.any { it.provider == provider },
+                    idsOfProvider = provider?.let { manager.getAppWidgetIds(it) },
+                    id = widget.appWidgetId,
+                )
+            } catch (_: RuntimeException) {
+                false // The widget service didn't answer: that is no reason to delete anything.
             }
         }
     }
@@ -274,10 +337,35 @@ class TileRepository(private val context: Context, scope: CoroutineScope, privat
         return removed
     }
 
-    private fun encode(tiles: List<TileSpec>): String = TileJson.encode(tiles).toString()
+}
 
-    private fun decode(json: String): List<TileSpec> = runCatching { TileJson.decode(JSONArray(json)) }
-        .getOrDefault(emptyList())
+/** When a stored widget tile can safely be dropped; see [TileRepository]. */
+internal object WidgetPruning {
+    /**
+     * Dead means the system gave no info for the id although the provider is installed and the
+     * system doesn't list the id among the provider's widgets. Anything unsure (a provider that is
+     * missing or updating, another profile, no answer) keeps the tile.
+     */
+    fun isDead(ownProfile: Boolean, infoKnown: Boolean, providerInstalled: Boolean, idsOfProvider: IntArray?, id: Int) =
+        ownProfile && !infoKnown && providerInstalled && idsOfProvider != null && id !in idsOfProvider
+}
+
+/** Loads the stored layout, falling back to the backup when the current one is unreadable. */
+internal object TileStore {
+    class Loaded(val tiles: List<TileSpec>, val unread: TileJson.Unread)
+
+    /**
+     * The tiles of [stored], or of [backup] when [stored] isn't a valid layout (a half-written or
+     * damaged value must not read as "no tiles", which the next edit would then save over the
+     * good backup). Both unusable: an empty layout.
+     */
+    fun load(stored: String?, backup: String?): Loaded {
+        for (raw in listOfNotNull(stored, backup)) {
+            val read = TileJson.read(raw) ?: continue
+            return Loaded(read.tiles, read.unread)
+        }
+        return Loaded(emptyList(), TileJson.Unread())
+    }
 }
 
 /**
@@ -285,9 +373,46 @@ class TileRepository(private val context: Context, scope: CoroutineScope, privat
  * without "x" and "y" predate grid positions and get them from [TilePlacement.migrate].
  */
 internal object TileJson {
-    fun encode(tiles: List<TileSpec>): JSONArray = JSONArray().apply { tiles.forEach { put(encode(it)) } }
+    /**
+     * Saved entries this version can't decode: [top] at the top level and [children] by folder id.
+     * They are written back unchanged so that a layout from a newer build survives a round trip.
+     */
+    class Unread(val top: List<JSONObject> = emptyList(), val children: Map<Long, List<JSONObject>> = emptyMap())
 
-    private fun encode(tile: TileSpec): JSONObject {
+    class Read(val tiles: List<TileSpec>, val unread: Unread)
+
+    /** Positions beyond these are corrupt; they keep arithmetic and the placement loops bounded. */
+    private const val MAX_X = 64
+    private const val MAX_Y = 4096
+
+    fun encode(tiles: List<TileSpec>): JSONArray = encode(tiles, Unread())
+
+    fun encode(tiles: List<TileSpec>, unread: Unread): JSONArray = JSONArray().apply {
+        tiles.forEach { put(encode(it, unread)) }
+        unread.top.forEach { put(it) }
+    }
+
+    /** Whether [json] is a JSON array, i.e. a layout rather than a damaged value. */
+    fun isReadable(json: String): Boolean = runCatching { JSONArray(json) }.isSuccess
+
+    /** The tiles of a stored layout plus what couldn't be decoded; null if [json] isn't a JSON array. */
+    fun read(json: String): Read? {
+        val array = runCatching { JSONArray(json) }.getOrNull() ?: return null
+        val top = ArrayList<JSONObject>()
+        val children = HashMap<Long, List<JSONObject>>()
+        val tiles = decodeAll(array, top, children)
+        return Read(tiles, Unread(top, children))
+    }
+
+    private fun decodeAll(array: JSONArray, unread: MutableList<JSONObject>, children: MutableMap<Long, List<JSONObject>>) =
+        (0 until array.length()).mapNotNull { i ->
+            val obj = array.optJSONObject(i) ?: return@mapNotNull null
+            val tile = runCatching { decode(obj, children) }.getOrNull()
+            if (tile == null) unread += obj
+            tile
+        }
+
+    private fun encode(tile: TileSpec, unread: Unread = Unread()): JSONObject {
         val obj = JSONObject().put("id", tile.id).put("size", tile.size.name)
         if (tile.isPlaced) obj.put("x", tile.x).put("y", tile.y)
         tile.span?.let { obj.put("spanWidth", it.width).put("spanHeight", it.height) }
@@ -301,16 +426,14 @@ internal object TileJson {
             TileContent.Photos -> obj.put("type", "photos")
             TileContent.People -> obj.put("type", "people")
             is TileContent.QuickSetting -> obj.put("type", "quick").put("kind", c.kind.id)
-            is TileContent.Folder -> obj.put("type", "folder").put("name", c.name).put("children", encode(c.children))
+            is TileContent.Folder -> obj.put("type", "folder").put("name", c.name).put("children", encode(c.children).apply { unread.children[tile.id]?.forEach { put(it) } })
         }
         return obj
     }
 
-    fun decode(array: JSONArray): List<TileSpec> = (0 until array.length()).mapNotNull { i ->
-        runCatching { decode(array.getJSONObject(i)) }.getOrNull()
-    }
+    fun decode(array: JSONArray): List<TileSpec> = decodeAll(array, ArrayList(), HashMap())
 
-    private fun decode(obj: JSONObject): TileSpec? {
+    private fun decode(obj: JSONObject, unreadChildren: MutableMap<Long, List<JSONObject>>): TileSpec? {
         val size = runCatching { TileSize.valueOf(obj.getString("size")) }.getOrDefault(TileSize.MEDIUM)
         val content: TileContent = when (obj.optString("type", "app")) {
             "app" -> TileContent.App(AppKey.parse(obj.getString("app")) ?: return null)
@@ -324,17 +447,28 @@ internal object TileJson {
             "photos" -> TileContent.Photos
             "people" -> TileContent.People
             "quick" -> TileContent.QuickSetting(QuickSettingKind.fromId(obj.optString("kind")) ?: return null)
-            "folder" -> TileContent.Folder(obj.optString("name"), decode(obj.getJSONArray("children")))
+            "folder" -> {
+                val unread = ArrayList<JSONObject>()
+                val kids = decodeAll(obj.getJSONArray("children"), unread, HashMap())
+                if (unread.isNotEmpty()) unreadChildren[obj.getLong("id")] = unread
+                TileContent.Folder(obj.optString("name"), kids)
+            }
             else -> return null
         }
         val span = if (obj.has("spanWidth") && obj.has("spanHeight")) {
-            TileSpan(obj.getInt("spanWidth"), obj.getInt("spanHeight"))
+            TileSpan(obj.getInt("spanWidth").coerceIn(1, MAX_X), obj.getInt("spanHeight").coerceIn(1, TileSpan.MAX_HEIGHT))
         } else {
             null
         }
+        // A position outside any plausible grid is corrupt: clamp it rather than let the layout chase it.
+        val x = obj.optInt("x", TileSpec.UNPLACED)
+        val y = obj.optInt("y", TileSpec.UNPLACED)
+        val placed = x >= 0 && y >= 0
         return TileSpec(
             obj.getLong("id"), size, content,
-            x = obj.optInt("x", TileSpec.UNPLACED), y = obj.optInt("y", TileSpec.UNPLACED), span = span,
+            x = if (placed) x.coerceAtMost(MAX_X) else TileSpec.UNPLACED,
+            y = if (placed) y.coerceAtMost(MAX_Y) else TileSpec.UNPLACED,
+            span = span,
         )
     }
 }

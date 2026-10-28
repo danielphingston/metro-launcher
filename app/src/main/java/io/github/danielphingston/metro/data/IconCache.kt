@@ -1,12 +1,15 @@
 package io.github.danielphingston.metro.data
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.AdaptiveIconDrawable
+import android.graphics.drawable.BitmapDrawable
 import android.os.Build
+import android.os.Process
 import android.util.LruCache
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -72,8 +75,14 @@ class IconCache(private val context: Context) {
     /** Gives memory back, keeping the [keep] (0..1) share of the cache used last; see [CacheTrim]. */
     fun trimMemory(keep: Float) = cache.trimTo(keep)
 
+    /**
+     * Drops the cached icons of [packageName] and bumps [generation], so tiles showing the old
+     * icon (after an app update) reload it. The bump is global: only the visible tiles redo their
+     * cache lookup, and the other apps' icons are still cached.
+     */
     fun evict(packageName: String) {
         cache.snapshot().keys.filter { it.startsWith("$packageName/") }.forEach { cache.remove(it) }
+        generation++
     }
 
     /** Drops what is known about icon pack [packageName]; called when that package changed. */
@@ -87,6 +96,22 @@ class IconCache(private val context: Context) {
 
     private fun cacheKey(app: AppInfo, sizePx: Int, monochrome: Boolean) =
         "${app.key.serialize()}@$sizePx${if (monochrome) "m" else "c"}${iconPack.orEmpty()}"
+
+    /**
+     * The unbadged monochrome layer has lost the work-profile badge the colour path gets from
+     * getBadgedIcon, so work apps would look like personal ones: ask the system to badge the
+     * flat icon too. Personal apps and any failure keep the plain bitmap.
+     */
+    private fun badgedForWork(app: AppInfo, bitmap: Bitmap, sizePx: Int): Bitmap {
+        if (app.user == Process.myUserHandle()) return bitmap
+        return try {
+            context.packageManager
+                .getUserBadgedIcon(BitmapDrawable(context.resources, bitmap), app.user)
+                .toBitmap(sizePx, sizePx)
+        } catch (_: RuntimeException) {
+            bitmap
+        }
+    }
 
     private fun render(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon {
         val density = context.resources.displayMetrics.densityDpi
@@ -105,7 +130,7 @@ class IconCache(private val context: Context) {
                 mono.setBounds(-inset, -inset, sizePx + inset, sizePx + inset)
                 mono.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
                 mono.draw(Canvas(bitmap))
-                return TileIcon(bitmap.asImageBitmap(), isMonochrome = true)
+                return TileIcon(badgedForWork(app, bitmap, sizePx).asImageBitmap(), isMonochrome = true)
             }
         }
         val drawable = app.loadIcon(density, true)

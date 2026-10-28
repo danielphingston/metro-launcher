@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +38,7 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarEvent
 import io.github.danielphingston.metro.live.ClockState
+import io.github.danielphingston.metro.ui.components.LocalMotion
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.tiles.NowPlayingBack
 import io.github.danielphingston.metro.ui.tiles.NowPlayingFront
@@ -43,6 +46,7 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
@@ -71,10 +75,15 @@ sealed interface LiveContent {
  * Tile typography is sized to the tile, not the user's font scale: tiles have a fixed size
  * and text that grows with font scale would just be clipped.
  */
+@Immutable
 internal class TileMetrics(val cellSize: Dp, private val density: androidx.compose.ui.unit.Density) {
     private val scale = cellSize.value / 96f
     fun text(base: Float): TextUnit = with(density) { (base * scale).dp.toSp() }
     fun dp(base: Float): Dp = (base * scale).dp
+
+    // Equal inputs, equal metrics: a recreated instance must not defeat skipping of the faces that take it.
+    override fun equals(other: Any?) = other is TileMetrics && other.cellSize == cellSize && other.density == density
+    override fun hashCode() = 31 * cellSize.hashCode() + density.hashCode()
 }
 
 @Composable
@@ -87,7 +96,8 @@ fun TileFace(
     icons: IconCache,
     cellSize: Dp,
 ) {
-    val metrics = TileMetrics(cellSize, LocalDensity.current)
+    val density = LocalDensity.current
+    val metrics = remember(cellSize, density) { TileMetrics(cellSize, density) }
     FlipCard(
         showBack = flipped && live?.hasBack(size) == true,
         front = { Front(app, size, live, monochromeIcons, icons, metrics) },
@@ -112,7 +122,7 @@ fun FlipCard(
 ) {
     val rotation by animateFloatAsState(
         targetValue = if (showBack) 180f else 0f,
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = LocalMotion.current.duration(650), easing = FastOutSlowInEasing),
         label = "tileFlip",
     )
     Box(
@@ -170,11 +180,27 @@ private fun Back(
 @Composable
 internal fun rememberIcon(icons: IconCache, app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
     val cached = icons.peek(app, sizePx, monochrome)
-    val loaded by produceState(cached, app.key, sizePx, monochrome, icons.generation) {
+    // Keyed on the app itself, not its key: an updated app is a new AppInfo with the new icon loader.
+    val loaded by produceState(cached, app, sizePx, monochrome, icons.generation) {
         // Keep showing the previous icon until the new one is ready.
-        value = icons.peek(app, sizePx, monochrome) ?: withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }
+        value = icons.peek(app, sizePx, monochrome) ?: loadWithRetry(icons, app, sizePx, monochrome) ?: value
     }
     return loaded
+}
+
+/** How long to wait before the one retry of an icon that could not be drawn (see [loadWithRetry]). */
+private const val ICON_RETRY_MILLIS = 1_500L
+
+/**
+ * Loads off the main thread. A null result is often transient (the app is being updated), and
+ * nothing else would ask again, so it is retried once after a delay.
+ */
+private suspend fun loadWithRetry(icons: IconCache, app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
+    repeat(2) { attempt ->
+        withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }?.let { return it }
+        if (attempt == 0) delay(ICON_RETRY_MILLIS)
+    }
+    return null
 }
 
 @Composable

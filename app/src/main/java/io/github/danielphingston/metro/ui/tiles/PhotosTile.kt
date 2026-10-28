@@ -50,7 +50,10 @@ import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 object PhotosTiles {
     /**
@@ -103,15 +106,20 @@ private fun PhotoStack(
     var cursor by remember { mutableIntStateOf(0) }
     var lastFlipped by remember { mutableStateOf(flipped) }
     val slide = remember { Animatable(1f) }
-    val unreadable = remember { mutableSetOf<String>() }
+    // Written on IO by the loads and read on Main, hence a concurrent set.
+    val unreadable = remember { ConcurrentHashMap.newKeySet<String>() }
+    // The list effect and the flip effect both write cursor/current/incoming; one runs at a time.
+    val loads = remember { Mutex() }
 
     // The tile's size is part of the key, so resizing reloads the photo at the new resolution.
     LaunchedEffect(uris, widthPx, heightPx) {
-        val first = loadFrom(context, uris, cursor, widthPx, heightPx, unreadable)
-        first?.let {
-            cursor = it.index
-            incoming = null
-            current = it.bitmap
+        loads.withLock {
+            val first = loadFrom(context, uris, cursor, widthPx, heightPx, unreadable)
+            first?.let {
+                cursor = it.index
+                incoming = null
+                current = it.bitmap
+            }
         }
         forgetUnreadable(context, unreadable)
     }
@@ -120,17 +128,19 @@ private fun PhotoStack(
         if (flipped == lastFlipped) return@LaunchedEffect
         lastFlipped = flipped
         if (current == null || uris.size < 2) return@LaunchedEffect
-        // A flip that interrupted a slide settles it first.
-        incoming?.let { current = it }
-        incoming = null
-        val next = loadFrom(context, uris, cursor + 1, widthPx, heightPx, unreadable)
-        if (next != null && next.index != cursor) {
-            cursor = next.index
-            incoming = next.bitmap
-            slide.snapTo(0f)
-            slide.animateTo(1f, tween(durationMillis = 600, easing = FastOutSlowInEasing))
-            current = next.bitmap
+        loads.withLock {
+            // A flip that interrupted a slide settles it first.
+            incoming?.let { current = it }
             incoming = null
+            val next = loadFrom(context, uris, cursor + 1, widthPx, heightPx, unreadable)
+            if (next != null && next.index != cursor) {
+                cursor = next.index
+                incoming = next.bitmap
+                slide.snapTo(0f)
+                slide.animateTo(1f, tween(durationMillis = 600, easing = FastOutSlowInEasing))
+                current = next.bitmap
+                incoming = null
+            }
         }
         forgetUnreadable(context, unreadable)
     }

@@ -74,8 +74,23 @@ object TilePlacement {
      * yet they come from [TileGrid.pack] over the list order, so nothing moves on screen.
      */
     fun migrate(specs: List<TileSpec>, columns: Int): List<TileSpec> {
-        if (specs.isEmpty() || specs.any { it.isPlaced }) return specs
+        if (specs.isEmpty()) return specs
+        if (specs.any { it.isPlaced }) return clampPositions(specs, columns)
         return specs.zip(TileGrid.pack(specs.map { it.size }, columns)) { spec, p -> spec.copy(x = p.x, y = p.y) }
+    }
+
+    /**
+     * [specs] with every placed tile's corner inside the grid: x within the columns and y within
+     * what the layout could ever need (every tile stacked at the tallest footprint, plus a
+     * margin). A saved position far outside, from a corrupt layout, would otherwise leave a
+     * gap of empty rows to settle through.
+     */
+    fun clampPositions(specs: List<TileSpec>, columns: Int): List<TileSpec> {
+        val maxY = (specs.size + 1) * TileSpan.MAX_HEIGHT
+        return specs.map { spec ->
+            if (!spec.isPlaced || (spec.x < columns && spec.y <= maxY)) spec
+            else spec.copy(x = spec.x.coerceAtMost(columns - 1), y = spec.y.coerceAtMost(maxY))
+        }
     }
 
     /**
@@ -143,14 +158,18 @@ object TilePlacement {
         private fun overlaps(atX: Int, atY: Int, o: Slot) =
             atX < o.x + o.width && o.x < atX + width && atY < o.y + o.height && o.y < atY + height
 
-        /** Slides up a row at a time while the row above is free in [settled]. */
+        /**
+         * Slides up while the row above is free in [settled]: straight to the lowest edge of
+         * the tiles above it in its columns, so a far-off position costs one pass, not one per row.
+         */
         fun fall(settled: List<Slot>) {
-            while (y >= 1 && settled.none { overlapsRows(it, y - 1, 1) }) y -= 1
+            var floor = 0
+            for (o in settled) {
+                val bottom = o.y + o.height
+                if (x < o.x + o.width && o.x < x + width && bottom <= y && bottom > floor) floor = bottom
+            }
+            y = floor
         }
-
-        /** Whether [o] is in the [rows] rows starting at [top], over this tile's columns. */
-        private fun overlapsRows(o: Slot, top: Int, rows: Int) =
-            x < o.x + o.width && o.x < x + width && top < o.y + o.height && o.y < top + rows
 
         /**
          * The first free spot in the last band of rows (the 2 rows holding the layout's bottom

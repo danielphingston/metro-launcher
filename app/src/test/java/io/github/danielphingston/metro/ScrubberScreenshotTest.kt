@@ -49,7 +49,7 @@ class ScrubberScreenshotTest {
         // Hold a finger on "m", roughly in the middle of the strip.
         rule.onNodeWithTag("scrubber").performTouchInput { down(center.copy(y = height * 0.72f)) }
         rule.mainClock.advanceTimeBy(1_000)
-        rule.onRoot().captureRoboImage("build/outputs/roborazzi/scrubber_$name.png")
+        rule.onRoot().captureRoboImage("src/test/screenshots/scrubber_$name.png", roborazziOptions = ScreenshotOptions)
     }
 
     @Test fun circle() = shoot(ScrubberHighlight.CIRCLE, "circle")

@@ -61,13 +61,9 @@ import androidx.lifecycle.repeatOnLifecycle
 import io.github.danielphingston.metro.BuildConfig
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.LauncherSettings
-import kotlin.math.roundToInt
-import io.github.danielphingston.metro.ui.components.MetroSlider
-import androidx.compose.ui.Alignment
 import io.github.danielphingston.metro.data.ScrubberHighlight
 import io.github.danielphingston.metro.data.ScrubberHighlightPosition
 import io.github.danielphingston.metro.data.SettingsRepository
-import io.github.danielphingston.metro.data.TapCounter
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationAccess
@@ -85,7 +81,6 @@ import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.tiles.PeopleSettingsSection
 import io.github.danielphingston.metro.ui.tiles.PhotosSettingsSection
 import io.github.danielphingston.metro.ui.tiles.WeatherSettingsSection
-import kotlinx.coroutines.launch
 
 class SettingsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -123,6 +118,7 @@ internal enum class SettingsPage(val title: String, val summary: String) {
     APP_LIST("app list", "icons, scrubber highlight and position"),
     SEARCH("search", "search engine, pull distance"),
     APPEARANCE("appearance", "theme, accent colour, icon pack"),
+    ANIMATIONS("animations", "launch animation, speed, tilt, live tile flips"),
     TILES("tiles", "weather, photos, people, calendar, notifications"),
     QUICK_TILES("quick settings tiles", "toggles and shortcuts on the start screen"),
     ABOUT("about", "default home app, app info, crash log, version"),
@@ -156,6 +152,7 @@ internal fun SettingsScreen(
                     SettingsPage.APP_LIST -> AppListPage(settings, repository)
                     SettingsPage.SEARCH -> SearchSettingsSection(settings, repository)
                     SettingsPage.APPEARANCE -> AppearancePage(settings, repository)
+                    SettingsPage.ANIMATIONS -> AnimationsPage(settings, repository)
                     SettingsPage.TILES -> TilesPage(settings, repository)
                     SettingsPage.QUICK_TILES -> QuickTilesSettingsSection(settings, repository)
                     SettingsPage.ABOUT -> AboutPage()
@@ -188,7 +185,7 @@ private fun SettingsMenu(scroll: ScrollState, onOpen: (SettingsPage) -> Unit) {
                     .padding(vertical = 10.dp),
             ) {
                 MetroText(entry.title, MetroType.sectionTitle.copy(fontSize = 30.sp), maxLines = 1)
-                MetroText(entry.summary, MetroType.caption, color = colors.subtle, maxLines = 1)
+                MetroText(entry.summary, MetroType.caption, color = colors.subtle, maxLines = 3)
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -247,32 +244,4 @@ internal fun AccentGrid(selectedAccent: Int, onPick: (Int) -> Unit) {
             }
         }
     }
-}
-
-/** A labelled padding slider; it follows the finger and [onSave] runs when it lets go. */
-@Composable
-internal fun PaddingSlider(label: String, value: Int, min: Int, max: Int, onSave: suspend (Int) -> Unit) {
-    val scope = rememberCoroutineScope()
-    val range = max - min
-    var dragged by remember { mutableStateOf<Float?>(null) }
-    val fraction = dragged ?: ((value - min).toFloat() / range)
-    val dp = min + (fraction * range).roundToInt()
-    Spacer(Modifier.height(8.dp))
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        MetroText("$label padding", MetroType.body, modifier = Modifier.weight(1f))
-        MetroText("$dp dp", MetroType.body, color = Metro.colors.accent)
-    }
-    MetroSlider(
-        value = fraction,
-        onValueChange = { dragged = it },
-        modifier = Modifier.padding(top = 2.dp),
-        onValueChangeFinished = {
-            dragged?.let {
-                scope.launch {
-                    onSave(dp)
-                    dragged = null
-                }
-            }
-        },
-    )
 }
