@@ -292,6 +292,7 @@ fun StartScreen(
     val loadedTiles by viewModel.tiles.collectAsStateWithLifecycle()
     val defaults by viewModel.defaults.collectAsStateWithLifecycle()
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
+    val savedReply by viewModel.assistantReply.collectAsStateWithLifecycle()
     val calendarGranted by viewModel.calendarGranted.collectAsStateWithLifecycle()
     val quickUnlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
     val tiles = loadedTiles.orEmpty()
@@ -328,6 +329,8 @@ fun StartScreen(
                     tile.app?.let { notifications[it.key.notificationKey] },
                     settings.showNotificationContent,
                     settings.lastAsked,
+                    savedReply,
+                    tile.app?.key?.packageName,
                 ),
             )
         } else if (key == null) {

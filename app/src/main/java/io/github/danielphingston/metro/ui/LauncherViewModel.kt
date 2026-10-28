@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.AssistantChoice
+import io.github.danielphingston.metro.data.SavedReply
 import io.github.danielphingston.metro.data.BackgroundPhoto
 import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.DefaultLayout
@@ -124,6 +125,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     val defaults: StateFlow<DefaultApps> = metro.apps.defaults
 
     val notifications: StateFlow<Map<String, AppNotifications>> = NotificationHub.byApp
+
+    /** The assistant tile's saved last reply, shown when its notification is gone. */
+    val assistantReply: StateFlow<SavedReply?> = metro.assistantReply.reply
 
     /** The saved assistant choice (null: never chose); a change re-resolves the assistant tile. */
     private val assistantStored: Flow<String?> = metro.settings.settings.map { it.assistant }.distinctUntilChanged()

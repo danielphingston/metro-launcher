@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import io.github.danielphingston.metro.data.AssistantLastReply
 import io.github.danielphingston.metro.data.AssistantModel
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileSize
@@ -50,13 +51,15 @@ fun AssistantTile(
     monochrome: Boolean,
     icons: IconCache,
     cellSize: Dp,
+    /** The time "2h ago" is measured from; a parameter so screenshots are stable. */
+    now: Long = System.currentTimeMillis(),
 ) {
     val m = rememberTileMetrics(cellSize)
     val size = tile.spec.size
     val model = live?.model ?: AssistantModel(tile.label, 0, null, "", null)
     FlipCard(
         showBack = flipped && model.hasBack(size),
-        front = { AssistantFront(tile, size, model, monochrome, icons, m) },
+        front = { AssistantFront(tile, size, model, monochrome, icons, m, now) },
         // The back stays up while the card flips back, which can outlast the live content.
         back = { live?.let { AssistantBack(tile.label, size, it.model, m) } },
     )
@@ -78,8 +81,14 @@ private fun AssistantFront(
     monochrome: Boolean,
     icons: IconCache,
     m: TileMetrics,
+    now: Long,
 ) {
     val white = Metro.colors.onAccent
+    // A saved reply is already read: quieter text, and the time stands where the unread count would.
+    val read = model.isRead
+    val titleAlpha = if (read) 0.85f else 1f
+    val bodyAlpha = if (read) 0.7f else 0.92f
+    val ago = model.readAt?.let { AssistantLastReply.relativeTime(now, it) }
     val app = tile.app
     val name = tile.label
     if (size == TileSize.SMALL) {
@@ -100,12 +109,20 @@ private fun AssistantFront(
                     color = white,
                     modifier = Modifier.align(Alignment.TopEnd).padding(top = m.dp(4f), end = m.dp(10f)),
                 )
+            } else if (ago != null) {
+                MetroText(
+                    ago,
+                    MetroType.style(m.text(12f)),
+                    color = white.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = m.dp(10f), end = m.dp(10f)),
+                )
             }
             Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = m.dp(8f), end = m.dp(8f), bottom = m.dp(7f))) {
                 if (model.hasReply) {
-                    model.title?.let { MetroText(it, MetroType.style(m.text(15f), FontWeight.SemiBold), color = white, maxLines = 1) }
+                    model.title?.let { MetroText(it, MetroType.style(m.text(15f), FontWeight.SemiBold), color = white.copy(alpha = titleAlpha), maxLines = 1) }
                     if (model.reply.isNotBlank()) {
-                        MetroText(model.reply, MetroType.style(m.text(13f)), color = white.copy(alpha = 0.92f), maxLines = if (model.title == null) 4 else 3)
+                        MetroText(model.reply, MetroType.style(m.text(13f)), color = white.copy(alpha = bodyAlpha), maxLines = if (model.title == null) 4 else 3)
                     }
                 } else {
                     MetroText(name, MetroType.style(m.text(15f), FontWeight.SemiBold), color = white, maxLines = 1)
@@ -134,14 +151,14 @@ private fun AssistantFront(
         Spacer(Modifier.height(m.dp(6f)))
         if (model.hasReply) {
             model.title?.let {
-                MetroText(it, MetroType.style(m.text(if (large) 20f else 17f), FontWeight.SemiBold), color = white, maxLines = if (large) 2 else 1)
+                MetroText(it, MetroType.style(m.text(if (large) 20f else 17f), FontWeight.SemiBold), color = white.copy(alpha = titleAlpha), maxLines = if (large) 2 else 1)
                 Spacer(Modifier.height(m.dp(2f)))
             }
             // Long replies fade out at the bottom instead of being cut off mid-line.
             Box(Modifier.weight(1f).fillMaxWidth().fadeBottom(m.dp(24f))) {
                 BasicText(
                     model.reply,
-                    style = MetroType.style(m.text(if (large) 16f else 14f)).copy(color = white.copy(alpha = 0.92f)),
+                    style = MetroType.style(m.text(if (large) 16f else 14f)).copy(color = white.copy(alpha = bodyAlpha)),
                     overflow = TextOverflow.Clip,
                 )
             }
@@ -156,10 +173,19 @@ private fun AssistantFront(
                 }
             }
         }
-        val asked = model.lastAsked?.text
-        if (model.hasReply && asked != null) {
+        val asked = model.footerAsked?.text
+        if (model.hasReply && (asked != null || ago != null)) {
             Spacer(Modifier.height(m.dp(3f)))
-            MetroText("you asked: $asked", MetroType.style(m.text(12f)), color = white.copy(alpha = 0.7f), maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // The time never shrinks; a long question is the part that gets cut.
+                if (ago != null) {
+                    MetroText(ago, MetroType.style(m.text(12f)), color = white.copy(alpha = 0.7f), maxLines = 1)
+                    if (asked != null) Spacer(Modifier.width(m.dp(8f)))
+                }
+                if (asked != null) {
+                    MetroText("you asked: $asked", MetroType.style(m.text(12f)), color = white.copy(alpha = 0.7f), maxLines = 1, modifier = Modifier.weight(1f))
+                }
+            }
         }
     }
 }

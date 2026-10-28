@@ -90,7 +90,16 @@ data class AssistantModel(
     /** The reply text; empty when there is no (visible) notification text. */
     val reply: String,
     val lastAsked: LastAsked?,
+    /** When the shown reply was posted, if it is the saved last reply rather than a live notification; null for live content. */
+    val readAt: Long? = null,
 ) {
+    /** The reply is the saved one: already read, so no unread count and quieter styling. */
+    val isRead: Boolean get() = readAt != null
+
+    /** The question to print next to the reply: for a saved reply only when it was asked before that reply arrived. */
+    val footerAsked: LastAsked?
+        get() = lastAsked?.takeIf { readAt == null || AssistantLastReply.pairsWithAsked(readAt, it.at) }
+
     val hasReply: Boolean get() = reply.isNotBlank() || !title.isNullOrBlank()
 
     /** Medium and larger tiles flip to the last question, but only when there is a reply to flip away from. */
@@ -110,10 +119,23 @@ data class AssistantModel(
          * notification-content setting. SECRET notifications never produce a preview, so they
          * show up here only as a count.
          */
-        fun of(appLabel: String, data: AppNotifications?, showContent: Boolean, lastAsked: LastAsked?): AssistantModel {
+        fun of(
+            appLabel: String,
+            data: AppNotifications?,
+            showContent: Boolean,
+            lastAsked: LastAsked?,
+            /** The saved last reply, used when there is no live content; see [AssistantLastReply.source]. */
+            saved: SavedReply? = null,
+            /** The assistant currently in use; a saved reply of another package is ignored. */
+            currentPackage: String? = null,
+        ): AssistantModel {
             val preview = data?.previews?.firstOrNull()?.takeIf { showContent }
             val text = preview?.let { AssistantText.extract(appLabel, it.title, it.text) }
-            return AssistantModel(appLabel, data?.count ?: 0, text?.title, text?.reply.orEmpty(), lastAsked)
+            val live = AssistantModel(appLabel, data?.count ?: 0, text?.title, text?.reply.orEmpty(), lastAsked)
+            return when (AssistantLastReply.source(live.hasReply, saved, currentPackage, showContent)) {
+                AssistantLastReply.Source.SAVED -> live.copy(title = saved!!.title, reply = saved.reply, readAt = saved.postTime)
+                else -> live
+            }
         }
     }
 }

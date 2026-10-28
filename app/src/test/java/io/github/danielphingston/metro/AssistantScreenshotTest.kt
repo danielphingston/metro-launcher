@@ -38,6 +38,7 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.LastAsked
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SearchEngine
+import io.github.danielphingston.metro.data.SavedReply
 import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.data.TileContent
@@ -72,6 +73,10 @@ import kotlin.math.roundToInt
 class AssistantScreenshotTest {
     private val claude = app("Claude", "com.anthropic.claude")
     private val chatgpt = app("ChatGPT", "com.openai.chatgpt")
+    private companion object {
+        const val NOW = 1_800_000_000_000L
+    }
+
     private val asked = LastAsked("how do I add pull-down search to a launcher?", 1L)
 
     private fun claudeNotes() = AppNotifications(
@@ -148,6 +153,27 @@ class AssistantScreenshotTest {
         ),
     )
 
+    /** The saved last reply once the notification is gone: quieter text, no count, relative time. */
+    @Test
+    fun readState() {
+        val saved = SavedReply(
+            claude.key.packageName, "Pull down search refinements",
+            "Sure. Track the overscroll distance and open search once it passes a threshold. " +
+                "Give a haptic tick at the threshold so the release feels deliberate, and ignore sideways pulls.",
+            NOW - 2 * 3_600_000L,
+        )
+        fun read(asked: LastAsked? = this.asked) = AssistantModel.of(claude.label, null, true, asked, saved, claude.key.packageName)
+        captureTiles(
+            "assistant_read", StartBackground.SOLID,
+            listOf(
+                Item(0, 0, TileSize.MEDIUM, claude, read()),
+                Item(2, 0, TileSize.MEDIUM, claude, read(asked = null)),
+                Item(0, 2, TileSize.WIDE, claude, read()),
+                Item(0, 4, TileSize.LARGE, claude, read()),
+            ),
+        )
+    }
+
     @Test
     fun searchRow() {
         val icons = IconCache(RuntimeEnvironment.getApplication())
@@ -210,7 +236,7 @@ class AssistantScreenshotTest {
                                 val spec = TileSpec(i + 1L, item.size, TileContent.Assistant)
                                 val tile = ResolvedTile(spec, item.app, item.app.label)
                                 Box(Modifier.offset(c * item.x, c * item.y).size(c * item.size.width - gap, c * item.size.height - gap)) {
-                                    AssistantTile(tile, item.model?.let { LiveContent.Assistant(it) }, item.flipped, true, icons, c)
+                                    AssistantTile(tile, item.model?.let { LiveContent.Assistant(it) }, item.flipped, true, icons, c, NOW)
                                 }
                             }
                         }
