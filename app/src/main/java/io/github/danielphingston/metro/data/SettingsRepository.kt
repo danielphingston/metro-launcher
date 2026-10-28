@@ -75,7 +75,7 @@ data class LauncherSettings(
     val theme: ThemeMode = ThemeMode.DARK,
     val accent: Int = DEFAULT_ACCENT,
     /** 4 = classic Windows Phone grid, 6 = "show more tiles". */
-    val columns: Int = DEFAULT_COLUMNS,
+    val columns: Int = AUTO_COLUMNS,
     val monochromeIcons: Boolean = true,
     /** App list rows show the bare icon instead of the icon on an accent square. */
     val appListPlainIcons: Boolean = false,
@@ -158,6 +158,13 @@ data class LauncherSettings(
         const val MAX_COLUMNS = 8
         const val DEFAULT_COLUMNS = 4
 
+        /**
+         * Stored in place of a column count: as many columns as keep the tiles about a phone's
+         * size across the width (see StartColumns). Only large screens use it; phones show
+         * [DEFAULT_COLUMNS]. It is also what an install that never chose gets.
+         */
+        const val AUTO_COLUMNS = 0
+
         const val MIN_START_TOP_PADDING = 0
         const val MAX_START_TOP_PADDING = 96
         const val DEFAULT_START_TOP_PADDING = 28
@@ -184,8 +191,9 @@ data class LauncherSettings(
         const val DEFAULT_FLIP_INTERVAL = 4
 
         // Stored values can be out of range (an older build, a damaged file): these pull them back in.
-        /** An even column count (tiles pair up) between [MIN_COLUMNS] and [MAX_COLUMNS]. */
-        fun clampColumns(columns: Int) = (columns.coerceIn(MIN_COLUMNS, MAX_COLUMNS) + 1) / 2 * 2
+        /** [AUTO_COLUMNS], or an even column count (tiles pair up) between [MIN_COLUMNS] and [MAX_COLUMNS]. */
+        fun clampColumns(columns: Int) =
+            if (columns == AUTO_COLUMNS) AUTO_COLUMNS else (columns.coerceIn(MIN_COLUMNS, MAX_COLUMNS) + 1) / 2 * 2
         fun clampTransparency(percent: Int) = percent.coerceIn(0, 100)
         fun clampPullDistance(dp: Int) = dp.coerceIn(MIN_PULL_DISTANCE, MAX_PULL_DISTANCE)
         fun clampScrubberPosition(percent: Int) = percent.coerceIn(MIN_SCRUBBER_POSITION, MAX_SCRUBBER_POSITION)

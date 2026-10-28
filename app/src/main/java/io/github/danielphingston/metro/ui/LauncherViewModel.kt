@@ -219,6 +219,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Drops tile [id] with its top-left corner on the grid cell [x], [y]. */
     fun moveTo(id: Long, x: Int, y: Int) = metro.tiles.moveTo(id, x, y)
 
+    /** The start screen now shows [count] columns; see [io.github.danielphingston.metro.data.TileRepository.setColumns]. */
+    fun setColumns(count: Int) = metro.tiles.setColumns(count)
+
     /** Groups tiles [ids] with [anchorId] into a new folder or the anchor folder; returns the folder's id, or null if nothing was grouped. */
     fun groupIntoFolder(anchorId: Long, ids: List<Long>): Long? = metro.tiles.groupIntoFolder(anchorId, ids)
     fun removeFromFolder(folderId: Long, childId: Long) = metro.tiles.removeFromFolder(folderId, childId)
