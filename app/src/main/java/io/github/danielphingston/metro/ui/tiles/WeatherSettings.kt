@@ -16,9 +16,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,12 +25,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.live.weather.DeviceLocation
@@ -44,6 +39,8 @@ import io.github.danielphingston.metro.live.weather.WeatherRefresh
 import io.github.danielphingston.metro.live.weather.WeatherStore
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.components.SearchField
+import io.github.danielphingston.metro.ui.components.SearchFieldStyle
 import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.settings.Section
 import io.github.danielphingston.metro.ui.theme.Metro
@@ -119,7 +116,13 @@ fun WeatherSettingsSection() {
     if (place != null && place.detail.isNotEmpty()) MetroText(place.detail, MetroType.caption, color = colors.subtle)
     Spacer(Modifier.height(10.dp))
 
-    CityField(query, { query = it }, onSearch = { if (query.isNotBlank()) searchId++ })
+    SearchField(
+        query,
+        { query = it },
+        placeholder = "search for a city",
+        style = SearchFieldStyle.OUTLINED,
+        onSearch = { if (query.isNotBlank()) searchId++ },
+    )
     results.forEach { result ->
         Column(
             Modifier
@@ -173,32 +176,6 @@ fun WeatherSettingsSection() {
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://open-meteo.com/"))) }
             }
             .padding(top = 4.dp),
-    )
-}
-
-@Composable
-private fun CityField(query: String, onQueryChange: (String) -> Unit, onSearch: () -> Unit) {
-    val colors = Metro.colors
-    BasicTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        singleLine = true,
-        textStyle = MetroType.body.copy(color = colors.foreground),
-        cursorBrush = SolidColor(colors.accent),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-        modifier = Modifier.fillMaxWidth(),
-        decorationBox = { field ->
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .border(2.dp, if (query.isEmpty()) colors.subtle else colors.accent)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            ) {
-                if (query.isEmpty()) MetroText("search for a city", MetroType.body, color = colors.subtle)
-                field()
-            }
-        },
     )
 }
 
