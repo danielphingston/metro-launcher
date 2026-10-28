@@ -450,17 +450,13 @@ object QuickSettings {
      * Mobile data for the default data subscription, null when it can't be asked (no READ_PHONE_STATE,
      * no telephony, no default subscription): the global setting is then the answer.
      */
-    private fun dataEnabledForDefaultSubscription(context: Context): Boolean? = try {
+    private fun dataEnabledForDefaultSubscription(context: Context): Boolean? {
+        // The per-subscription key is readable by anyone; TelephonyManager.isDataEnabled would need
+        // READ_PHONE_STATE, which a launcher shouldn't ask for just to show this tile.
         val subscription = SubscriptionManager.getDefaultDataSubscriptionId()
-        if (subscription == SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-            null
-        } else {
-            context.getSystemService(TelephonyManager::class.java)?.createForSubscriptionId(subscription)?.isDataEnabled
-        }
-    } catch (_: SecurityException) {
-        null
-    } catch (_: UnsupportedOperationException) {
-        null
+        if (subscription == SubscriptionManager.INVALID_SUBSCRIPTION_ID) return null
+        return Settings.Global.getString(context.contentResolver, "$MOBILE_DATA$subscription")
+            ?.toIntOrNull()?.let { it != 0 }
     }
 
     private fun wifiEnabled(context: Context): Boolean = try {
