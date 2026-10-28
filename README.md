@@ -25,7 +25,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 
 **Start screen**
 - Small, medium, wide and large tiles; small tiles cluster in 2x2 blocks like Windows Phone. Four columns, or six with "Show more tiles".
-- Tablets and unfolded foldables: tiles keep about a phone's size, the grid and the app list sit in the middle of the screen, and the screen can rotate. Settings offer four, six or eight tiles per row there.
+- Tablets and unfolded foldables: tiles keep about a phone's size and, by default, the number of tiles per row ("auto") follows the width so the grid fills the screen edge to edge, also after rotating or folding; the app list sits in the middle of the screen. Settings also offer four, six or eight tiles per row there.
 - Tiles keep the place you give them and only ever slide straight up into free space, never sideways into gaps; resizing or dropping a tile pushes the ones in its way down. Any tile can rise one row into a row left half empty, such as under a pair of small tiles. New tiles go at the bottom.
 - Press and hold a tile to edit: drag to move (dragging never makes a folder), the corner badges unpin, resize or group into a folder. Back, Home or a tap on empty space leaves edit mode.
 - "+" under the tiles adds weather, photos, people, widget and quick settings tiles; the arrow opens the app list. Settings can tint these buttons ("+", magnifier, arrow) in the accent colour.

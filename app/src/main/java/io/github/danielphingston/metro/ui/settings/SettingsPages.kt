@@ -57,12 +57,16 @@ internal fun StartPage(settings: LauncherSettings, repository: SettingsRepositor
     val colors = Metro.colors
     Section("start screen")
     if (LocalConfiguration.current.smallestScreenWidthDp >= LARGE_SCREEN_DP) {
-        // Tiles keep about a phone's size on a tablet, so more columns fill the wider screen.
+        // Tiles keep about a phone's size on a tablet, so more columns fill the wider screen; auto picks the count.
         MetroText("tiles per row", MetroType.caption, color = colors.subtle)
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(4, 6, 8).forEach { count ->
-                MetroChoice("$count", settings.columns == count, { scope.launch { repository.setColumns(count) } })
+            listOf(LauncherSettings.AUTO_COLUMNS, 4, 6, 8).forEach { count ->
+                MetroChoice(
+                    if (count == LauncherSettings.AUTO_COLUMNS) "auto" else "$count",
+                    settings.columns == count,
+                    { scope.launch { repository.setColumns(count) } },
+                )
             }
         }
         Spacer(Modifier.height(10.dp))

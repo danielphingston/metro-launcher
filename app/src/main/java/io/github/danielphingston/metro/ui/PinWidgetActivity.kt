@@ -99,7 +99,7 @@ class PinWidgetActivity : ComponentActivity() {
                         MetroText("add to start?", MetroType.sectionTitle)
                         MetroText(label, MetroType.body, color = Metro.colors.subtle, maxLines = 2)
                         Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            MetroButton("add", onClick = { add(settings.columns) }, modifier = Modifier.weight(1f))
+                            MetroButton("add", onClick = { add(WidgetTiles.columnsFor(settings.columns, resources.configuration.smallestScreenWidthDp, resources.configuration.screenWidthDp)) }, modifier = Modifier.weight(1f))
                             MetroButton("cancel", onClick = { finish() }, modifier = Modifier.weight(1f))
                         }
                     }

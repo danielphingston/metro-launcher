@@ -50,6 +50,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.ui.LARGE_SCREEN_DP
+import io.github.danielphingston.metro.ui.start.StartColumns
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.data.TileSpec
@@ -206,6 +208,10 @@ object WidgetTiles {
      * [columns], and at most [MAX_CELL_DP].
      */
     internal fun cellDp(screenWidthDp: Int, columns: Int): Float = min((screenWidthDp - 12f) / columns, MAX_CELL_DP)
+
+    /** The columns the start screen shows on a screen like this, for sizing a widget before the screen has reported them. */
+    internal fun columnsFor(setting: Int, smallestWidthDp: Int, screenWidthDp: Int): Int =
+        StartColumns.resolve(setting, smallestWidthDp >= LARGE_SCREEN_DP, screenWidthDp - 12f)
 
     /**
      * The largest start screen cell in dp, about a phone's in four columns. A tablet shows tiles

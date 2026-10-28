@@ -11,7 +11,7 @@ data class StartPadding(val top: Float, val bottom: Float, val left: Float, val 
 
         /**
          * The settings' paddings, scaled down together when they would leave less than [MIN_CELL_DP]
-         * per column of [availableWidthDp] (the width without the system's side insets) or less than
+         * per column of [columns] (the shown count, which [settings] may leave to the screen) in [availableWidthDp] (the width without the system's side insets) or less than
          * [MIN_VISIBLE_DP] of [availableHeightDp] (the height without the status and navigation bars).
          * The defaults are always allowed, so small screens look as they always did.
          */
@@ -20,11 +20,12 @@ data class StartPadding(val top: Float, val bottom: Float, val left: Float, val 
             availableWidthDp: Float,
             availableHeightDp: Float,
             tileGapDp: Float,
+            columns: Int = settings.columns.coerceAtLeast(LauncherSettings.MIN_COLUMNS),
         ): StartPadding {
             val horizontal = fitPair(
                 LauncherSettings.clampStartSidePadding(settings.startLeftPadding).toFloat(),
                 LauncherSettings.clampStartSidePadding(settings.startRightPadding).toFloat(),
-                limit = availableWidthDp - settings.columns * MIN_CELL_DP + tileGapDp,
+                limit = availableWidthDp - columns * MIN_CELL_DP + tileGapDp,
                 floor = (LauncherSettings.DEFAULT_START_LEFT_PADDING + LauncherSettings.DEFAULT_START_RIGHT_PADDING).toFloat(),
             )
             val vertical = fitPair(

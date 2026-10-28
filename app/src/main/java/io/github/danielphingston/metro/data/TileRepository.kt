@@ -6,6 +6,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import io.github.danielphingston.metro.ui.start.GridPos
+import io.github.danielphingston.metro.ui.start.StartColumns
 import io.github.danielphingston.metro.ui.start.TilePlacement
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.FlowPreview
@@ -145,8 +146,12 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
     @Volatile
     private var dirty = false
 
+    /**
+     * The columns the start screen shows now. With the automatic setting the screen reports its
+     * width-dependent count through [setColumns]; edits settle the layout for that count.
+     */
     @Volatile
-    private var columnCount = 4
+    private var columnCount = LauncherSettings.DEFAULT_COLUMNS
 
     /** Null until loaded. [isFirstRun] tells whether a layout has ever been saved. */
     private val _tiles = MutableStateFlow<List<TileSpec>?>(null)
@@ -157,14 +162,14 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
 
     init {
         scope.launch {
-            columnCount = columns.first()
+            columns.first().takeIf { it != LauncherSettings.AUTO_COLUMNS }?.let { columnCount = it }
             val prefs = context.metroDataStore.data.first()
             val stored = prefs[key]
             isFirstRun = stored == null
             val loaded = TileStore.load(stored, prefs[backupKey])
             carried = loaded.unread
-            _tiles.value = loaded.tiles.let(::migrate).let(::pruneDeadWidgets)
-            launch { columns.collect { columnCount = it } }
+            _tiles.value = loaded.tiles.let(::load).let(::pruneDeadWidgets)
+            launch { columns.collect { if (it != LauncherSettings.AUTO_COLUMNS) columnCount = it } }
             persistChanges()
         }
     }
@@ -228,6 +233,21 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
     fun replaceAll(tiles: List<TileSpec>) {
         isFirstRun = false
         _tiles.value = migrate(tiles)
+    }
+
+    /** The start screen now shows [count] columns (the automatic setting changes with the width); the next edit settles for it. */
+    fun setColumns(count: Int) {
+        columnCount = count
+    }
+
+    /**
+     * The saved layout, as it is: positions are only settled when the user edits, so a start
+     * screen that was wider (a tablet turned, a foldable unfolded) comes back unchanged. Only a
+     * layout from before positions existed is packed, into the current columns.
+     */
+    private fun load(tiles: List<TileSpec>): List<TileSpec> {
+        if (tiles.none { it.isPlaced }) return migrate(tiles)
+        return TilePlacement.settle(TilePlacement.clampPositions(tiles, StartColumns.MAX_AUTO), StartColumns.MAX_AUTO)
     }
 
     private fun migrate(tiles: List<TileSpec>): List<TileSpec> =

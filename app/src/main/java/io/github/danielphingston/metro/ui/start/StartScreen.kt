@@ -85,6 +85,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.ui.LARGE_SCREEN_DP
+import androidx.compose.ui.platform.LocalConfiguration
 import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.StartBackground
@@ -337,32 +340,9 @@ fun StartScreen(
         }
     }
 
-    val columns = settings.columns
     val openIndex = tiles.indexOfFirst { it === openFolder }.takeIf { it >= 0 }
     val specs = tiles.map { it.spec }
     val preview = state.preview?.takeIf { move -> specs.any { it.id == move.id } }
-    // Stored positions settled for this column count; with a drag in progress, as if it were dropped now.
-    val settled = remember(specs, preview, columns) {
-        if (preview == null) {
-            TilePlacement.layout(specs, columns)
-        } else {
-            TilePlacement.layout(TilePlacement.placeAt(specs, preview.id, preview.to), columns, first = preview.id)
-        }
-    }
-    val layout = remember(settled, openIndex, openChildren.map { it.spec.size }, columns) {
-        FolderLayout.compute(settled, openIndex, openChildren.map { it.spec.size }, columns)
-    }
-    val placements = layout.tiles
-    // Where the tile being resized would land, snapped to the grid.
-    val resizeSpan = state.resizeSpan
-    val resizeId = state.resizeId
-    val ghost = remember(specs, resizeId, resizeSpan, columns) {
-        if (resizeId != null && resizeSpan != null) {
-            TilePlacement.spanPlacement(specs, resizeId, resizeSpan.width, resizeSpan.height, columns)
-        } else {
-            null
-        }
-    }
     // The dropped layout has arrived (or the drop was a no-op): stop previewing.
     LaunchedEffect(specs) { if (state.dragId == null) state.preview = null }
     val flipped = remember { mutableStateMapOf<Long, Boolean>() }
@@ -373,22 +353,58 @@ fun StartScreen(
     // In landscape a camera cutout or the navigation bar can sit at the side.
     val sideInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)
 
+    val isLarge = LocalConfiguration.current.smallestScreenWidthDp >= LARGE_SCREEN_DP
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val sidesPx = sideInsets.getLeft(density, layoutDirection) + sideInsets.getRight(density, layoutDirection)
         val sides = with(density) { sidesPx.toDp() }
-        // Cells grow with the width up to about a phone's, so a tablet shows tiles of the same
-        // size, and the grid sits in the middle of a wide screen.
+        // Cells grow with the width up to about a phone's. The automatic column count (see
+        // StartColumns) makes that fit the width; a fixed count on a tablet leaves the grid in the middle.
         val statusPx = WindowInsets.statusBars.getTop(density)
         val navInsetPx = WindowInsets.navigationBars.getBottom(density)
         // The paddings are shrunk on screens too small to keep the tiles and some room to scroll.
-        val padding = StartPadding.fit(
+        fun fitPadding(columns: Int) = StartPadding.fit(
             settings,
             availableWidthDp = (maxWidth - sides).value,
             availableHeightDp = maxHeight.value - with(density) { (statusPx + navInsetPx).toDp().value },
             tileGapDp = TileGap.value,
+            columns = columns,
         )
+        // With the automatic setting the width decides the columns, so measure it with the paddings
+        // for the fewest, then fit them again for the count that results.
+        val narrowPadding = fitPadding(LauncherSettings.MIN_COLUMNS)
+        val columns = StartColumns.resolve(
+            settings.columns,
+            large = isLarge,
+            widthDp = (maxWidth - sides).value - narrowPadding.left - narrowPadding.right + TileGap.value,
+        )
+        val padding = fitPadding(columns)
+        // Edits settle the stored layout for the columns being shown.
+        LaunchedEffect(columns) { viewModel.setColumns(columns) }
         val leftPadding = padding.left.dp
         val rightPadding = padding.right.dp
+        // Stored positions settled for this column count; with a drag in progress, as if it were dropped now.
+        val settled = remember(specs, preview, columns) {
+            if (preview == null) {
+                TilePlacement.layout(specs, columns)
+            } else {
+                TilePlacement.layout(TilePlacement.placeAt(specs, preview.id, preview.to), columns, first = preview.id)
+            }
+        }
+        val layout = remember(settled, openIndex, openChildren.map { it.spec.size }, columns) {
+            FolderLayout.compute(settled, openIndex, openChildren.map { it.spec.size }, columns)
+        }
+        val placements = layout.tiles
+        // Where the tile being resized would land, snapped to the grid.
+        val resizeSpan = state.resizeSpan
+        val resizeId = state.resizeId
+        val ghost = remember(specs, resizeId, resizeSpan, columns) {
+            if (resizeId != null && resizeSpan != null) {
+                TilePlacement.spanPlacement(specs, resizeId, resizeSpan.width, resizeSpan.height, columns)
+            } else {
+                null
+            }
+        }
         val cell: Dp = minOf((maxWidth - sides - leftPadding - rightPadding + TileGap) / columns, WidgetTiles.MAX_CELL_DP.dp)
         val gridWidth = cell * columns - TileGap
         val cellPx = with(density) { cell.toPx() }
