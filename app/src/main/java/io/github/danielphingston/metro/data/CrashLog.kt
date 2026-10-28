@@ -41,6 +41,9 @@ object CrashLog {
     /** A report is cut to this many characters, so a huge exception message can't fill the disk. */
     const val MAX_REPORT_CHARS = 24_000
 
+    /** Most characters "share" puts in the intent (Binder transactions are limited to about 1 MB, shared by the process). */
+    const val SHARE_MAX_CHARS = 100_000
+
     /** Between two reports in the file. Never part of a report's own text in practice. */
     const val SEPARATOR = "\n=====\n"
 
@@ -69,6 +72,24 @@ object CrashLog {
 
     /** The reports in [text], newest first; blank parts are dropped. */
     fun split(text: String): List<String> = text.split(SEPARATOR).map { it.trim() }.filter { it.isNotEmpty() }
+
+    /**
+     * What "share" sends: [reports] (newest first) joined, dropping the oldest ones to stay within
+     * [maxChars]. The text travels in an intent extra, and a transaction over about 1 MB fails.
+     */
+    fun shareText(reports: List<String>, maxChars: Int = SHARE_MAX_CHARS): String {
+        val kept = mutableListOf<String>()
+        var total = 0
+        for (report in reports) {
+            val cost = report.length + if (kept.isEmpty()) 0 else SEPARATOR.length
+            if (total + cost > maxChars) break
+            kept += report
+            total += cost
+        }
+        // Always send the newest, cut if it alone is over the cap.
+        if (kept.isEmpty()) return reports.firstOrNull().orEmpty().take(maxChars)
+        return kept.joinToString(SEPARATOR)
+    }
 
     /** The first [maxLines] lines of [report], with a trailing "..." line when there are more. */
     fun preview(report: String, maxLines: Int): String {
