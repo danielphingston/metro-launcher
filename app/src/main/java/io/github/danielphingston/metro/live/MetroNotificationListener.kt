@@ -4,13 +4,17 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
+import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.AppKey
+import io.github.danielphingston.metro.data.AssistantChoice
+import io.github.danielphingston.metro.data.AssistantLastReply
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -48,6 +52,8 @@ class MetroNotificationListener : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         NotificationHub.setConnected(false)
+        // Access taken away (not just a rebind): the saved assistant reply goes with it.
+        if (!NotificationAccess.isGranted(this)) (application as? MetroApplication)?.assistantReply?.clear()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -58,7 +64,7 @@ class MetroNotificationListener : NotificationListenerService() {
         requests.trySend(Unit)
     }
 
-    private fun rebuild() {
+    private suspend fun rebuild() {
         val active = try {
             activeNotifications ?: return
         } catch (_: SecurityException) {
@@ -71,8 +77,7 @@ class MetroNotificationListener : NotificationListenerService() {
         val grouped = active
             .filter(::countsTowardTile)
             .groupBy { AppKey.notificationKey(it.packageName, UserSerials.of(this, it.user)) }
-        NotificationHub.publish(
-            grouped.mapValues { (_, list) ->
+        val published = grouped.mapValues { (_, list) ->
                 // Lazily, so only as many notifications as the (at most 3) previews need get parsed.
                 val previews = list.sortedByDescending { it.postTime }
                     .asSequence()
@@ -80,8 +85,25 @@ class MetroNotificationListener : NotificationListenerService() {
                     .take(MAX_PREVIEWS)
                     .toList()
                 AppNotifications(count = list.size, previews = previews)
-            },
-        )
+            }
+        NotificationHub.publish(published)
+        saveAssistantReply(published)
+    }
+
+    /**
+     * Keeps the assistant's newest reply so the tile can still show it after the notification is
+     * gone. Previews already skip SECRET notifications, and nothing is kept while the user has
+     * turned notification content off, so only what the tile would show is stored.
+     */
+    private suspend fun saveAssistantReply(published: Map<String, AppNotifications>) {
+        val app = application as? MetroApplication ?: return
+        val settings = app.settings.settings.first()
+        val installed = app.apps.apps.value?.mapTo(HashSet()) { it.key.packageName } ?: return
+        val pkg = AssistantChoice.resolve(settings.assistant, installed) ?: return
+        val preview = published[AppKey.notificationKey(pkg, 0L)]?.previews?.firstOrNull()
+        val label = app.apps.apps.value?.firstOrNull { it.key.packageName == pkg && it.key.userSerial == 0L }
+            ?.let { AssistantChoice.displayName(pkg, it.label) } ?: AssistantChoice.displayName(pkg, pkg)
+        app.assistantReply.save(AssistantLastReply.toSave(pkg, label, preview, settings.showNotificationContent))
     }
 
     private fun countsTowardTile(sbn: StatusBarNotification): Boolean {

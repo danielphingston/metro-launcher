@@ -82,6 +82,21 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
     )
     Spacer(Modifier.height(10.dp))
     AssistantChoiceControl(settings, repository)
+    Spacer(Modifier.height(10.dp))
+    // Once its notification is gone the tile keeps the last reply, on this phone only; this wipes it.
+    val lastReply by (context.applicationContext as MetroApplication).assistantReply.reply.collectAsState()
+    MetroText(
+        "The tile keeps the last reply after its notification is gone. It is stored on this phone only " +
+            "and left out of backups.",
+        MetroType.caption,
+        color = Metro.colors.subtle,
+    )
+    Spacer(Modifier.height(8.dp))
+    if (lastReply != null) {
+        MetroButton("clear last reply", onClick = { (context.applicationContext as MetroApplication).assistantReply.clear() })
+    } else {
+        MetroText("No saved reply", MetroType.caption, color = Metro.colors.subtle)
+    }
 }
 
 /**
