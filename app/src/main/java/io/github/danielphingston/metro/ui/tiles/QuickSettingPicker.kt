@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,7 +24,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import io.github.danielphingston.metro.data.AppInfo
+import io.github.danielphingston.metro.data.AssistantChoice
+import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.QuickSettingKind
+import io.github.danielphingston.metro.data.TileSpec
+import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.ui.LauncherViewModel
@@ -44,12 +52,16 @@ private fun QuickSettingKind.action(): String = when (this) {
     else -> "tap to open the settings"
 }
 
-/** Flyout panel listing the quick-setting tiles with live previews. While locked, choosing one offers the purchase instead. */
+/** Flyout panel listing the paid tiles with live previews. While locked, choosing one offers the purchase instead. */
 @Composable
 fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val unlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
     val price by viewModel.quickTilesPrice.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val apps by viewModel.apps.collectAsStateWithLifecycle()
+    val pkg = AssistantChoice.resolve(settings.assistant, apps.mapTo(HashSet()) { it.key.packageName })
+    val app = pkg?.let { p -> apps.firstOrNull { it.key.packageName == p && it.key.userSerial == 0L } ?: apps.firstOrNull { it.key.packageName == p } }
 
     fun buy() {
         if (price == null) return
@@ -58,59 +70,126 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
 
     BackHandler(onBack = onDismiss)
     MetroFlyout(onDismiss) {
-        LazyColumn(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 24.dp)
-                .fillMaxWidth()
-                .background(Metro.colors.chrome)
-                // Keeps taps on the panel from dismissing it.
-                .clickable(enabled = false, onClick = {}),
-            contentPadding = PaddingValues(
-                top = 20.dp,
-                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
-            ),
-        ) {
+        PaidTilesPanel(
+            unlocked = unlocked,
+            price = price,
+            assistantApp = app,
+            icons = viewModel.icons,
+            monochrome = settings.monochromeIcons,
+            onBuy = ::buy,
+            onAdd = { content, size ->
+                viewModel.addTile(content, size)
+                onDismiss()
+            },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+}
+
+/** The picker's panel without the view model: a "quick settings" section and an "assistant" section. */
+@Composable
+internal fun PaidTilesPanel(
+    unlocked: Boolean,
+    price: String?,
+    assistantApp: AppInfo?,
+    icons: IconCache,
+    monochrome: Boolean,
+    onBuy: () -> Unit,
+    onAdd: (TileContent, TileSize) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val assistantName = assistantApp?.let { AssistantChoice.displayName(it.key.packageName, it.label) }
+    LazyColumn(
+        modifier
+            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 24.dp)
+            .fillMaxWidth()
+            .background(Metro.colors.chrome)
+            // Keeps taps on the panel from dismissing it.
+            .clickable(enabled = false, onClick = {}),
+        contentPadding = PaddingValues(
+            top = 20.dp,
+            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
+        ),
+    ) {
+        item {
+            MetroText("paid tiles", MetroType.pageTitle, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+        }
+        if (!unlocked) {
             item {
-                MetroText("quick settings", MetroType.pageTitle, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
-            }
-            if (!unlocked) {
-                item {
-                    MetroText(
-                        price?.let { "unlock quick settings tiles — $it" } ?: "not available yet",
-                        MetroType.sectionTitle,
-                        color = Metro.colors.accent,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(if (price != null) Modifier.metroTilt().clickable(onClickLabel = "unlock quick settings tiles", onClick = ::buy) else Modifier)
-                            .padding(horizontal = 24.dp, vertical = 16.dp),
-                    )
-                }
-            }
-            items(QuickSettingKind.entries, key = { it.id }) { kind ->
-                Row(
-                    Modifier
+                MetroText(
+                    price?.let { "unlock paid tiles — $it" } ?: "not available yet",
+                    MetroType.sectionTitle,
+                    color = Metro.colors.accent,
+                    modifier = Modifier
                         .fillMaxWidth()
-                        .metroTilt()
-                        .clickable(onClickLabel = if (unlocked) "add ${kind.label}" else "unlock quick settings tiles") {
-                            if (unlocked) {
-                                viewModel.addTile(TileContent.QuickSetting(kind), TileSize.MEDIUM)
-                                onDismiss()
-                            } else {
-                                buy()
-                            }
-                        }
-                        .padding(horizontal = 24.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    QuickSettingFace(kind, TileSize.SMALL, kind.label, PreviewSize, Modifier.size(PreviewSize))
-                    Column(Modifier.weight(1f)) {
-                        MetroText(kind.label, MetroType.listItem, maxLines = 1)
-                        MetroText(kind.action(), MetroType.caption, color = Metro.colors.subtle, maxLines = 2)
-                    }
-                }
+                        .then(if (price != null) Modifier.metroTilt().clickable(onClickLabel = "unlock paid tiles", onClick = onBuy) else Modifier)
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                )
             }
+        }
+        item { SectionTitle("quick settings") }
+        items(QuickSettingKind.entries, key = { it.id }) { kind ->
+            PickerRow(
+                onClickLabel = if (unlocked) "add ${kind.label}" else "unlock paid tiles",
+                onClick = { if (unlocked) onAdd(TileContent.QuickSetting(kind), TileSize.MEDIUM) else onBuy() },
+                preview = { QuickSettingFace(kind, TileSize.SMALL, kind.label, PreviewSize, Modifier.size(PreviewSize)) },
+                title = kind.label,
+                subtitle = kind.action(),
+            )
+        }
+        item { SectionTitle("assistant") }
+        item {
+            PickerRow(
+                onClickLabel = if (unlocked) "add assistant tile" else "unlock paid tiles",
+                onClick = { if (unlocked) onAdd(TileContent.Assistant, TileSize.WIDE) else onBuy() },
+                preview = {
+                    val tile = ResolvedTile(
+                        TileSpec(0, TileSize.SMALL, TileContent.Assistant), assistantApp, assistantName ?: "assistant",
+                    )
+                    Box(Modifier.size(PreviewSize)) { AssistantTile(tile, null, false, monochrome, icons, PreviewSize) }
+                },
+                title = "assistant",
+                subtitle = if (assistantName != null) {
+                    "follows $assistantName: its latest reply and your last question. Change the app in settings."
+                } else {
+                    "choose an assistant app in settings"
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    MetroText(
+        text,
+        MetroType.caption,
+        color = Metro.colors.subtle,
+        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp).semantics { heading() },
+    )
+}
+
+@Composable
+private fun PickerRow(
+    onClickLabel: String,
+    onClick: () -> Unit,
+    preview: @Composable () -> Unit,
+    title: String,
+    subtitle: String,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .metroTilt()
+            .clickable(onClickLabel = onClickLabel, onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        preview()
+        Column(Modifier.weight(1f)) {
+            MetroText(title, MetroType.listItem, maxLines = 1)
+            MetroText(subtitle, MetroType.caption, color = Metro.colors.subtle, maxLines = 3)
         }
     }
 }

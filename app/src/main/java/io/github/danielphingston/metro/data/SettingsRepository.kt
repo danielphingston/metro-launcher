@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -132,6 +133,10 @@ data class LauncherSettings(
     val flipIntervalSeconds: Int = DEFAULT_FLIP_INTERVAL,
     /** The start screen and app list lean while the pager is dragged between them. */
     val swingPages: Boolean = true,
+    /** The assistant app: null while the user never chose, [AssistantChoice.OFF] for off, else a package; see [AssistantChoice.resolve]. */
+    val assistant: String? = null,
+    /** The last question sent to an assistant from the search row. */
+    val lastAsked: LastAsked? = null,
 ) {
     /** Whether the start screen shows the picked photo. */
     val showsPhoto: Boolean get() = background == StartBackground.PHOTO_TILES || background == StartBackground.PHOTO_FULL
@@ -257,6 +262,9 @@ class SettingsRepository(private val context: Context) {
         val liveTileFlips = booleanPreferencesKey("live_tile_flips")
         val flipInterval = intPreferencesKey("flip_interval")
         val swingPages = booleanPreferencesKey("swing_pages")
+        val assistant = stringPreferencesKey("assistant_package")
+        val lastQuestion = stringPreferencesKey("assistant_last_question")
+        val lastAskedAt = longPreferencesKey("assistant_last_asked_at")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -310,6 +318,9 @@ class SettingsRepository(private val context: Context) {
             flipIntervalSeconds = this[Keys.flipInterval]?.let(LauncherSettings::clampFlipInterval)
                 ?: defaults.flipIntervalSeconds,
             swingPages = this[Keys.swingPages] ?: defaults.swingPages,
+            assistant = this[Keys.assistant],
+            lastAsked = this[Keys.lastQuestion]?.takeIf { it.isNotBlank() }
+                ?.let { LastAsked(it, this[Keys.lastAskedAt] ?: 0L) },
         )
     }
 
@@ -401,6 +412,15 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setFlipInterval(seconds: Int) = context.metroDataStore.edit {
         it[Keys.flipInterval] = LauncherSettings.clampFlipInterval(seconds)
+    }
+
+    /** [packageName] null switches the assistant off; a package chooses it. Either ends the automatic default. */
+    suspend fun setAssistant(packageName: String?) =
+        context.metroDataStore.edit { it[Keys.assistant] = packageName ?: AssistantChoice.OFF }
+
+    suspend fun setLastAsked(question: String, at: Long) = context.metroDataStore.edit {
+        it[Keys.lastQuestion] = AssistantIntents.storable(question)
+        it[Keys.lastAskedAt] = at
     }
 
     suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }

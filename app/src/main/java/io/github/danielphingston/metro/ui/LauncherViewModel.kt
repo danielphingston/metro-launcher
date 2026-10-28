@@ -12,6 +12,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.AppInfo
+import io.github.danielphingston.metro.data.AssistantChoice
 import io.github.danielphingston.metro.data.BackgroundPhoto
 import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.DefaultLayout
@@ -31,6 +32,7 @@ import io.github.danielphingston.metro.live.NotificationHub
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -123,8 +125,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     val notifications: StateFlow<Map<String, AppNotifications>> = NotificationHub.byApp
 
+    /** The saved assistant choice (null: never chose); a change re-resolves the assistant tile. */
+    private val assistantStored: Flow<String?> = metro.settings.settings.map { it.assistant }.distinctUntilChanged()
+
     /** Null while loading, so the start screen can tell "empty" from "not ready yet". */
-    val tiles: StateFlow<List<ResolvedTile>?> = combine(metro.tiles.tiles, metro.apps.apps) { specs, apps ->
+    val tiles: StateFlow<List<ResolvedTile>?> = combine(metro.tiles.tiles, metro.apps.apps, assistantStored) { specs, apps, assistantSetting ->
         if (specs == null || apps == null) return@combine null
         val byKey = apps.associateBy { it.key }
         // An app update can rename its launcher activity; fall back to the package's main entry.
@@ -144,6 +149,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             TileContent.Photos -> ResolvedTile(spec, null, "photos")
             TileContent.People -> ResolvedTile(spec, null, "people")
             is TileContent.QuickSetting -> ResolvedTile(spec, null, c.kind.label)
+            TileContent.Assistant -> {
+                val pkg = AssistantChoice.resolve(assistantSetting, byPackage.keys.mapTo(HashSet()) { it.first })
+                val app = pkg?.let { appFor(it, 0L) ?: byPackage.entries.firstOrNull { e -> e.key.first == it }?.value?.first() }
+                ResolvedTile(spec, app, app?.let { AssistantChoice.displayName(it.key.packageName, it.label) } ?: "assistant")
+            }
             is TileContent.Folder -> ResolvedTile(
                 spec, null, c.name.ifBlank { "folder" }, c.children.mapNotNull(::resolve),
             )
@@ -186,6 +196,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshPermissions() {
         _calendarGranted.value = CalendarSource.hasPermission(getApplication())
+    }
+
+    /** Remembers [question] as the last one asked, for the assistant tile. */
+    fun recordAssistantQuestion(question: String) {
+        viewModelScope.launch { metro.settings.setLastAsked(question, System.currentTimeMillis()) }
     }
 
     /** Asks Play again whether the quick settings tiles are owned; see [Purchases.recheck]. */

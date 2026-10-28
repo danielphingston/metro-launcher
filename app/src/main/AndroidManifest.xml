@@ -77,6 +77,17 @@
         <intent>
             <action android:name="com.anddoes.launcher.THEME" />
         </intent>
+        <!-- Assistant apps: the search row and the assistant tile send a question with ACTION_SEND
+             text/plain, and "other app" lists the launchable apps that accept shared text. -->
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="text/plain" />
+        </intent>
+        <package android:name="com.anthropic.claude" />
+        <package android:name="com.openai.chatgpt" />
+        <package android:name="com.google.android.apps.bard" />
+        <package android:name="ai.perplexity.app.android" />
+        <package android:name="com.microsoft.copilot" />
         <!-- Apps that provide widgets, so the widget picker can see and label them. -->
         <intent>
             <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
