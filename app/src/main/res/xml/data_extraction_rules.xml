@@ -1,10 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Everything is backed up as usual except the crash report, which stays on this phone. -->
+<!-- Settings and the tile layout (the "metro" datastore) are backed up. Left out: the crash report,
+     file caches (icons, weather, people; the cache dir is never backed up), and billing state, which Play re-derives on the new device
+     instead of trusting a copied "owned" flag. -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="last_crash.txt" />
+        <exclude domain="sharedpref" path="purchases.xml" />
+        <exclude domain="file" path="icon_cache" />
+        <exclude domain="file" path="weather_cache" />
+        <exclude domain="file" path="people_cache" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="last_crash.txt" />
+        <exclude domain="sharedpref" path="purchases.xml" />
+        <exclude domain="file" path="icon_cache" />
+        <exclude domain="file" path="weather_cache" />
+        <exclude domain="file" path="people_cache" />
     </device-transfer>
 </data-extraction-rules>

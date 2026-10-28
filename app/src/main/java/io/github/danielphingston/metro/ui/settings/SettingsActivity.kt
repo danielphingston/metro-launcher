@@ -67,7 +67,6 @@ import androidx.compose.ui.Alignment
 import io.github.danielphingston.metro.data.ScrubberHighlight
 import io.github.danielphingston.metro.data.ScrubberHighlightPosition
 import io.github.danielphingston.metro.data.SettingsRepository
-import io.github.danielphingston.metro.data.TapCounter
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationAccess

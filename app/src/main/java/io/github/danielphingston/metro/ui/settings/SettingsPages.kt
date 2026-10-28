@@ -34,7 +34,6 @@ import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.ScrubberHighlight
 import io.github.danielphingston.metro.data.ScrubberHighlightPosition
 import io.github.danielphingston.metro.data.SettingsRepository
-import io.github.danielphingston.metro.data.TapCounter
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationAccess
@@ -290,24 +289,9 @@ internal fun AboutPage() {
     CrashLogSettingsSection()
 
     Section("about")
-    // Seven quick taps toggle the test unlock (see Purchases.setTestUnlock); inert unless
-    // the build allows it.
-    val purchases = (context.applicationContext as MetroApplication).purchases
-    val versionTaps = remember { TapCounter() }
     MetroText(
         "Metro Launcher ${BuildConfig.VERSION_NAME}",
         MetroType.caption,
-        modifier = Modifier.clickable(remember { MutableInteractionSource() }, null) {
-            if (BuildConfig.TEST_UNLOCK && versionTaps.tap(System.currentTimeMillis())) {
-                val on = !purchases.testUnlock.value
-                purchases.setTestUnlock(on)
-                Toast.makeText(
-                    context,
-                    if (on) "Quick settings tiles unlocked for testing" else "Quick settings tiles locked again",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
-        },
         color = colors.subtle,
     )
 }

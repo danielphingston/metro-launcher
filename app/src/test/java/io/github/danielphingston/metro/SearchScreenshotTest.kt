@@ -84,7 +84,7 @@ class SearchScreenshotTest {
         // Icons load on a background thread the capture doesn't wait for: render them up front.
         apps.forEach { icons.load(it, (28 * 3), true) }
         apps.forEach { icons.load(it, (44 * 3), false) }
-        captureRoboImage("build/outputs/roborazzi/$name.png") {
+        captureRoboImage("src/test/screenshots/$name.png", roborazziOptions = ScreenshotOptions) {
             MetroTheme(LauncherSettings(theme = theme, accent = accent)) {
                 val rows = remember { searchRows(apps, query, shortcuts, SearchEngine.GOOGLE, now) }
                 val focus = remember { FocusRequester() }

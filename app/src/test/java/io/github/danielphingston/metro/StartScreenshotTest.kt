@@ -168,7 +168,7 @@ class StartScreenshotTest {
     fun startResizing() = capture("start_resizing", ThemeMode.DARK, 4, editing = true, resizing = true)
 
     @Test
-    fun startGrouping() = captureRoboImage("build/outputs/roborazzi/start_grouping.png") {
+    fun startGrouping() = captureRoboImage("src/test/screenshots/start_grouping.png", roborazziOptions = ScreenshotOptions) {
         MetroTheme(LauncherSettings(columns = 4)) { GroupingPreview() }
     }
 
@@ -201,24 +201,24 @@ class StartScreenshotTest {
         captureFolders("start_folder_open_tall", ThemeMode.DARK, openFolder = GAMES_ID, tallTile = true)
 
     @Test
-    fun appList() = captureRoboImage("build/outputs/roborazzi/app_list.png") {
+    fun appList() = captureRoboImage("src/test/screenshots/app_list.png", roborazziOptions = ScreenshotOptions) {
         MetroTheme(LauncherSettings()) { AppListPreview() }
     }
 
     @Test
-    fun appListLight() = captureRoboImage("build/outputs/roborazzi/app_list_light.png") {
+    fun appListLight() = captureRoboImage("src/test/screenshots/app_list_light.png", roborazziOptions = ScreenshotOptions) {
         MetroTheme(LauncherSettings(theme = ThemeMode.LIGHT, accent = 0xFF6A00FF.toInt())) { AppListPreview() }
     }
 
     /** A tablet in landscape: the list keeps a phone's width in the middle. */
     @Test
     @Config(qualifiers = "w1280dp-h800dp-land-mdpi")
-    fun appListTablet() = captureRoboImage("build/outputs/roborazzi/app_list_tablet.png") {
+    fun appListTablet() = captureRoboImage("src/test/screenshots/app_list_tablet.png", roborazziOptions = ScreenshotOptions) {
         MetroTheme(LauncherSettings()) { AppListPreview() }
     }
 
     @Test
-    fun menuFlyout() = captureRoboImage("build/outputs/roborazzi/menu_flyout.png") {
+    fun menuFlyout() = captureRoboImage("src/test/screenshots/menu_flyout.png", roborazziOptions = ScreenshotOptions) {
         MetroTheme(LauncherSettings()) {
             Box(Modifier.fillMaxSize()) {
                 StartPreview(samples(), 4, StartBackdrop.Solid)
@@ -233,12 +233,12 @@ class StartScreenshotTest {
     }
 
     @Test
-    fun settingsControls() = captureRoboImage("build/outputs/roborazzi/settings_controls.png") {
+    fun settingsControls() = captureRoboImage("src/test/screenshots/settings_controls.png", roborazziOptions = ScreenshotOptions) {
         MetroTheme(LauncherSettings(accent = 0xFF0050EF.toInt())) { SettingsPreview() }
     }
 
     @Test
-    fun settingsControlsLight() = captureRoboImage("build/outputs/roborazzi/settings_controls_light.png") {
+    fun settingsControlsLight() = captureRoboImage("src/test/screenshots/settings_controls_light.png", roborazziOptions = ScreenshotOptions) {
         MetroTheme(LauncherSettings(theme = ThemeMode.LIGHT, accent = 0xFFFA6800.toInt())) { SettingsPreview() }
     }
 
@@ -253,7 +253,7 @@ class StartScreenshotTest {
         turnstile: TurnstileState? = null,
         resizing: Boolean = false,
     ) {
-        captureRoboImage("build/outputs/roborazzi/$name.png") {
+        captureRoboImage("src/test/screenshots/$name.png", roborazziOptions = ScreenshotOptions) {
             MetroTheme(LauncherSettings(theme = theme, accent = accent, columns = columns)) {
                 val backdrop = remember {
                     val settings = LauncherSettings(background = background, tileTransparency = transparency)
@@ -271,7 +271,7 @@ class StartScreenshotTest {
         accent: Int = LauncherSettings.DEFAULT_ACCENT,
         tallTile: Boolean = false,
     ) {
-        captureRoboImage("build/outputs/roborazzi/$name.png") {
+        captureRoboImage("src/test/screenshots/$name.png", roborazziOptions = ScreenshotOptions) {
             MetroTheme(LauncherSettings(theme = theme, accent = accent, columns = 4)) {
                 FolderPreview(openFolder, tallTile)
             }
