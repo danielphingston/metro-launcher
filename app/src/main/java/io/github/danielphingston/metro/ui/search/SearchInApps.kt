@@ -121,6 +121,7 @@ internal class SearchInAppsProvider(
     override val id = "search_in_apps"
     override val feature = SmartFeature.SEARCH_IN_APPS
     override val placement = Placement.BOTTOM
+    override val section = "search in apps"
 
     override suspend fun results(query: String, ctx: SearchContext): List<SearchItem> {
         val phone = phoneFor(ctx.context)
