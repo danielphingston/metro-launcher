@@ -27,7 +27,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 /**
- * The "Quick settings tiles" one-time purchase. Unlocked when Play says it is owned, or always in
+ * The Metro Plus one-time purchase (quick settings tiles, assistant, smart search; the Play product keeps its
+ * original id, never change it). Unlocked when Play says it is owned, or always in
  * debug builds.
  *
  * The last known owned state is cached so the pack works offline and before billing connects;

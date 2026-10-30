@@ -125,11 +125,11 @@ internal fun <T> rememberOnResume(read: () -> T): T {
 internal enum class SettingsPage(val title: String, val summary: String) {
     START("start", "tiles per row, padding, background, transparency"),
     APP_LIST("app list", "icons, scrubber highlight and position"),
-    SEARCH("search", "search engine, pull distance, ask assistant"),
+    SEARCH("search", "search engine, pull distance, smart search"),
     APPEARANCE("appearance", "theme, accent colour, icon pack"),
     ANIMATIONS("animations", "launch animation, speed, tilt, live tile flips"),
     TILES("tiles", "weather, photos, people, calendar, notifications"),
-    QUICK_TILES("paid tiles", "quick settings and assistant tiles"),
+    METRO_PLUS("metro plus", "quick settings tiles, assistant, smart search"),
     ABOUT("about", "default home app, app info, crash log, version"),
 }
 
@@ -159,11 +159,11 @@ internal fun SettingsScreen(
                 when (current) {
                     SettingsPage.START -> StartPage(settings, repository)
                     SettingsPage.APP_LIST -> AppListPage(settings, repository)
-                    SettingsPage.SEARCH -> SearchSettingsSection(settings, repository)
+                    SettingsPage.SEARCH -> SearchSettingsSection(settings, repository, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
                     SettingsPage.APPEARANCE -> AppearancePage(settings, repository)
                     SettingsPage.ANIMATIONS -> AnimationsPage(settings, repository)
                     SettingsPage.TILES -> TilesPage(settings, repository)
-                    SettingsPage.QUICK_TILES -> QuickTilesSettingsSection(settings, repository)
+                    SettingsPage.METRO_PLUS -> MetroPlusSettingsSection(settings, repository, onOpenSearchSettings = { page = SettingsPage.SEARCH.name })
                     SettingsPage.ABOUT -> AboutPage()
                 }
             }

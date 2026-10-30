@@ -68,7 +68,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val metro = application as MetroApplication
     val icons: IconCache = metro.icons
 
-    /** The "Quick settings tiles" pack: whether it is unlocked, its Play price, and how to buy it. */
+    /** The Metro Plus pack: whether it is unlocked, its Play price, and how to buy it. */
     val quickTilesUnlocked: StateFlow<Boolean> = metro.purchases.quickTilesUnlocked
     val quickTilesPrice: StateFlow<String?> = metro.purchases.quickTilesPrice
 

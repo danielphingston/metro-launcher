@@ -137,7 +137,12 @@ data class LauncherSettings(
     val assistant: String? = null,
     /** The last question sent to an assistant from the search row. */
     val lastAsked: LastAsked? = null,
+    /** The smart search features that are switched on; they only act while Metro Plus is unlocked. */
+    val smartFeatures: Set<SmartFeature> = SmartFeature.defaults,
 ) {
+    /** Whether [feature]'s own switch is on (it still needs Metro Plus to show anything). */
+    fun smartOn(feature: SmartFeature): Boolean = feature in smartFeatures
+
     /** Whether the start screen shows the picked photo. */
     val showsPhoto: Boolean get() = background == StartBackground.PHOTO_TILES || background == StartBackground.PHOTO_FULL
 
@@ -265,6 +270,9 @@ class SettingsRepository(private val context: Context) {
         val assistant = stringPreferencesKey("assistant_package")
         val lastQuestion = stringPreferencesKey("assistant_last_question")
         val lastAskedAt = longPreferencesKey("assistant_last_asked_at")
+
+        /** One switch per smart search feature; a missing key means the feature's default. */
+        fun smart(feature: SmartFeature) = booleanPreferencesKey("smart_${feature.id}")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -321,6 +329,7 @@ class SettingsRepository(private val context: Context) {
             assistant = this[Keys.assistant],
             lastAsked = this[Keys.lastQuestion]?.takeIf { it.isNotBlank() }
                 ?.let { LastAsked(it, this[Keys.lastAskedAt] ?: 0L) },
+            smartFeatures = SmartFeature.entries.filterTo(LinkedHashSet()) { this[Keys.smart(it)] ?: it.defaultOn },
         )
     }
 
@@ -422,6 +431,9 @@ class SettingsRepository(private val context: Context) {
         it[Keys.lastQuestion] = AssistantIntents.storable(question)
         it[Keys.lastAskedAt] = at
     }
+
+    suspend fun setSmartFeature(feature: SmartFeature, enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.smart(feature)] = enabled }
 
     suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }
 

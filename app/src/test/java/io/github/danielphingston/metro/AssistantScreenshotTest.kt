@@ -57,7 +57,7 @@ import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.theme.StartBackdrop
 import io.github.danielphingston.metro.ui.theme.startBackdrop
 import io.github.danielphingston.metro.ui.tiles.AssistantTile
-import io.github.danielphingston.metro.ui.tiles.PaidTilesPanel
+import io.github.danielphingston.metro.ui.tiles.MetroPlusPanel
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -203,7 +203,7 @@ class AssistantScreenshotTest {
         captureRoboImage("src/test/screenshots/assistant_picker.png", roborazziOptions = ScreenshotOptions) {
             MetroTheme(LauncherSettings()) {
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
-                    PaidTilesPanel(
+                    MetroPlusPanel(
                         unlocked = true, price = null, assistantApp = claude, icons = icons, monochrome = true,
                         onBuy = {}, onAdd = { _, _ -> }, modifier = Modifier.align(Alignment.BottomCenter),
                         // The end of the quick settings section and the assistant section below it.

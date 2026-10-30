@@ -64,7 +64,7 @@ sealed interface TileContent {
     /** A system toggle or shortcut (flashlight, Wi-Fi, battery...) with its live state; one tile per [kind]. */
     data class QuickSetting(val kind: QuickSettingKind) : TileContent
 
-    /** The assistant tile (paid): follows the shared assistant setting; shows its latest reply and the last question asked. */
+    /** The assistant tile (Metro Plus): follows the shared assistant setting; shows its latest reply and the last question asked. */
     data object Assistant : TileContent
 
     /** Windows Phone 8.1 tile folder. Children are app or shortcut tiles. */

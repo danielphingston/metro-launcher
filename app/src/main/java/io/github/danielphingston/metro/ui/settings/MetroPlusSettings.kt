@@ -30,17 +30,25 @@ import io.github.danielphingston.metro.ui.components.findActivity
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 
-/** The one-time "paid tiles" purchase: unlocked, a buy button with Play's price, or not on sale yet. */
+/**
+ * The Metro Plus page: the one-time purchase (unlocked, a buy button with Play's price, or not on
+ * sale yet) and its three sections, "quick settings tiles", "assistant" and "smart search".
+ * [onOpenSearchSettings] goes to the search page, where each smart search feature has its switch.
+ */
 @Composable
-fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRepository) {
+fun MetroPlusSettingsSection(
+    settings: LauncherSettings,
+    repository: SettingsRepository,
+    onOpenSearchSettings: () -> Unit = {},
+) {
     val context = LocalContext.current
     val purchases = (context.applicationContext as MetroApplication).purchases
     val unlocked by purchases.quickTilesUnlocked.collectAsState()
     val price by purchases.quickTilesPrice.collectAsState()
 
     MetroText(
-        "Paid tiles: quick settings tiles that toggle Wi-Fi, Bluetooth, flashlight and more, and an " +
-            "assistant tile. A one-time purchase, no subscription.",
+        "Metro Plus: quick settings tiles that toggle Wi-Fi, Bluetooth, flashlight and more, an " +
+            "assistant tile and smart search. A one-time purchase, no subscription.",
         MetroType.caption,
         color = Metro.colors.subtle,
     )
@@ -53,7 +61,7 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
         else -> MetroText("Not available yet", MetroType.body, color = Metro.colors.subtle)
     }
 
-    Section("quick settings")
+    Section("quick settings tiles")
     PermissionToggle(
         "Show Wi-Fi network name",
         // Android 12 and up ignore a request for precise location alone: it has to come with coarse.
@@ -97,6 +105,17 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
     } else {
         MetroText("No saved reply", MetroType.caption, color = Metro.colors.subtle)
     }
+
+    Section("smart search")
+    MetroText(
+        "Search gets a calculator and unit converter, phone settings shortcuts, quick timers and alarms, " +
+            "suggestions before you type, launcher actions and the ask row. Each one has its own switch in " +
+            "the search settings; smarter app matching stays free.",
+        MetroType.caption,
+        color = Metro.colors.subtle,
+    )
+    Spacer(Modifier.height(10.dp))
+    MetroButton("search settings", onClick = onOpenSearchSettings)
 }
 
 /**
@@ -106,13 +125,14 @@ fun QuickTilesSettingsSection(settings: LauncherSettings, repository: SettingsRe
  * its dialog, so the toggle then offers the app info page, where the user can allow it.
  */
 @Composable
-private fun PermissionToggle(
+internal fun PermissionToggle(
     label: String,
     request: Array<String>,
     required: String,
     enabled: Boolean,
     save: suspend (Boolean) -> Unit,
     why: String,
+    description: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -151,6 +171,7 @@ private fun PermissionToggle(
                 }
             }
         },
+        description,
     )
     if (denied && !granted) MetroText(why, MetroType.caption, color = Metro.colors.subtle)
     if (permanentlyDenied && !granted) MetroButton("open app info", onClick = openAppInfo)

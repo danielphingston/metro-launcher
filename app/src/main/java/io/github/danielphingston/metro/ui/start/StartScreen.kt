@@ -1124,7 +1124,7 @@ private fun activateTile(
         TileContent.Assistant -> when {
             !quickUnlocked -> android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
             tile.app != null -> launcher.launch(tile.app, bounds)
-            else -> launcher.start(SettingsActivity.intent(context, SettingsPage.QUICK_TILES), bounds)
+            else -> launcher.start(SettingsActivity.intent(context, SettingsPage.METRO_PLUS), bounds)
         }
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
     }
@@ -1144,7 +1144,7 @@ private fun AddTileMenu(
                 "weather" to { onAdd(TileContent.Weather, TileSize.WIDE) },
                 "photos" to { onAdd(TileContent.Photos, TileSize.WIDE) },
                 "people" to { onAdd(TileContent.People, TileSize.MEDIUM) },
-                "paid tiles" to onQuickSettings,
+                "metro plus" to onQuickSettings,
                 "widgets" to onWidgets,
             ),
             modifier = Modifier

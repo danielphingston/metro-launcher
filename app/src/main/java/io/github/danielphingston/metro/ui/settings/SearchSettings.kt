@@ -5,9 +5,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import io.github.danielphingston.metro.MetroApplication
+import io.github.danielphingston.metro.data.AssistantChoice
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SearchEngine
 import io.github.danielphingston.metro.data.SettingsRepository
@@ -18,9 +23,12 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.launch
 
-/** Picks the search engine the search overlay's "web" row uses, and how far to pull down to open search. */
+/**
+ * Picks the search engine the search overlay's "web" row uses, how far to pull down to open search,
+ * and which smart search features (Metro Plus) are on. [onOpenMetroPlus] leads to the purchase.
+ */
 @Composable
-fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsRepository) {
+fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsRepository, onOpenMetroPlus: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -48,14 +56,13 @@ fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsReposi
         color = Metro.colors.subtle,
     )
 
-    Section("ask assistant")
-    AssistantChoiceControl(settings, repository)
-    Spacer(Modifier.height(10.dp))
-    MetroText(
-        "Typing a question shows an \"ask\" row that sends it to this app (as shared text) when you tap it. " +
-            "If the app can't take shared text, the question is copied and the app opens. Nothing is sent " +
-            "until you tap the row. The assistant tile follows the same choice.",
-        MetroType.caption,
-        color = Metro.colors.subtle,
+    val context = LocalContext.current
+    val purchases = (context.applicationContext as MetroApplication).purchases
+    val unlocked by purchases.quickTilesUnlocked.collectAsState()
+    val apps by (context.applicationContext as MetroApplication).apps.apps.collectAsState()
+    val installed = apps.orEmpty().mapTo(HashSet()) { it.key.packageName }
+    SmartSearchSection(
+        settings, repository, unlocked, onOpenMetroPlus,
+        assistantReady = AssistantChoice.resolve(settings.assistant, installed) != null,
     )
 }
