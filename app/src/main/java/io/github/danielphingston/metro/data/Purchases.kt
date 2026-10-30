@@ -17,6 +17,7 @@ import com.android.billingclient.api.queryPurchasesAsync
 import io.github.danielphingston.metro.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,10 +64,10 @@ class Purchases(
         .setListener { result, purchases ->
             // Fires after the purchase flow ends; purchases is null on cancel or error.
             if (result.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
-                scope.launch { handle(purchases, authoritative = false) }
+                launchMain { handle(purchases, authoritative = false) }
             } else if (result.responseCode == BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED) {
                 // Our cache missed an earlier purchase (e.g. a new device): ask Play for the truth.
-                scope.launch { refresh() }
+                launchMain { refresh() }
             }
         }
         .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
@@ -99,11 +100,14 @@ class Purchases(
     fun recheck() {
         if (!throttle.shouldRun()) return
         if (client.isReady) {
-            scope.launch { refresh() }
+            launchMain { refresh() }
         } else {
             connect()
         }
     }
+
+    /** Everything that touches the mutable state below runs on the main thread, where Play also calls back. */
+    private fun launchMain(block: suspend () -> Unit): Job = scope.launch(Dispatchers.Main.immediate) { block() }
 
     private fun computeUnlocked() = owned || BuildConfig.DEBUG
 
@@ -117,10 +121,10 @@ class Purchases(
                 if (result.responseCode == BillingClient.BillingResponseCode.OK) {
                     backoffMs = INITIAL_BACKOFF_MS
                     throttle.markRan()
-                    scope.launch { refresh() }
+                    launchMain { refresh() }
                 } else {
-                    // Billing unavailable here (no Play Store, unsupported device...): try again later.
-                    scheduleReconnect()
+                    // A device without Play billing won't grow one while we wait: resuming the launcher tries again.
+                    if (BillingRetry.worthRetrying(result.responseCode)) scheduleReconnect()
                 }
             }
 
@@ -133,7 +137,7 @@ class Purchases(
 
     private fun scheduleReconnect() {
         if (reconnect?.isActive == true) return
-        reconnect = scope.launch {
+        reconnect = launchMain {
             delay(backoffMs)
             backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
             reconnect = null
@@ -218,6 +222,13 @@ class Purchases(
         const val INITIAL_BACKOFF_MS = 2_000L
         const val MAX_BACKOFF_MS = 5 * 60_000L
     }
+}
+
+/** Which failed connections are worth retrying in the background. */
+internal object BillingRetry {
+    /** Not for a device without billing support or a Play Store that can't do billing; those answers don't change by waiting. */
+    fun worthRetrying(responseCode: Int) = responseCode != BillingClient.BillingResponseCode.BILLING_UNAVAILABLE &&
+        responseCode != BillingClient.BillingResponseCode.FEATURE_NOT_SUPPORTED
 }
 
 /**

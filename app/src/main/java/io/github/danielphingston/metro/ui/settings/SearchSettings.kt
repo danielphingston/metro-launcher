@@ -53,16 +53,11 @@ fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsReposi
             keywords = settings.searchKeywords,
             otherApps = otherSearchApps,
             onSave = { saved ->
-                scope.launch {
-                    val list = settings.searchKeywords
-                    repository.setSearchKeywords(
-                        if (edit.original == null) list + saved else list.map { if (it == edit.original) saved else it },
-                    )
-                }
+                scope.launch { repository.saveSearchKeyword(edit.original?.keyword, saved) }
                 editing = null
             },
             onDelete = {
-                scope.launch { repository.setSearchKeywords(settings.searchKeywords.filter { it != edit.original }) }
+                edit.original?.let { original -> scope.launch { repository.deleteSearchKeyword(original.keyword) } }
                 editing = null
             },
             onCancel = { editing = null },

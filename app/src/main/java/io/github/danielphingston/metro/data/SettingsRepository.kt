@@ -482,6 +482,18 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSearchKeywords(keywords: List<SearchKeyword>) =
         context.metroDataStore.edit { it[Keys.searchKeywords] = SearchKeywords.encode(keywords) }
 
+    /** The keyword changes below read and write inside one edit, so quick successive changes never overwrite each other. */
+    private suspend fun editKeywords(change: (List<SearchKeyword>) -> List<SearchKeyword>) = context.metroDataStore.edit {
+        it[Keys.searchKeywords] = SearchKeywords.encode(change(SearchKeywords.decode(it[Keys.searchKeywords])))
+    }
+
+    /** Saves [saved] in place of the keyword typed as [original], or adds it when [original] is null. */
+    suspend fun saveSearchKeyword(original: String?, saved: SearchKeyword) = editKeywords { SearchKeywords.upsert(it, original, saved) }
+
+    suspend fun deleteSearchKeyword(keyword: String) = editKeywords { SearchKeywords.remove(it, keyword) }
+
+    suspend fun setSearchKeywordEnabled(keyword: String, enabled: Boolean) = editKeywords { SearchKeywords.setEnabled(it, keyword, enabled) }
+
     suspend fun resetSearchKeywords() = context.metroDataStore.edit { it.remove(Keys.searchKeywords) }
 
     suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }

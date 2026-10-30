@@ -23,6 +23,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -89,6 +91,11 @@ class MetroApplication : Application(), Configuration.Provider {
         appScope.launch {
             // Lowering the number of remembered searches trims what is stored at once.
             settings.settings.map { it.searchHistorySize }.distinctUntilChanged().collect { searchHistory.trimSearches(it) }
+        }
+        appScope.launch {
+            // Once per process, when the app list is first known: launch counts of uninstalled apps are dropped.
+            val loaded = apps.apps.filterNotNull().first { it.isNotEmpty() }
+            searchHistory.pruneLaunches(loaded.mapTo(HashSet()) { it.key.serialize() })
         }
         appScope.launch {
             settings.settings.map { it.iconPack }.distinctUntilChanged().collect { icons.iconPack = it }

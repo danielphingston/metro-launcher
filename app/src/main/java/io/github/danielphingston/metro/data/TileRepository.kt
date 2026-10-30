@@ -210,7 +210,9 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
     /**
      * Drops widget tiles whose app widget id is unknown to the system, as after restoring a
      * backup onto another device: they could only ever show a placeholder. Conservative: see
-     * [WidgetPruning.isDead].
+     * [WidgetPruning.isDead]. Querying the ids of a provider owned by another app may be refused by
+     * the system (a RuntimeException, caught below): such a tile is simply kept, so this can never
+     * delete a live widget, at worst it prunes nothing.
      */
     private fun pruneDeadWidgets(tiles: List<TileSpec>): List<TileSpec> {
         if (tiles.none { it.content is TileContent.Widget }) return tiles

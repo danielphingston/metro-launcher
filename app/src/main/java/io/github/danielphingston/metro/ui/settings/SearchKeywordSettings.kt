@@ -76,9 +76,7 @@ internal fun SearchKeywordList(
                 settings.assistant,
                 onClick = { onEdit(KeywordEdit(entry)) },
                 onToggle = { on ->
-                    scope.launch {
-                        repository.setSearchKeywords(settings.searchKeywords.map { if (it === entry) it.copy(enabled = on) else it })
-                    }
+                    scope.launch { repository.setSearchKeywordEnabled(entry.keyword, on) }
                 },
             )
         }

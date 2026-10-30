@@ -38,6 +38,12 @@ object HistoryRules {
     /** [searches] cut to the newest [max] (clamped), for when the setting is lowered. */
     fun trim(searches: List<String>, max: Int): List<String> = searches.take(LauncherSettings.clampSearchHistory(max))
 
+    /** [data] with the launch counts and times of apps outside [installed] (serialized keys) dropped, so uninstalled apps don't pile up. */
+    fun pruneLaunches(data: HistoryData, installed: Set<String>): HistoryData = data.copy(
+        launchCounts = data.launchCounts.filterKeys { it in installed },
+        lastLaunched = data.lastLaunched.filterKeys { it in installed },
+    )
+
     /**
      * Up to [limit] of [apps], the most launched first (ties: the more recent), from the launch
      * counts; when there are no counts, the most recently launched. Apps never launched are left out.
@@ -61,26 +67,32 @@ class SearchHistory(context: Context) {
     private val _data = MutableStateFlow(load())
     val data: StateFlow<HistoryData> = _data.asStateFlow()
 
-    fun recordSearch(query: String, max: Int = LauncherSettings.DEFAULT_SEARCH_HISTORY) {
-        val updated = HistoryRules.addSearch(_data.value.searches, query, max)
-        if (updated != _data.value.searches) save(_data.value.copy(searches = updated))
-    }
+    fun recordSearch(query: String, max: Int = LauncherSettings.DEFAULT_SEARCH_HISTORY) =
+        update { it.copy(searches = HistoryRules.addSearch(it.searches, query, max)) }
 
     fun recordLaunch(app: AppInfo, now: Long = System.currentTimeMillis()) {
         val key = app.key.serialize()
-        val d = _data.value
-        save(d.copy(launchCounts = d.launchCounts + (key to (d.launchCounts[key] ?: 0) + 1), lastLaunched = d.lastLaunched + (key to now)))
+        update { d -> d.copy(launchCounts = d.launchCounts + (key to (d.launchCounts[key] ?: 0) + 1), lastLaunched = d.lastLaunched + (key to now)) }
     }
 
     /** Drops the oldest searches beyond [max], e.g. right after the setting is lowered. */
-    fun trimSearches(max: Int) {
-        val updated = HistoryRules.trim(_data.value.searches, max)
-        if (updated != _data.value.searches) save(_data.value.copy(searches = updated))
-    }
+    fun trimSearches(max: Int) = update { it.copy(searches = HistoryRules.trim(it.searches, max)) }
 
+    /** Forgets the launches of apps that are no longer in [installed] (serialized keys). */
+    fun pruneLaunches(installed: Set<String>) = update { HistoryRules.pruneLaunches(it, installed) }
+
+    @Synchronized
     fun clear() {
         prefs.edit().clear().apply()
         _data.value = HistoryData()
+    }
+
+    /** Read, change and save as one step, so a launch and a search recorded together never overwrite each other. */
+    @Synchronized
+    private fun update(change: (HistoryData) -> HistoryData) {
+        val old = _data.value
+        val new = change(old)
+        if (new != old) save(new)
     }
 
     private fun save(d: HistoryData) {
