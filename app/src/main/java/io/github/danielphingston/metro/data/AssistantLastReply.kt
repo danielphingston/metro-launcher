@@ -2,6 +2,7 @@ package io.github.danielphingston.metro.data
 
 import android.content.Context
 import io.github.danielphingston.metro.live.NotificationPreview
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +15,7 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -47,7 +49,14 @@ object AssistantLastReply {
         if (!showContent || preview == null) return null
         val text = AssistantText.extract(appLabel, preview.title, preview.text)
         if (text.reply.isBlank() && text.title.isNullOrBlank()) return null
-        return SavedReply(packageName, text.title, text.reply.take(MAX_REPLY), preview.postTime)
+        return SavedReply(packageName, text.title, truncate(text.reply), preview.postTime)
+    }
+
+    /** Cuts [text] to [MAX_REPLY] chars without leaving half of a surrogate pair (an emoji) at the end. */
+    internal fun truncate(text: String): String {
+        if (text.length <= MAX_REPLY) return text
+        val end = if (Character.isHighSurrogate(text[MAX_REPLY - 1])) MAX_REPLY - 1 else MAX_REPLY
+        return text.substring(0, end)
     }
 
     /** Write only when there is something new to keep. */
@@ -118,17 +127,28 @@ object AssistantLastReply {
  * Reads and writes happen on the IO dispatcher, one at a time in call order; [reply] is updated
  * at once so the tile does not wait for the disk.
  */
-class AssistantReplyStore(context: Context, private val scope: CoroutineScope) {
+class AssistantReplyStore(
+    context: Context,
+    private val scope: CoroutineScope,
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+) {
     private val file = File(context.noBackupFilesDir, FILE)
     private val lock = Mutex()
     private val _reply = MutableStateFlow<SavedReply?>(null)
     val reply: StateFlow<SavedReply?> = _reply.asStateFlow()
 
+    /**
+     * Bumped by every save and clear. Disk work queued earlier (the first load, an older save) only
+     * acts while it is still the newest operation, so it can never undo a later clear or save.
+     */
+    private val generation = AtomicInteger()
+
     init {
-        scope.launch(Dispatchers.IO) {
+        val mine = generation.get()
+        scope.launch(io) {
             lock.withLock {
-                // A save that raced ahead of this load is newer than what is on disk.
-                if (_reply.value == null) {
+                // A save or clear that came after this load was queued is newer than what is on disk.
+                if (generation.get() == mine && _reply.value == null) {
                     _reply.value = try { if (file.exists()) AssistantLastReply.fromJson(file.readText()) else null } catch (_: IOException) { null }
                 }
             }
@@ -140,8 +160,10 @@ class AssistantReplyStore(context: Context, private val scope: CoroutineScope) {
         if (!AssistantLastReply.shouldWrite(_reply.value, candidate)) return
         candidate!!
         _reply.value = candidate
-        scope.launch(Dispatchers.IO) {
+        val mine = generation.incrementAndGet()
+        scope.launch(io) {
             lock.withLock {
+                if (generation.get() != mine) return@withLock // Superseded; the newer operation owns the file.
                 try {
                     val tmp = File(file.parentFile, "$FILE.tmp")
                     tmp.writeText(AssistantLastReply.toJson(candidate))
@@ -155,8 +177,12 @@ class AssistantReplyStore(context: Context, private val scope: CoroutineScope) {
 
     fun clear() {
         _reply.value = null
-        scope.launch(Dispatchers.IO) {
-            lock.withLock { file.delete(); File(file.parentFile, "$FILE.tmp").delete() }
+        val mine = generation.incrementAndGet()
+        scope.launch(io) {
+            lock.withLock {
+                if (generation.get() != mine) return@withLock
+                file.delete(); File(file.parentFile, "$FILE.tmp").delete()
+            }
         }
     }
 

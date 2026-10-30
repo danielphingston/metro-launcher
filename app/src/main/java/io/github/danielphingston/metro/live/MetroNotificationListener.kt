@@ -8,6 +8,7 @@ import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.AppKey
 import io.github.danielphingston.metro.data.AssistantChoice
 import io.github.danielphingston.metro.data.AssistantLastReply
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,7 +36,14 @@ class MetroNotificationListener : NotificationListenerService() {
             for (request in requests) {
                 // A burst of posts/removals (e.g. clear all) becomes a single rebuild.
                 delay(REBUILD_DEBOUNCE_MS)
-                rebuild()
+                try {
+                    rebuild()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // A failed rebuild (e.g. an unreadable settings file) must not take the process down
+                    // or end this loop: the next notification change simply tries again.
+                }
             }
         }
     }
@@ -97,6 +105,11 @@ class MetroNotificationListener : NotificationListenerService() {
      */
     private suspend fun saveAssistantReply(published: Map<String, AppNotifications>) {
         val app = application as? MetroApplication ?: return
+        // The assistant is a Metro Plus feature: without it nothing is kept (and nothing stays kept after a refund).
+        if (!app.purchases.quickTilesUnlocked.value) {
+            app.assistantReply.clear()
+            return
+        }
         val settings = app.settings.settings.first()
         val installed = app.apps.apps.value?.mapTo(HashSet()) { it.key.packageName } ?: return
         val pkg = AssistantChoice.resolve(settings.assistant, installed) ?: return

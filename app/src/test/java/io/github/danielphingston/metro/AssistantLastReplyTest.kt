@@ -121,4 +121,53 @@ class AssistantLastReplyTest {
         assertEquals("Hello", m.reply)
         assertEquals(2, m.count)
     }
+
+    @Test
+    fun truncateNeverSplitsASurrogatePair() {
+        val emoji = "\uD83D\uDE00"
+        val text = "a".repeat(AssistantLastReply.MAX_REPLY - 1) + emoji
+        val cut = AssistantLastReply.truncate(text)
+        assertEquals(AssistantLastReply.MAX_REPLY - 1, cut.length)
+        assertFalse(Character.isHighSurrogate(cut.last()))
+        assertEquals(AssistantLastReply.MAX_REPLY, AssistantLastReply.truncate("a".repeat(5000)).length)
+        assertEquals("short", AssistantLastReply.truncate("short"))
+    }
+
+    /** Queues disk work instead of running it, so a test decides the order in which it lands. */
+    private class QueuedDispatcher : kotlinx.coroutines.CoroutineDispatcher() {
+        private val queue = ArrayDeque<Runnable>()
+        override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) { queue.addLast(block) }
+        fun runAll() { while (queue.isNotEmpty()) queue.removeFirst().run() }
+    }
+
+    private fun newStore(): Triple<java.io.File, QueuedDispatcher, io.github.danielphingston.metro.data.AssistantReplyStore> {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val file = java.io.File(context.noBackupFilesDir, "assistant_last_reply.json")
+        file.delete()
+        file.writeText(AssistantLastReply.toJson(saved))
+        val dispatcher = QueuedDispatcher()
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Job())
+        return Triple(file, dispatcher, io.github.danielphingston.metro.data.AssistantReplyStore(context, scope, dispatcher))
+    }
+
+    @Test
+    fun clearIsNotUndoneByTheInitialLoad() {
+        val (file, dispatcher, store) = newStore()
+        store.clear() // before the queued load has run
+        dispatcher.runAll()
+        assertNull(store.reply.value)
+        assertFalse(file.exists())
+    }
+
+    @Test
+    fun clearIsNotUndoneByAnEarlierQueuedSave() {
+        val (file, dispatcher, store) = newStore()
+        dispatcher.runAll()
+        assertEquals(saved, store.reply.value)
+        store.save(SavedReply(pkg, "T", "newer", 2L))
+        store.clear() // the save's disk write is still queued
+        dispatcher.runAll()
+        assertNull(store.reply.value)
+        assertFalse(file.exists())
+    }
 }
