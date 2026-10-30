@@ -107,35 +107,42 @@ fun MetroToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit, de
             MetroText(label, MetroType.body)
             MetroText(description ?: if (checked) "On" else "Off", MetroType.caption, color = colors.subtle)
         }
-        val thumbX by animateDpAsState(if (checked) 28.dp else 6.dp, tween(120), label = "toggleThumb")
+        MetroSwitch(checked)
+    }
+}
+
+/** The track and thumb of [MetroToggle], without a label or a click of its own, for rows that bring their own. */
+@Composable
+fun MetroSwitch(checked: Boolean, modifier: Modifier = Modifier) {
+    val colors = Metro.colors
+    val thumbX by animateDpAsState(if (checked) 28.dp else 6.dp, tween(120), label = "toggleThumb")
+    Box(
+        modifier
+            .size(width = 48.dp, height = 24.dp)
+            .then(
+                if (checked) {
+                    Modifier.background(colors.accent, RoundedCornerShape(50))
+                } else {
+                    Modifier.drawBehind {
+                        val stroke = 2.dp.toPx()
+                        drawRoundRect(
+                            colors.foreground,
+                            topLeft = Offset(stroke / 2, stroke / 2),
+                            size = Size(size.width - stroke, size.height - stroke),
+                            cornerRadius = CornerRadius(size.height / 2),
+                            style = Stroke(stroke),
+                        )
+                    }
+                },
+            ),
+    ) {
         Box(
             Modifier
-                .size(width = 48.dp, height = 24.dp)
-                .then(
-                    if (checked) {
-                        Modifier.background(colors.accent, RoundedCornerShape(50))
-                    } else {
-                        Modifier.drawBehind {
-                            val stroke = 2.dp.toPx()
-                            drawRoundRect(
-                                colors.foreground,
-                                topLeft = Offset(stroke / 2, stroke / 2),
-                                size = Size(size.width - stroke, size.height - stroke),
-                                cornerRadius = CornerRadius(size.height / 2),
-                                style = Stroke(stroke),
-                            )
-                        }
-                    },
-                ),
-        ) {
-            Box(
-                Modifier
-                    .align(Alignment.CenterStart)
-                    .offset(x = thumbX)
-                    .size(if (checked) 14.dp else 12.dp)
-                    .background(if (checked) colors.onSolidAccent else colors.foreground, CircleShape),
-            )
-        }
+                .align(Alignment.CenterStart)
+                .offset(x = thumbX)
+                .size(if (checked) 14.dp else 12.dp)
+                .background(if (checked) colors.onSolidAccent else colors.foreground, CircleShape),
+        )
     }
 }
 

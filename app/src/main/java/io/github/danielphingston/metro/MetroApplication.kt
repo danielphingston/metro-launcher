@@ -4,15 +4,18 @@ import android.app.Application
 import androidx.work.Configuration
 import io.github.danielphingston.metro.data.AppRepository
 import io.github.danielphingston.metro.data.AssistantReplyStore
+import io.github.danielphingston.metro.data.LastAskedStore
 import io.github.danielphingston.metro.data.CacheTrim
 import io.github.danielphingston.metro.data.CrashLog
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.Purchases
+import io.github.danielphingston.metro.data.SearchHistory
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.live.PeopleSource
 import io.github.danielphingston.metro.ui.search.ShortcutIndex
+import io.github.danielphingston.metro.ui.search.WhatsAppIndex
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
 import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import kotlinx.coroutines.CoroutineScope
@@ -20,6 +23,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -37,8 +42,16 @@ class MetroApplication : Application(), Configuration.Provider {
         private set
     lateinit var purchases: Purchases
         private set
+    /** Recent searches and launch counts for the empty search; local only, see [SearchHistory]. */
+    lateinit var searchHistory: SearchHistory
+        private set
+
     /** The assistant tile's saved last reply; see [AssistantReplyStore]. */
     lateinit var assistantReply: AssistantReplyStore
+        private set
+
+    /** The last question asked from search, kept beside the reply; see [LastAskedStore]. */
+    lateinit var lastAsked: LastAskedStore
         private set
 
     override fun onCreate() {
@@ -46,6 +59,7 @@ class MetroApplication : Application(), Configuration.Provider {
         // First, so a crash anywhere below is recorded too.
         CrashLog.install(this)
         settings = SettingsRepository(this)
+        searchHistory = SearchHistory(this)
         purchases = Purchases(this, appScope)
         tiles = TileRepository(this, appScope, settings.settings.map { it.columns }.distinctUntilChanged())
         icons = IconCache(this)
@@ -57,17 +71,31 @@ class MetroApplication : Application(), Configuration.Provider {
             icons.evict(pkg)
             icons.invalidatePack(pkg)
             ShortcutIndex.shared(this).invalidate()
+            WhatsAppIndex.shared(this).invalidate()
         })
         assistantReply = AssistantReplyStore(this, appScope)
+        lastAsked = LastAskedStore(this, appScope, legacy = settings::takeLegacyLastAsked)
         NotificationAccess.rebindIfNeeded(this)
         // The saved reply goes when its reasons go: another assistant chosen, previews off, or no notification access.
         if (!NotificationAccess.isGranted(this)) assistantReply.clear()
         appScope.launch {
             // drop(1): the first value is the stored choice, not a change; a reply of another package is ignored anyway.
-            settings.settings.map { it.assistant }.distinctUntilChanged().drop(1).collect { assistantReply.clear() }
+            settings.settings.map { it.assistant }.distinctUntilChanged().drop(1).collect {
+                assistantReply.clear()
+                lastAsked.clear()
+            }
         }
         appScope.launch {
             settings.settings.map { it.showNotificationContent }.distinctUntilChanged().collect { if (!it) assistantReply.clear() }
+        }
+        appScope.launch {
+            // Lowering the number of remembered searches trims what is stored at once.
+            settings.settings.map { it.searchHistorySize }.distinctUntilChanged().collect { searchHistory.trimSearches(it) }
+        }
+        appScope.launch {
+            // Once per process, when the app list is first known: launch counts of uninstalled apps are dropped.
+            val loaded = apps.apps.filterNotNull().first { it.isNotEmpty() }
+            searchHistory.pruneLaunches(loaded.mapTo(HashSet()) { it.key.serialize() })
         }
         appScope.launch {
             settings.settings.map { it.iconPack }.distinctUntilChanged().collect { icons.iconPack = it }

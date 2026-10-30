@@ -64,7 +64,7 @@ sealed interface TileContent {
     /** A system toggle or shortcut (flashlight, Wi-Fi, battery...) with its live state; one tile per [kind]. */
     data class QuickSetting(val kind: QuickSettingKind) : TileContent
 
-    /** The assistant tile (paid): follows the shared assistant setting; shows its latest reply and the last question asked. */
+    /** The assistant tile (Metro Plus): follows the shared assistant setting; shows its latest reply and the last question asked. */
     data object Assistant : TileContent
 
     /** Windows Phone 8.1 tile folder. Children are app or shortcut tiles. */
@@ -210,7 +210,9 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
     /**
      * Drops widget tiles whose app widget id is unknown to the system, as after restoring a
      * backup onto another device: they could only ever show a placeholder. Conservative: see
-     * [WidgetPruning.isDead].
+     * [WidgetPruning.isDead]. Querying the ids of a provider owned by another app may be refused by
+     * the system (a RuntimeException, caught below): such a tile is simply kept, so this can never
+     * delete a live widget, at worst it prunes nothing.
      */
     private fun pruneDeadWidgets(tiles: List<TileSpec>): List<TileSpec> {
         if (tiles.none { it.content is TileContent.Widget }) return tiles

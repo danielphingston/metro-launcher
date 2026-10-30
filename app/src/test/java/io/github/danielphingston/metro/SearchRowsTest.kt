@@ -46,7 +46,10 @@ class SearchRowsTest {
             is SearchRow.Shortcut -> "shortcut ${it.hit.shortLabel}"
             is SearchRow.OpenUrl -> "open ${it.url}"
             is SearchRow.Web -> "web ${it.query}"
-            is SearchRow.Assistant -> "ask ${it.query}"
+            is SearchRow.Item -> "item ${it.item.title}"
+            is SearchRow.Keyword -> "keyword ${it.item.title}"
+            is SearchRow.RecentSearch -> "recent ${it.text}"
+            SearchRow.ClearHistory -> "clear history"
         }
     }
 
@@ -102,5 +105,29 @@ class SearchRowsTest {
     @Test
     fun submitDoesNothingWithoutAQuery() {
         assertNull(topResult(rows("")))
+    }
+
+    @Test
+    fun onlyRowsThatActOnTheTypedTextAreRecordedAsSearches() {
+        val gear = io.github.danielphingston.metro.ui.search.SearchGlyphs.gear
+        val run = io.github.danielphingston.metro.ui.search.ItemAction.Run { }
+        fun item(provider: String) = SearchRow.Item(
+            provider,
+            io.github.danielphingston.metro.ui.search.SearchItem("k", "t", null, gear, run),
+            io.github.danielphingston.metro.ui.search.Placement.TOP,
+        )
+        val recorded = io.github.danielphingston.metro.ui.search.recordsSearch(SearchRow.App(apps[0], 0))
+        assertTrue(recorded)
+        assertTrue(io.github.danielphingston.metro.ui.search.recordsSearch(SearchRow.Web("x", SearchEngine.GOOGLE)))
+        assertTrue(io.github.danielphingston.metro.ui.search.recordsSearch(SearchRow.OpenUrl("https://a.b", "a.b")))
+        assertTrue(io.github.danielphingston.metro.ui.search.recordsSearch(item("ask_assistant")))
+        assertTrue(io.github.danielphingston.metro.ui.search.recordsSearch(SearchRow.Keyword(item("x").item, false)))
+        // Calculator copies, timers, notes, contacts and the history rows are not searches worth keeping.
+        listOf("calculator", "quick_actions", "contacts", "whatsapp").forEach {
+            assertTrue(it, !io.github.danielphingston.metro.ui.search.recordsSearch(item(it)))
+        }
+        assertTrue(!io.github.danielphingston.metro.ui.search.recordsSearch(SearchRow.RecentSearch("x")))
+        assertTrue(!io.github.danielphingston.metro.ui.search.recordsSearch(SearchRow.ClearHistory))
+        assertTrue(!io.github.danielphingston.metro.ui.search.recordsSearch(SearchRow.Caption("apps")))
     }
 }

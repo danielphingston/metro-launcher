@@ -33,6 +33,7 @@ import io.github.danielphingston.metro.ui.applist.AppListScreen
 import io.github.danielphingston.metro.ui.applist.AppListState
 import io.github.danielphingston.metro.ui.components.LocalMotion
 import io.github.danielphingston.metro.ui.components.Motion
+import io.github.danielphingston.metro.ui.search.LauncherCommands
 import io.github.danielphingston.metro.ui.search.SearchOverlay
 import io.github.danielphingston.metro.ui.search.SearchState
 import io.github.danielphingston.metro.ui.search.pullToSearch
@@ -94,11 +95,11 @@ class AppLauncher(
         return bounds to options?.toBundle()
     }
 
-    fun launch(app: AppInfo, boundsInRoot: ComposeRect?) =
-        open(boundsInRoot) { bounds, options -> viewModel.launch(app, bounds, options) }
+    fun launch(app: AppInfo, boundsInRoot: ComposeRect?, onStarted: () -> Unit = {}) =
+        open(boundsInRoot, onStarted) { bounds, options -> viewModel.launch(app, bounds, options) }
 
     /** Starts any intent (e.g. a tile's target app) the same way. */
-    fun start(intent: Intent, boundsInRoot: ComposeRect?) = open(boundsInRoot) { bounds, options ->
+    fun start(intent: Intent, boundsInRoot: ComposeRect?, onStarted: () -> Unit = {}) = open(boundsInRoot, onStarted) { bounds, options ->
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).sourceBounds = bounds
         runCatching { view.context.startActivity(intent, options) }.isSuccess
     }
@@ -107,11 +108,12 @@ class AppLauncher(
      * Plays the exit (at most about 350ms at normal speed, skipped when animations are off or the
      * style is none), then runs [start]; if the system refuses the launch the elements come
      * straight back. [start] gets screen-space source bounds and ActivityOptions and returns
-     * whether the launch happened. A second launch within [Turnstile.DOUBLE_LAUNCH_MS] is ignored,
-     * which also covers the cases with no exit to mark the launcher busy.
+     * whether the launch happened; [onStarted] runs after it did. A second launch within
+     * [Turnstile.DOUBLE_LAUNCH_MS] is ignored, which also covers the cases with no exit to mark
+     * the launcher busy. Returns whether the launch was accepted (false: it was ignored).
      */
-    fun open(boundsInRoot: ComposeRect?, start: (Rect?, Bundle?) -> Boolean) {
-        if (turnstile.busy || !guard.tryLaunch(uptimeMillis())) return
+    fun open(boundsInRoot: ComposeRect?, onStarted: () -> Unit = {}, start: (Rect?, Bundle?) -> Boolean): Boolean {
+        if (turnstile.busy || !guard.tryLaunch(uptimeMillis())) return false
         val current = motion()
         scope.launch {
             var started = false
@@ -122,11 +124,12 @@ class AppLauncher(
                 // (animations off, or none) keep the system reveal.
                 val window = if (swung) Turnstile.spec(current.launchStyle).appWindow else AppWindow.CLIP_REVEAL
                 val (bounds, options) = transition(boundsInRoot, window)
-                if (!start(bounds, options) && swung) turnstile.reset()
+                if (start(bounds, options)) onStarted() else if (swung) turnstile.reset()
             }
             val swung = turnstile.exit(boundsInRoot, current.launchStyle, current.openDuringAnimation) { go(true) }
             if (!started) go(swung)
         }
+        return true
     }
 }
 
@@ -152,6 +155,15 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
         AppLauncher(view, viewModel, turnstile, scope, motion = { currentMotion })
     }
     TurnstileReturn(turnstile, animate = motion.animateReturn)
+    // What search results can ask of the launcher itself (edit mode, app info, uninstall...).
+    val commands = remember(viewModel, startState) {
+        object : LauncherCommands {
+            override fun editStart() = startState.startEditing()
+            override fun appInfo(app: AppInfo) = viewModel.openAppInfo(app)
+            override fun uninstall(app: AppInfo) = viewModel.uninstall(app)
+            override fun recordAssistantQuestion(question: String) = viewModel.recordAssistantQuestion(question)
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.homePresses.collect { animate ->
@@ -252,7 +264,7 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
                 }
             }
             // Outside LocalTurnstile's scope: its own field must not swing with the tiles.
-            SearchOverlay(viewModel, searchState, launcher)
+            SearchOverlay(viewModel, searchState, launcher, commands)
         }
     }
 }

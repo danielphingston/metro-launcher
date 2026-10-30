@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.AssistantChoice
+import io.github.danielphingston.metro.data.LastAsked
 import io.github.danielphingston.metro.data.SavedReply
 import io.github.danielphingston.metro.data.BackgroundPhoto
 import io.github.danielphingston.metro.data.DefaultApps
@@ -20,7 +21,9 @@ import io.github.danielphingston.metro.data.DefaultLayout
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.PhotoAccess
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.HistoryData
 import io.github.danielphingston.metro.data.Purchases
+import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.data.TileSize
@@ -68,7 +71,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val metro = application as MetroApplication
     val icons: IconCache = metro.icons
 
-    /** The "Quick settings tiles" pack: whether it is unlocked, its Play price, and how to buy it. */
+    /** The Metro Plus pack: whether it is unlocked, its Play price, and how to buy it. */
     val quickTilesUnlocked: StateFlow<Boolean> = metro.purchases.quickTilesUnlocked
     val quickTilesPrice: StateFlow<String?> = metro.purchases.quickTilesPrice
 
@@ -128,6 +131,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** The assistant tile's saved last reply, shown when its notification is gone. */
     val assistantReply: StateFlow<SavedReply?> = metro.assistantReply.reply
+    val lastAsked: StateFlow<LastAsked?> = metro.lastAsked.asked
 
     /** The saved assistant choice (null: never chose); a change re-resolves the assistant tile. */
     private val assistantStored: Flow<String?> = metro.settings.settings.map { it.assistant }.distinctUntilChanged()
@@ -204,13 +208,30 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** Remembers [question] as the last one asked, for the assistant tile. */
     fun recordAssistantQuestion(question: String) {
-        viewModelScope.launch { metro.settings.setLastAsked(question, System.currentTimeMillis()) }
+        metro.lastAsked.set(question, System.currentTimeMillis())
     }
 
     /** Asks Play again whether the quick settings tiles are owned; see [Purchases.recheck]. */
     fun recheckPurchases() = metro.purchases.recheck()
 
-    fun launch(app: AppInfo, bounds: Rect?, options: Bundle?): Boolean = metro.apps.launch(app, bounds, options)
+    /** Whether the suggestions feature (Metro Plus) is on, i.e. whether history is kept and shown. */
+    private val suggestionsOn: Boolean
+        get() = quickTilesUnlocked.value && settings.value.smartOn(SmartFeature.SUGGESTIONS)
+
+    /** Recent searches and launch counts for the empty search. */
+    val searchHistory: StateFlow<HistoryData> = metro.searchHistory.data
+
+    fun recordSearch(query: String) {
+        if (suggestionsOn) metro.searchHistory.recordSearch(query, settings.value.searchHistorySize)
+    }
+
+    fun clearSearchHistory() = metro.searchHistory.clear()
+
+    fun launch(app: AppInfo, bounds: Rect?, options: Bundle?): Boolean {
+        val started = metro.apps.launch(app, bounds, options)
+        if (started && suggestionsOn) metro.searchHistory.recordLaunch(app)
+        return started
+    }
     fun openAppInfo(app: AppInfo) = metro.apps.openAppInfo(app)
     fun uninstall(app: AppInfo) = metro.apps.uninstall(app)
 

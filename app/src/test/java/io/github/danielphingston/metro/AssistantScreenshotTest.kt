@@ -47,7 +47,10 @@ import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.NotificationPreview
 import io.github.danielphingston.metro.ui.ResolvedTile
-import io.github.danielphingston.metro.ui.search.AssistantTarget
+import io.github.danielphingston.metro.ui.search.AskAssistantProvider
+import io.github.danielphingston.metro.ui.search.ProvidedItems
+import io.github.danielphingston.metro.ui.search.SearchContext
+import kotlinx.coroutines.runBlocking
 import io.github.danielphingston.metro.ui.search.SearchContent
 import io.github.danielphingston.metro.ui.search.searchRows
 import io.github.danielphingston.metro.ui.start.LiveContent
@@ -57,7 +60,7 @@ import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.theme.StartBackdrop
 import io.github.danielphingston.metro.ui.theme.startBackdrop
 import io.github.danielphingston.metro.ui.tiles.AssistantTile
-import io.github.danielphingston.metro.ui.tiles.PaidTilesPanel
+import io.github.danielphingston.metro.ui.tiles.MetroPlusPanel
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -182,7 +185,12 @@ class AssistantScreenshotTest {
         val query = "why is the sky blue"
         captureRoboImage("src/test/screenshots/assistant_search.png", roborazziOptions = ScreenshotOptions) {
             MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
-                val rows = remember { searchRows(apps, query, emptyList(), SearchEngine.GOOGLE, 0L, AssistantTarget(claude, "Claude")) }
+                val rows = remember {
+                    val ask = runBlocking {
+                        AskAssistantProvider.results(query, SearchContext(RuntimeEnvironment.getApplication(), apps, LauncherSettings(assistant = claude.key.packageName)))
+                    }
+                    searchRows(apps, query, emptyList(), SearchEngine.GOOGLE, 0L, listOf(ProvidedItems(AskAssistantProvider, ask)))
+                }
                 val focus = remember { FocusRequester() }
                 LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
@@ -203,7 +211,7 @@ class AssistantScreenshotTest {
         captureRoboImage("src/test/screenshots/assistant_picker.png", roborazziOptions = ScreenshotOptions) {
             MetroTheme(LauncherSettings()) {
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
-                    PaidTilesPanel(
+                    MetroPlusPanel(
                         unlocked = true, price = null, assistantApp = claude, icons = icons, monochrome = true,
                         onBuy = {}, onAdd = { _, _ -> }, modifier = Modifier.align(Alignment.BottomCenter),
                         // The end of the quick settings section and the assistant section below it.

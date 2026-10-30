@@ -36,12 +36,16 @@ class SearchState {
         private set
     var query by mutableStateOf("")
 
+    /** Where the cursor goes when [query] was replaced by a backspace on a keyword chip: right after the keyword. Null: the end. */
+    var queryCursor by mutableStateOf<Int?>(null)
+
     /** App whose long-press menu is open. */
     var menu by mutableStateOf<AppInfo?>(null)
 
     /** Opens the overlay with an empty field. */
     fun open() {
         query = ""
+        queryCursor = null
         menu = null
         isOpen = true
     }

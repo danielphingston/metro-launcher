@@ -180,6 +180,11 @@ class StartState(val scroll: ScrollState) {
         selectedId = id
     }
 
+    /** Enters edit mode with no tile selected, e.g. from a search action. */
+    fun startEditing() {
+        editing = true
+    }
+
     /** Folder currently expanded on the start screen, if any. */
     var openFolderId by mutableStateOf<Long?>(null)
 
@@ -293,6 +298,7 @@ fun StartScreen(
     val defaults by viewModel.defaults.collectAsStateWithLifecycle()
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
     val savedReply by viewModel.assistantReply.collectAsStateWithLifecycle()
+    val lastAsked by viewModel.lastAsked.collectAsStateWithLifecycle()
     val calendarGranted by viewModel.calendarGranted.collectAsStateWithLifecycle()
     val quickUnlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
     val tiles = loadedTiles.orEmpty()
@@ -322,13 +328,16 @@ fun StartScreen(
     // tiles it concerns, not the whole screen.
     val liveFor: (ResolvedTile) -> LiveContent? = { tile ->
         val key = tile.spec.appKey
-        if (tile.spec.content == TileContent.Assistant) {
+        if (tile.spec.content == TileContent.Assistant && !quickUnlocked) {
+            // After a refund the tile shows nothing of the assistant's replies or questions.
+            LiveContent.Assistant(AssistantModel(tile.label, 0, null, "", null))
+        } else if (tile.spec.content == TileContent.Assistant) {
             LiveContent.Assistant(
                 AssistantModel.of(
                     tile.label,
                     tile.app?.let { notifications[it.key.notificationKey] },
                     settings.showNotificationContent,
-                    settings.lastAsked,
+                    lastAsked,
                     savedReply,
                     tile.app?.key?.packageName,
                 ),
@@ -1124,7 +1133,7 @@ private fun activateTile(
         TileContent.Assistant -> when {
             !quickUnlocked -> android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
             tile.app != null -> launcher.launch(tile.app, bounds)
-            else -> launcher.start(SettingsActivity.intent(context, SettingsPage.QUICK_TILES), bounds)
+            else -> launcher.start(SettingsActivity.intent(context, SettingsPage.METRO_PLUS), bounds)
         }
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
     }
@@ -1144,7 +1153,7 @@ private fun AddTileMenu(
                 "weather" to { onAdd(TileContent.Weather, TileSize.WIDE) },
                 "photos" to { onAdd(TileContent.Photos, TileSize.WIDE) },
                 "people" to { onAdd(TileContent.People, TileSize.MEDIUM) },
-                "paid tiles" to onQuickSettings,
+                "metro plus" to onQuickSettings,
                 "widgets" to onWidgets,
             ),
             modifier = Modifier

@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -131,13 +132,24 @@ data class LauncherSettings(
     val liveTileFlips: Boolean = true,
     /** The average time (seconds) between one live tile flipping and the next. */
     val flipIntervalSeconds: Int = DEFAULT_FLIP_INTERVAL,
+    /** How many recent searches the empty search remembers and shows. */
+    val searchHistorySize: Int = DEFAULT_SEARCH_HISTORY,
     /** The start screen and app list lean while the pager is dragged between them. */
     val swingPages: Boolean = true,
     /** The assistant app: null while the user never chose, [AssistantChoice.OFF] for off, else a package; see [AssistantChoice.resolve]. */
     val assistant: String? = null,
-    /** The last question sent to an assistant from the search row. */
-    val lastAsked: LastAsked? = null,
+    /** The smart search features that are switched on; they only act while Metro Plus is unlocked. */
+    val smartFeatures: Set<SmartFeature> = SmartFeature.defaults,
+    /** The built-in apps "search in apps" offers; it only acts while that smart feature is on. */
+    val searchInApps: Set<SearchInApp> = SearchInApp.defaults,
+    /** Packages of other installed apps that accept a search and are switched on for "search in apps". */
+    val searchInOtherApps: Set<String> = emptySet(),
+    /** The search keywords ("a" for Amazon); they only act while the SEARCH_KEYWORDS smart feature is on. */
+    val searchKeywords: List<SearchKeyword> = SearchKeywords.defaults,
 ) {
+    /** Whether [feature]'s own switch is on (it still needs Metro Plus to show anything). */
+    fun smartOn(feature: SmartFeature): Boolean = feature in smartFeatures
+
     /** Whether the start screen shows the picked photo. */
     val showsPhoto: Boolean get() = background == StartBackground.PHOTO_TILES || background == StartBackground.PHOTO_FULL
 
@@ -191,6 +203,10 @@ data class LauncherSettings(
         const val MAX_TILT_DEGREES = 15
         const val DEFAULT_TILT_DEGREES = 9
 
+        const val MIN_SEARCH_HISTORY = 1
+        const val MAX_SEARCH_HISTORY = 25
+        const val DEFAULT_SEARCH_HISTORY = 5
+
         const val MIN_FLIP_INTERVAL = 2
         const val MAX_FLIP_INTERVAL = 15
         const val DEFAULT_FLIP_INTERVAL = 4
@@ -207,6 +223,7 @@ data class LauncherSettings(
         fun clampStartSidePadding(dp: Int) = dp.coerceIn(MIN_START_SIDE_PADDING, MAX_START_SIDE_PADDING)
         fun clampAnimationSpeed(percent: Int) = percent.coerceIn(MIN_ANIMATION_SPEED, MAX_ANIMATION_SPEED)
         fun clampTiltDegrees(degrees: Int) = degrees.coerceIn(MIN_TILT_DEGREES, MAX_TILT_DEGREES)
+        fun clampSearchHistory(count: Int) = count.coerceIn(MIN_SEARCH_HISTORY, MAX_SEARCH_HISTORY)
         fun clampFlipInterval(seconds: Int) = seconds.coerceIn(MIN_FLIP_INTERVAL, MAX_FLIP_INTERVAL)
 
         /** Colours are drawn as stored; a transparent one would be invisible, so force it opaque. */
@@ -261,10 +278,21 @@ class SettingsRepository(private val context: Context) {
         val tiltDegrees = intPreferencesKey("tilt_degrees")
         val liveTileFlips = booleanPreferencesKey("live_tile_flips")
         val flipInterval = intPreferencesKey("flip_interval")
+        val searchHistorySize = intPreferencesKey("search_history_size")
         val swingPages = booleanPreferencesKey("swing_pages")
         val assistant = stringPreferencesKey("assistant_package")
         val lastQuestion = stringPreferencesKey("assistant_last_question")
         val lastAskedAt = longPreferencesKey("assistant_last_asked_at")
+
+        /** One switch per smart search feature; a missing key means the feature's default. */
+        fun smart(feature: SmartFeature) = booleanPreferencesKey("smart_${feature.id}")
+
+        /** One switch per built-in "search in apps" app; a missing key means its default. */
+        fun searchInApp(app: SearchInApp) = booleanPreferencesKey("search_in_${app.id}")
+        val searchInOtherApps = stringSetPreferencesKey("search_in_other_apps")
+
+        /** The keywords as JSON (see [SearchKeywords.encode]); missing means the defaults. */
+        val searchKeywords = stringPreferencesKey("search_keywords")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -317,10 +345,14 @@ class SettingsRepository(private val context: Context) {
             liveTileFlips = this[Keys.liveTileFlips] ?: defaults.liveTileFlips,
             flipIntervalSeconds = this[Keys.flipInterval]?.let(LauncherSettings::clampFlipInterval)
                 ?: defaults.flipIntervalSeconds,
+            searchHistorySize = this[Keys.searchHistorySize]?.let(LauncherSettings::clampSearchHistory)
+                ?: defaults.searchHistorySize,
             swingPages = this[Keys.swingPages] ?: defaults.swingPages,
             assistant = this[Keys.assistant],
-            lastAsked = this[Keys.lastQuestion]?.takeIf { it.isNotBlank() }
-                ?.let { LastAsked(it, this[Keys.lastAskedAt] ?: 0L) },
+            smartFeatures = SmartFeature.entries.filterTo(LinkedHashSet()) { this[Keys.smart(it)] ?: it.defaultOn },
+            searchInApps = SearchInApp.entries.filterTo(LinkedHashSet()) { this[Keys.searchInApp(it)] ?: it.defaultOn },
+            searchInOtherApps = this[Keys.searchInOtherApps].orEmpty(),
+            searchKeywords = SearchKeywords.decode(this[Keys.searchKeywords]),
         )
     }
 
@@ -414,14 +446,55 @@ class SettingsRepository(private val context: Context) {
         it[Keys.flipInterval] = LauncherSettings.clampFlipInterval(seconds)
     }
 
+    suspend fun setSearchHistorySize(count: Int) = context.metroDataStore.edit {
+        it[Keys.searchHistorySize] = LauncherSettings.clampSearchHistory(count)
+    }
+
     /** [packageName] null switches the assistant off; a package chooses it. Either ends the automatic default. */
     suspend fun setAssistant(packageName: String?) =
         context.metroDataStore.edit { it[Keys.assistant] = packageName ?: AssistantChoice.OFF }
 
-    suspend fun setLastAsked(question: String, at: Long) = context.metroDataStore.edit {
-        it[Keys.lastQuestion] = AssistantIntents.storable(question)
-        it[Keys.lastAskedAt] = at
+    /**
+     * The question older versions kept here (in the backed-up store), removed as it is read: it now
+     * lives in [LastAskedStore]. Null when there is none.
+     */
+    suspend fun takeLegacyLastAsked(): LastAsked? {
+        var found: LastAsked? = null
+        context.metroDataStore.edit {
+            found = it[Keys.lastQuestion]?.takeIf { q -> q.isNotBlank() }?.let { q -> LastAsked(q, it[Keys.lastAskedAt] ?: 0L) }
+            it.remove(Keys.lastQuestion)
+            it.remove(Keys.lastAskedAt)
+        }
+        return found
     }
+
+    suspend fun setSmartFeature(feature: SmartFeature, enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.smart(feature)] = enabled }
+
+    suspend fun setSearchInApp(app: SearchInApp, enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.searchInApp(app)] = enabled }
+
+    suspend fun setSearchInOtherApp(packageName: String, enabled: Boolean) = context.metroDataStore.edit {
+        val current = it[Keys.searchInOtherApps].orEmpty()
+        it[Keys.searchInOtherApps] = if (enabled) current + packageName else current - packageName
+    }
+
+    suspend fun setSearchKeywords(keywords: List<SearchKeyword>) =
+        context.metroDataStore.edit { it[Keys.searchKeywords] = SearchKeywords.encode(keywords) }
+
+    /** The keyword changes below read and write inside one edit, so quick successive changes never overwrite each other. */
+    private suspend fun editKeywords(change: (List<SearchKeyword>) -> List<SearchKeyword>) = context.metroDataStore.edit {
+        it[Keys.searchKeywords] = SearchKeywords.encode(change(SearchKeywords.decode(it[Keys.searchKeywords])))
+    }
+
+    /** Saves [saved] in place of the keyword typed as [original], or adds it when [original] is null. */
+    suspend fun saveSearchKeyword(original: String?, saved: SearchKeyword) = editKeywords { SearchKeywords.upsert(it, original, saved) }
+
+    suspend fun deleteSearchKeyword(keyword: String) = editKeywords { SearchKeywords.remove(it, keyword) }
+
+    suspend fun setSearchKeywordEnabled(keyword: String, enabled: Boolean) = editKeywords { SearchKeywords.setEnabled(it, keyword, enabled) }
+
+    suspend fun resetSearchKeywords() = context.metroDataStore.edit { it.remove(Keys.searchKeywords) }
 
     suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }
 

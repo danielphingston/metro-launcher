@@ -152,7 +152,7 @@ object ShortcutTiles {
 
     internal fun serialOf(context: Context, user: UserHandle): Long = UserSerials.of(context, user)
 
-    private fun userFor(context: Context, serial: Long): UserHandle? =
+    internal fun userFor(context: Context, serial: Long): UserHandle? =
         context.getSystemService(UserManager::class.java).getUserForSerialNumber(serial)
 
     private fun hasHostPermission(launcherApps: LauncherApps): Boolean =

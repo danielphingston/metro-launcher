@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Settings and the tile layout (the "metro" datastore) are backed up. Left out: the crash report,
      file caches (icons, weather, people; the cache dir is never backed up), and billing state, which Play re-derives on the new device
-     instead of trusting a copied "owned" flag. The assistant tile's saved last reply lives in noBackupFilesDir, which
+     instead of trusting a copied "owned" flag, and the search history (recent searches and launch counts stay on the phone). The assistant tile's saved last reply lives in noBackupFilesDir, which
      Android never backs up or transfers, so it needs no rule here. -->
 <data-extraction-rules>
     <cloud-backup>
@@ -10,6 +10,7 @@
         <exclude domain="file" path="icon_cache" />
         <exclude domain="file" path="weather_cache" />
         <exclude domain="file" path="people_cache" />
+        <exclude domain="sharedpref" path="search_history.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="last_crash.txt" />
@@ -17,5 +18,6 @@
         <exclude domain="file" path="icon_cache" />
         <exclude domain="file" path="weather_cache" />
         <exclude domain="file" path="people_cache" />
+        <exclude domain="sharedpref" path="search_history.xml" />
     </device-transfer>
 </data-extraction-rules>

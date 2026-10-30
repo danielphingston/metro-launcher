@@ -37,7 +37,7 @@ class SettingsScreenshotTest {
     fun tiles() = capture("settings_tiles", SettingsPage.TILES)
 
     @Test
-    fun quickTiles() = capture("settings_quick_tiles", SettingsPage.QUICK_TILES)
+    fun metroPlus() = capture("settings_metro_plus", SettingsPage.METRO_PLUS)
 
     @Test
     fun about() = capture("settings_about", SettingsPage.ABOUT)

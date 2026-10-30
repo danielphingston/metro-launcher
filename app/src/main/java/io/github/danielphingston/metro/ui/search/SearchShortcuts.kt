@@ -2,6 +2,8 @@ package io.github.danielphingston.metro.ui.search
 
 import android.content.Context
 import android.content.pm.LauncherApps
+import android.os.UserHandle
+import android.os.UserManager
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -14,6 +16,23 @@ class ShortcutHit(
     val shortLabel: String,
     val longLabel: String?,
 )
+
+/**
+ * What one read of the system's shortcuts found. [complete] is false when something could not be
+ * read (a locked or paused profile, not the default home app), so the result is not worth caching.
+ */
+internal class ShortcutLoad<T>(val hits: List<T>, val complete: Boolean)
+
+/**
+ * Whether [user]'s shortcuts can be read now: a locked or paused (quiet mode) work profile makes
+ * the query throw, so it is skipped instead of costing the personal profile's results.
+ */
+internal fun shortcutsReadable(context: Context, user: UserHandle): Boolean = try {
+    val users = context.getSystemService(UserManager::class.java)
+    users.isUserUnlocked(user) && !users.isQuietModeEnabled(user)
+} catch (_: RuntimeException) {
+    false
+}
 
 /**
  * The app shortcuts on the phone, read from the system when a search needs them and kept for
@@ -36,9 +55,13 @@ internal class ShortcutIndex(
 
     /** Up to [limit] shortcuts whose short or long label matches [query]. Suspends off the main thread. */
     suspend fun search(query: String, limit: Int = MAX_HITS): List<ShortcutHit> = withContext(Dispatchers.Default) {
-        val hits = all?.takeIf { clock() - loadedAt < ttlMillis } ?: load().also {
-            all = it
-            loadedAt = clock()
+        val hits = all?.takeIf { clock() - loadedAt < ttlMillis } ?: load().let { loaded ->
+            // A partial read (a profile that was locked) is used once but not kept, so the next search retries.
+            if (loaded.complete) {
+                all = loaded.hits
+                loadedAt = clock()
+            }
+            loaded.hits
         }
         SearchRanking.top(hits, query, limit) { listOfNotNull(it.shortLabel, it.longLabel) }.map { it.item }
     }
@@ -48,28 +71,41 @@ internal class ShortcutIndex(
         all = null
     }
 
-    private fun load(): List<ShortcutHit> {
+    private fun load(): ShortcutLoad<ShortcutHit> {
         val launcherApps = context.getSystemService(LauncherApps::class.java)
-        return try {
-            if (!launcherApps.hasShortcutHostPermission()) return emptyList()
-            val query = LauncherApps.ShortcutQuery().setQueryFlags(
-                LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
-                    LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
-                    LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED,
-            )
-            launcherApps.profiles.flatMap { user ->
-                val serial = ShortcutTiles.serialOf(context, user)
-                launcherApps.getShortcuts(query, user).orEmpty().mapNotNull { info ->
-                    val short = info.shortLabel?.toString()?.trim().orEmpty()
-                    if (!info.isEnabled || short.isEmpty()) return@mapNotNull null
-                    ShortcutHit(info.`package`, info.id, serial, short, info.longLabel?.toString()?.trim()?.takeIf { it.isNotEmpty() })
+        val query = LauncherApps.ShortcutQuery().setQueryFlags(
+            LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
+                LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
+                LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED,
+        )
+        val hits = ArrayList<ShortcutHit>()
+        var complete = true
+        try {
+            if (!launcherApps.hasShortcutHostPermission()) return ShortcutLoad(emptyList(), false) // Not the default home app.
+            for (user in launcherApps.profiles) {
+                if (!shortcutsReadable(context, user)) {
+                    complete = false
+                    continue
                 }
-            }.distinctBy { Triple(it.packageName, it.id, it.userSerial) }
+                val serial = ShortcutTiles.serialOf(context, user)
+                try {
+                    launcherApps.getShortcuts(query, user).orEmpty().mapNotNullTo(hits) { info ->
+                        val short = info.shortLabel?.toString()?.trim().orEmpty()
+                        if (!info.isEnabled || short.isEmpty()) return@mapNotNullTo null
+                        ShortcutHit(info.`package`, info.id, serial, short, info.longLabel?.toString()?.trim()?.takeIf { it.isNotEmpty() })
+                    }
+                } catch (_: SecurityException) {
+                    complete = false
+                } catch (_: IllegalStateException) {
+                    complete = false // The user got locked meanwhile.
+                }
+            }
         } catch (_: SecurityException) {
-            emptyList() // Not the default home app.
+            return ShortcutLoad(emptyList(), false)
         } catch (_: IllegalStateException) {
-            emptyList() // The user is locked.
+            return ShortcutLoad(emptyList(), false)
         }
+        return ShortcutLoad(hits.distinctBy { Triple(it.packageName, it.id, it.userSerial) }, complete)
     }
 
     companion object {

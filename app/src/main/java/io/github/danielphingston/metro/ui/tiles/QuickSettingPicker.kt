@@ -54,7 +54,7 @@ private fun QuickSettingKind.action(): String = when (this) {
     else -> "tap to open the settings"
 }
 
-/** Flyout panel listing the paid tiles with live previews. While locked, choosing one offers the purchase instead. */
+/** Flyout panel listing the Metro Plus tiles with live previews. While locked, choosing one offers the purchase instead. */
 @Composable
 fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
@@ -72,7 +72,7 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
 
     BackHandler(onBack = onDismiss)
     MetroFlyout(onDismiss) {
-        PaidTilesPanel(
+        MetroPlusPanel(
             unlocked = unlocked,
             price = price,
             assistantApp = app,
@@ -88,9 +88,9 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     }
 }
 
-/** The picker's panel without the view model: a "quick settings" section and an "assistant" section. */
+/** The picker's panel without the view model: a "quick settings tiles" section and an "assistant" section. */
 @Composable
-internal fun PaidTilesPanel(
+internal fun MetroPlusPanel(
     unlocked: Boolean,
     price: String?,
     assistantApp: AppInfo?,
@@ -116,25 +116,25 @@ internal fun PaidTilesPanel(
         ),
     ) {
         item {
-            MetroText("paid tiles", MetroType.pageTitle, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
+            MetroText("metro plus", MetroType.pageTitle, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
         }
         if (!unlocked) {
             item {
                 MetroText(
-                    price?.let { "unlock paid tiles — $it" } ?: "not available yet",
+                    price?.let { "unlock metro plus — $it" } ?: "not available yet",
                     MetroType.sectionTitle,
                     color = Metro.colors.accent,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .then(if (price != null) Modifier.metroTilt().clickable(onClickLabel = "unlock paid tiles", onClick = onBuy) else Modifier)
+                        .then(if (price != null) Modifier.metroTilt().clickable(onClickLabel = "unlock metro plus", onClick = onBuy) else Modifier)
                         .padding(horizontal = 24.dp, vertical = 16.dp),
                 )
             }
         }
-        item { SectionTitle("quick settings") }
+        item { SectionTitle("quick settings tiles") }
         items(QuickSettingKind.entries, key = { it.id }) { kind ->
             PickerRow(
-                onClickLabel = if (unlocked) "add ${kind.label}" else "unlock paid tiles",
+                onClickLabel = if (unlocked) "add ${kind.label}" else "unlock metro plus",
                 onClick = { if (unlocked) onAdd(TileContent.QuickSetting(kind), TileSize.MEDIUM) else onBuy() },
                 preview = { QuickSettingFace(kind, TileSize.SMALL, kind.label, PreviewSize, Modifier.size(PreviewSize)) },
                 title = kind.label,
@@ -144,7 +144,7 @@ internal fun PaidTilesPanel(
         item { SectionTitle("assistant") }
         item {
             PickerRow(
-                onClickLabel = if (unlocked) "add assistant tile" else "unlock paid tiles",
+                onClickLabel = if (unlocked) "add assistant tile" else "unlock metro plus",
                 onClick = { if (unlocked) onAdd(TileContent.Assistant, TileSize.WIDE) else onBuy() },
                 preview = {
                     val tile = ResolvedTile(

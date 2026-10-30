@@ -18,7 +18,12 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.SearchEngine
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.NotificationPreview
-import io.github.danielphingston.metro.ui.search.AssistantTarget
+import io.github.danielphingston.metro.ui.search.AskAssistantProvider
+import io.github.danielphingston.metro.ui.search.ProvidedItems
+import io.github.danielphingston.metro.ui.search.SearchContext
+import kotlinx.coroutines.runBlocking
+import org.robolectric.RuntimeEnvironment
+import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.ui.search.SearchRow
 import io.github.danielphingston.metro.ui.search.searchRows
 import org.json.JSONArray
@@ -171,12 +176,19 @@ class AssistantTest {
     }
 
     @Test
-    fun searchRowAsksTheAssistantAfterTheWebRowOnlyWithAQuery() {
-        val target = AssistantTarget(app(claude, "Claude"), "Claude")
-        val rows = searchRows(emptyList(), "why", emptyList(), SearchEngine.GOOGLE, 0L, target)
-        assertTrue(rows.last() is SearchRow.Assistant)
+    fun askRowComesAfterTheWebRowOnlyWithAQueryAndAnAssistant() {
+        val apps = listOf(app(claude, "Claude"))
+        val ask = runBlocking {
+            AskAssistantProvider.results("why", SearchContext(RuntimeEnvironment.getApplication(), apps, LauncherSettings(assistant = claude)))
+        }
+        assertEquals(listOf("ask Claude"), ask.map { it.title })
+        val provided = listOf(ProvidedItems(AskAssistantProvider, ask))
+        val rows = searchRows(emptyList(), "why", emptyList(), SearchEngine.GOOGLE, 0L, provided)
+        assertTrue(rows.last() is SearchRow.Item)
         assertTrue(rows[rows.size - 2] is SearchRow.Web)
-        assertTrue(searchRows(emptyList(), "", emptyList(), SearchEngine.GOOGLE, 0L, target).none { it is SearchRow.Assistant })
-        assertTrue(searchRows(emptyList(), "why", emptyList(), SearchEngine.GOOGLE, 0L, null).none { it is SearchRow.Assistant })
+        assertTrue(searchRows(emptyList(), "", emptyList(), SearchEngine.GOOGLE, 0L, provided).none { it is SearchRow.Item })
+        // No assistant chosen (or one that is gone): no row.
+        val none = runBlocking { AskAssistantProvider.results("why", SearchContext(RuntimeEnvironment.getApplication(), apps, LauncherSettings(assistant = AssistantChoice.OFF))) }
+        assertTrue(none.isEmpty())
     }
 }
