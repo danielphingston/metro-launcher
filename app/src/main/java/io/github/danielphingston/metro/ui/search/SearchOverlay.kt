@@ -70,6 +70,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.HistoryRules
 import io.github.danielphingston.metro.data.IconCache
+import io.github.danielphingston.metro.data.SearchKeywords
 import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.data.SearchEngine
 import io.github.danielphingston.metro.data.TileContent
@@ -90,6 +91,9 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
 import kotlinx.coroutines.delay
+
+/** The chip at the start of the search box while a search keyword is active. */
+internal class KeywordChipState(val label: String, val icon: SearchIcon)
 
 /** A line in the search results. */
 internal sealed interface SearchRow {
@@ -131,6 +135,11 @@ internal sealed interface SearchRow {
         override val key get() = "clear-history"
     }
 
+    /** The highlighted first row of a search keyword; Enter runs it. [replacesWeb] when it is the web search itself. */
+    data class Keyword(val item: SearchItem, val replacesWeb: Boolean) : SearchRow {
+        override val key get() = "keyword"
+    }
+
     /** A row made by a [SearchProvider]; [provider] is its id. */
     data class Item(val provider: String, val item: SearchItem, val placement: Placement) : SearchRow {
         override val key get() = "p:$provider:${item.key}"
@@ -149,6 +158,8 @@ internal data class Suggestions(val apps: List<AppInfo>, val searches: List<Stri
  * quick actions), an "open" row when it looks like an address, matching [apps] and [shortcuts]
  * under their captions, the [Placement.MIDDLE] provider rows, the web search, then the
  * [Placement.BOTTOM] provider rows (ask assistant). With nothing typed, the "recently added" apps.
+ * A search [keyword] puts its highlighted row first of all; the web row below still opens the
+ * browser (unless the keyword is the web search itself, which is then that very row).
  */
 internal fun searchRows(
     apps: List<AppInfo>,
@@ -158,6 +169,7 @@ internal fun searchRows(
     now: Long,
     provided: List<ProvidedItems> = emptyList(),
     suggestions: Suggestions? = null,
+    keyword: KeywordRow? = null,
 ): List<SearchRow> {
     val q = query.trim()
     if (q.isEmpty() && suggestions != null && !suggestions.isEmpty) {
@@ -187,6 +199,7 @@ internal fun searchRows(
             group.provider.section?.let { add(SearchRow.Caption(it)) }
             items.forEach { add(SearchRow.Item(group.provider.id, it, placement)) }
         }
+        keyword?.let { add(SearchRow.Keyword(it.item, it.isWeb)) }
         addProvided(Placement.TOP)
         if (WebSearch.looksLikeUrl(q)) add(SearchRow.OpenUrl(WebSearch.toUrl(q), q))
         val matches = SearchRanking.top(apps, q, MAX_APPS) { listOf(it.label) }
@@ -201,19 +214,22 @@ internal fun searchRows(
             }
         }
         addProvided(Placement.MIDDLE)
-        add(SearchRow.Caption("web"))
-        add(SearchRow.Web(q, engine))
+        if (keyword?.isWeb != true) {
+            add(SearchRow.Caption("web"))
+            add(SearchRow.Web(q, engine))
+        }
         addProvided(Placement.BOTTOM)
     }
 }
 
 /**
- * What Search or Enter opens: the answer of a top provider (a sum, a timer) when there is one,
+ * What Search or Enter opens: the search keyword's row when one is active, else the answer of a top provider (a sum, a timer) when there is one,
  * else the first app when it is an exact or prefix match, else the address when the query is
  * one, else the web search. Null with nothing typed.
  */
 internal fun topResult(rows: List<SearchRow>): SearchRow? =
-    rows.firstOrNull { it is SearchRow.Item && it.placement == Placement.TOP }
+    rows.firstOrNull { it is SearchRow.Keyword }
+        ?: rows.firstOrNull { it is SearchRow.Item && it.placement == Placement.TOP }
         ?: rows.firstOrNull { it is SearchRow.App && it.rank <= SearchRanking.PREFIX }
         ?: rows.firstOrNull { it is SearchRow.OpenUrl }
         ?: rows.firstOrNull { it is SearchRow.Web }
@@ -243,7 +259,13 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     val apps by viewModel.apps.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val colors = Metro.colors
-    val query = state.query
+    // Metro Plus features: only the providers that are unlocked and switched on are asked at all.
+    val unlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
+    // A search keyword ("a cats") takes over the box as a chip; everything below then looks for the rest ("cats").
+    val keywordMatch = SearchKeywords.detect(
+        state.query, settings.searchKeywords, active = unlocked && settings.smartOn(SmartFeature.SEARCH_KEYWORDS),
+    )
+    val query = keywordMatch?.rest ?: state.query
 
     // Shortcuts come from a binder call, so they follow the typing after a short pause.
     val index = remember { ShortcutIndex.shared(context) }
@@ -256,8 +278,6 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     }
     // Hits of an earlier query are ignored even in the frame before the reset above.
     val shortcuts = found?.takeIf { it.first == query }?.second.orEmpty()
-    // Metro Plus features: only the providers that are unlocked and switched on are asked at all.
-    val unlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
     val providers = remember(settings.smartFeatures, unlocked) { SearchProviders.active(settings, unlocked) }
     val searchContext = remember(context, apps, settings) { SearchContext(context, apps, settings) }
     val provided = rememberProviderResults(providers, query, searchContext)
@@ -266,8 +286,14 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     val suggestions = remember(apps, history, suggestionsOn) {
         if (suggestionsOn) Suggestions(HistoryRules.mostUsed(apps, history), history.searches) else null
     }
-    val rows = remember(apps, query, shortcuts, settings.searchEngine, provided, suggestions) {
-        searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), provided, suggestions)
+    val keywordRow = remember(keywordMatch, searchContext) {
+        keywordMatch?.let { KeywordRows.build(it, searchContext, RealSearchInPhone(context)) }
+    }
+    val rows = remember(apps, query, shortcuts, settings.searchEngine, provided, suggestions, keywordRow) {
+        searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), provided, suggestions, keywordRow)
+    }
+    val chip = keywordMatch?.let {
+        KeywordChipState(KeywordRows.chipLabel(it.entry.target, apps, settings.assistant), KeywordRows.icon(it.entry.target, apps, settings.assistant))
     }
 
     val focusRequester = remember { FocusRequester() }
@@ -314,6 +340,7 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
                 WebSearch.open(context, row.url, screenBounds, options, inBrowser = true)
             }
             is SearchRow.Item -> perform(row.item.action, bounds)
+            is SearchRow.Keyword -> perform(row.item.action, bounds)
             is SearchRow.Caption, is SearchRow.RecentSearch, SearchRow.ClearHistory -> Unit
         }
     }
@@ -327,7 +354,9 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     ) {
         SearchContent(
             query = query,
-            onQueryChange = { state.query = it },
+            onQueryChange = { state.query = if (keywordMatch != null) SearchKeywords.withRest(keywordMatch, it) else it },
+            chip = chip,
+            onChipBackspace = { keywordMatch?.let { state.query = SearchKeywords.withoutChip(it) } },
             onSubmit = { topResult(rows)?.let { activate(it, null) } },
             rows = rows,
             icons = viewModel.icons,
@@ -378,6 +407,8 @@ internal fun SearchContent(
     onLongClick: (AppInfo, Rect) -> Unit,
     onDismiss: () -> Unit,
     onButton: (ItemAction) -> Unit = {},
+    chip: KeywordChipState? = null,
+    onChipBackspace: () -> Unit = {},
 ) {
     val colors = Metro.colors
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
@@ -386,6 +417,8 @@ internal fun SearchContent(
             onQueryChange,
             onSubmit,
             Modifier.swipeUpToClose(onDismiss).focusRequester(focusRequester).semantics { contentDescription = "search" },
+            chip = chip?.let { { KeywordChip(it.label, it.icon, icons) } },
+            onChipBackspace = onChipBackspace,
         )
         val list = rememberLazyListState()
         // Swiping up past the end of the results (or with nothing to scroll) closes the panel too.
@@ -446,6 +479,14 @@ internal fun SearchContent(
                                 .padding(vertical = 8.dp),
                         )
                         is SearchRow.Item -> ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, onButton)
+                        is SearchRow.Keyword -> Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                                .background(colors.accent.copy(alpha = 0.2f))
+                                .drawBehind { drawRect(colors.accent, size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height)) }
+                                .padding(start = 12.dp, end = 4.dp),
+                        ) { ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, onButton) }
                     }
                 }
             }

@@ -109,6 +109,27 @@ internal object SearchInApps {
         return found.values.sortedBy { it.label.lowercase(Locale.ROOT) }
     }
 
+    /**
+     * The intent that searches [app] for [query], or null when it can't be done: the app is
+     * missing and no web page stands in for it. YouTube and Amazon fall back to their websites.
+     */
+    fun intentFor(app: SearchInApp, query: String, phone: SearchInPhone, locale: Locale): Intent? = when (app) {
+        SearchInApp.YOUTUBE ->
+            SearchInIntents.youtubeApp(query).takeIf { phone.resolves(it) } ?: SearchInIntents.youtubeWeb(query)
+        SearchInApp.PLAY_STORE -> SearchInIntents.playStore(query).takeIf { phone.resolves(it) }
+        SearchInApp.MAPS -> SearchInIntents.maps(query).takeIf { phone.resolves(it) }
+        SearchInApp.SPOTIFY -> SearchInIntents.spotify(query).takeIf { phone.resolves(it) }
+        SearchInApp.AMAZON -> {
+            val domain = phone.amazonDomain(locale)
+            SearchInIntents.amazon(query, domain, app = true).takeIf { phone.resolves(it) }
+                ?: SearchInIntents.amazon(query, domain, app = false)
+        }
+    }
+
+    /** The intent for an installed app that takes a search (ACTION_SEARCH, else ACTION_WEB_SEARCH), or null if it takes neither. */
+    fun intentForOther(packageName: String, query: String, phone: SearchInPhone): Intent? =
+        listOf(false, true).map { SearchInIntents.other(packageName, query, it) }.firstOrNull { phone.resolves(it) }
+
     /** The title of a row: "search YouTube for 'cats'". */
     fun title(label: String, query: String) = "search $label for “$query”"
 }
@@ -134,19 +155,7 @@ internal class SearchInAppsProvider(
 
         for (app in SearchInApp.entries) {
             if (app !in ctx.settings.searchInApps) continue
-            val intent = when (app) {
-                SearchInApp.YOUTUBE ->
-                    SearchInIntents.youtubeApp(query).takeIf { phone.resolves(it) }
-                        ?: SearchInIntents.youtubeWeb(query)
-                SearchInApp.PLAY_STORE -> SearchInIntents.playStore(query).takeIf { phone.resolves(it) }
-                SearchInApp.MAPS -> SearchInIntents.maps(query).takeIf { phone.resolves(it) }
-                SearchInApp.SPOTIFY -> SearchInIntents.spotify(query).takeIf { phone.resolves(it) }
-                SearchInApp.AMAZON -> {
-                    val domain = phone.amazonDomain(ctx.locale)
-                    SearchInIntents.amazon(query, domain, app = true).takeIf { phone.resolves(it) }
-                        ?: SearchInIntents.amazon(query, domain, app = false)
-                }
-            } ?: continue
+            val intent = SearchInApps.intentFor(app, query, phone, ctx.locale) ?: continue
             items += SearchItem(
                 key = app.id,
                 title = SearchInApps.title(app.label, query),

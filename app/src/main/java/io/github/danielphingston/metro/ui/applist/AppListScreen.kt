@@ -328,7 +328,14 @@ internal fun AppListContent(
 
 /** The app list's search field; the search overlay reuses it. */
 @Composable
-internal fun SearchBox(query: String, onQueryChange: (String) -> Unit, onSubmit: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SearchBox(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onSubmit: () -> Unit,
+    modifier: Modifier = Modifier,
+    chip: (@Composable () -> Unit)? = null,
+    onChipBackspace: () -> Unit = {},
+) {
     SearchField(
         query = query,
         onQueryChange = onQueryChange,
@@ -336,6 +343,8 @@ internal fun SearchBox(query: String, onQueryChange: (String) -> Unit, onSubmit:
         modifier = modifier.turnstile(LocalTurnstile.current, "search"),
         padding = PaddingValues(start = ListStart, end = ListEnd, top = 12.dp, bottom = 8.dp),
         onSearch = onSubmit,
+        chip = chip,
+        onChipBackspace = onChipBackspace,
     )
 }
 

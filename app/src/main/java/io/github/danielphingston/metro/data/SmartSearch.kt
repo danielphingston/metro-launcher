@@ -26,6 +26,7 @@ enum class SmartFeature(
     WHATSAPP("whatsapp", "WhatsApp chats & groups", "open a chat or group by name; needs Metro as the default home app", true),
     SEARCH_IN_APPS("search_in_apps", "search in apps", "search YouTube, Play Store, Maps, Spotify, Amazon and other apps for what you typed", true),
     ASK_ASSISTANT("ask_assistant", "ask assistant", "send what you typed to your assistant app", true),
+    SEARCH_KEYWORDS("search_keywords", "search keywords", "start with a short word and a space, such as a for Amazon or yt for YouTube, to search there", true),
     ;
 
     companion object {

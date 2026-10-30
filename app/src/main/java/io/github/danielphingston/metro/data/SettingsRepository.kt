@@ -144,6 +144,8 @@ data class LauncherSettings(
     val searchInApps: Set<SearchInApp> = SearchInApp.defaults,
     /** Packages of other installed apps that accept a search and are switched on for "search in apps". */
     val searchInOtherApps: Set<String> = emptySet(),
+    /** The search keywords ("a" for Amazon); they only act while the SEARCH_KEYWORDS smart feature is on. */
+    val searchKeywords: List<SearchKeyword> = SearchKeywords.defaults,
 ) {
     /** Whether [feature]'s own switch is on (it still needs Metro Plus to show anything). */
     fun smartOn(feature: SmartFeature): Boolean = feature in smartFeatures
@@ -282,6 +284,9 @@ class SettingsRepository(private val context: Context) {
         /** One switch per built-in "search in apps" app; a missing key means its default. */
         fun searchInApp(app: SearchInApp) = booleanPreferencesKey("search_in_${app.id}")
         val searchInOtherApps = stringSetPreferencesKey("search_in_other_apps")
+
+        /** The keywords as JSON (see [SearchKeywords.encode]); missing means the defaults. */
+        val searchKeywords = stringPreferencesKey("search_keywords")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -341,6 +346,7 @@ class SettingsRepository(private val context: Context) {
             smartFeatures = SmartFeature.entries.filterTo(LinkedHashSet()) { this[Keys.smart(it)] ?: it.defaultOn },
             searchInApps = SearchInApp.entries.filterTo(LinkedHashSet()) { this[Keys.searchInApp(it)] ?: it.defaultOn },
             searchInOtherApps = this[Keys.searchInOtherApps].orEmpty(),
+            searchKeywords = SearchKeywords.decode(this[Keys.searchKeywords]),
         )
     }
 
@@ -453,6 +459,11 @@ class SettingsRepository(private val context: Context) {
         val current = it[Keys.searchInOtherApps].orEmpty()
         it[Keys.searchInOtherApps] = if (enabled) current + packageName else current - packageName
     }
+
+    suspend fun setSearchKeywords(keywords: List<SearchKeyword>) =
+        context.metroDataStore.edit { it[Keys.searchKeywords] = SearchKeywords.encode(keywords) }
+
+    suspend fun resetSearchKeywords() = context.metroDataStore.edit { it.remove(Keys.searchKeywords) }
 
     suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }
 

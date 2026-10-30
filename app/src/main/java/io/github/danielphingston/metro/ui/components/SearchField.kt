@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -33,6 +35,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import io.github.danielphingston.metro.data.ChipEdit
+import io.github.danielphingston.metro.data.SearchKeywords
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 
@@ -50,6 +54,11 @@ enum class SearchFieldStyle {
  * lookup). [placeholder] shows while empty and is also the field's accessibility label, so
  * screen readers announce what the empty field is for. [modifier] is applied before
  * [padding], so callers can attach turnstile or focus modifiers outside the padding.
+ *
+ * [chip] (slim style only) is drawn before the text, as a search keyword's target is. [query] is
+ * then only the text after the chip. The field keeps an invisible guard character in front of
+ * it, so a backspace at the start of the text, from a keyboard or the IME, is seen as a change
+ * and reported through [onChipBackspace] instead of doing nothing.
  */
 @Composable
 fun SearchField(
@@ -60,14 +69,26 @@ fun SearchField(
     style: SearchFieldStyle = SearchFieldStyle.SLIM,
     padding: PaddingValues = PaddingValues(0.dp),
     onSearch: (() -> Unit)? = null,
+    chip: (@Composable () -> Unit)? = null,
+    onChipBackspace: () -> Unit = {},
 ) {
     val colors = Metro.colors
     var focused by remember { mutableStateOf(false) }
     val slim = style == SearchFieldStyle.SLIM
     val textStyle: TextStyle = if (slim) MetroType.listItem else MetroType.body
+    val guarded = chip != null && slim
     BasicTextField(
-        value = query,
-        onValueChange = onQueryChange,
+        value = if (guarded) SearchKeywords.GUARD + query else query,
+        onValueChange = if (guarded) {
+            { raw ->
+                when (val edit = SearchKeywords.interpret(query, raw)) {
+                    is ChipEdit.Text -> onQueryChange(edit.rest)
+                    ChipEdit.Remove -> onChipBackspace()
+                }
+            }
+        } else {
+            onQueryChange
+        },
         singleLine = true,
         textStyle = textStyle.copy(color = colors.foreground),
         cursorBrush = SolidColor(colors.accent),
@@ -81,7 +102,7 @@ fun SearchField(
             .semantics { contentDescription = placeholder },
         decorationBox = { field ->
             val hint: @Composable () -> Unit = {
-                if (query.isEmpty()) {
+                if (query.isEmpty() && !guarded) {
                     MetroText(
                         placeholder,
                         textStyle,
@@ -101,9 +122,15 @@ fun SearchField(
                         .then(if (focused) Modifier.border(2.dp, colors.accent) else Modifier),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.weight(1f).padding(start = 12.dp), contentAlignment = Alignment.CenterStart) {
-                        hint()
-                        field()
+                    Row(Modifier.weight(1f).padding(start = if (guarded) 6.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (guarded) {
+                            chip?.invoke()
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                            hint()
+                            field()
+                        }
                     }
                     Box(
                         Modifier
