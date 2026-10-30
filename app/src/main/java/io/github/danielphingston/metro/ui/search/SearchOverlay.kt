@@ -348,7 +348,7 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
 
     fun activate(row: SearchRow, bounds: Rect?) {
         // The history rows stay in the panel: one types the search again, the other wipes the history.
-        if (row is SearchRow.RecentSearch) { state.query = row.text; return }
+        if (row is SearchRow.RecentSearch) { state.queryCursor = null; state.query = row.text; return }
         if (row is SearchRow.ClearHistory) { viewModel.clearSearchHistory(); return }
         // What was typed is worth remembering once it led somewhere: only after the launch really started.
         val onStarted = { if (recordsSearch(row)) viewModel.recordSearch(query) }
@@ -380,9 +380,19 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     ) {
         SearchContent(
             query = query,
-            onQueryChange = { state.query = if (keywordMatch != null) SearchKeywords.withRest(keywordMatch, it) else it },
+            onQueryChange = {
+                state.queryCursor = null
+                state.query = if (keywordMatch != null) SearchKeywords.withRest(keywordMatch, it) else it
+            },
             chip = chip,
-            onChipBackspace = { keywordMatch?.let { state.query = SearchKeywords.withoutChip(it) } },
+            onChipBackspace = {
+                keywordMatch?.let {
+                    // "yt cats" becomes "ytcats" with the cursor right after "yt", not somewhere inside it.
+                    state.queryCursor = SearchKeywords.cursorAfterChipRemoval(it)
+                    state.query = SearchKeywords.withoutChip(it)
+                }
+            },
+            cursorAfterReset = state.queryCursor,
             onSubmit = { topResult(rows)?.let { activate(it, null) } },
             rows = rows,
             icons = viewModel.icons,
@@ -435,6 +445,7 @@ internal fun SearchContent(
     onButton: (ItemAction) -> Unit = {},
     chip: KeywordChipState? = null,
     onChipBackspace: () -> Unit = {},
+    cursorAfterReset: Int? = null,
 ) {
     val colors = Metro.colors
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
@@ -445,6 +456,7 @@ internal fun SearchContent(
             Modifier.swipeUpToClose(onDismiss).focusRequester(focusRequester).semantics { contentDescription = "search" },
             chip = chip?.let { { KeywordChip(it.label, it.icon, icons) } },
             onChipBackspace = onChipBackspace,
+            cursorAfterReset = cursorAfterReset,
         )
         val list = rememberLazyListState()
         // Swiping up past the end of the results (or with nothing to scroll) closes the panel too.

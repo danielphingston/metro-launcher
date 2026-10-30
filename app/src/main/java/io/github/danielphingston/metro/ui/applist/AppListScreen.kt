@@ -335,6 +335,7 @@ internal fun SearchBox(
     modifier: Modifier = Modifier,
     chip: (@Composable () -> Unit)? = null,
     onChipBackspace: () -> Unit = {},
+    cursorAfterReset: Int? = null,
 ) {
     SearchField(
         query = query,
@@ -345,6 +346,7 @@ internal fun SearchBox(
         onSearch = onSubmit,
         chip = chip,
         onChipBackspace = onChipBackspace,
+        cursorAfterReset = cursorAfterReset,
     )
 }
 

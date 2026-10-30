@@ -134,6 +134,24 @@ class SearchKeywordsTest {
         assertEquals(ChipEdit.Text("hi"), SearchKeywords.interpret("cats", "hi"))
     }
 
+    @Test
+    fun zeroWidthCharactersAreStrippedFromWhatIsTypedOrPasted() {
+        val g = SearchKeywords.GUARD
+        assertEquals("cats", SearchKeywords.stripZeroWidth("ca${g}ts"))
+        assertEquals("ab", SearchKeywords.stripZeroWidth("a\u200Cb\u200D\u2060\uFEFF"))
+        assertEquals("plain text", SearchKeywords.stripZeroWidth("plain text"))
+        assertEquals(ChipEdit.Text("cats"), SearchKeywords.interpret("x", "${g}ca${g}ts"))
+        assertEquals(ChipEdit.Text("cats"), SearchKeywords.interpret("x", "ca${g}ts"))
+    }
+
+    @Test
+    fun cursorLandsRightAfterTheKeywordWhenTheChipTurnsBackIntoLetters() {
+        val match = detect("yt cats")!!
+        val text = SearchKeywords.withoutChip(match)
+        assertEquals("ytcats", text)
+        assertEquals("yt", text.substring(0, SearchKeywords.cursorAfterChipRemoval(match)))
+    }
+
     // --- keyword rules ---------------------------------------------------------------------
 
     @Test

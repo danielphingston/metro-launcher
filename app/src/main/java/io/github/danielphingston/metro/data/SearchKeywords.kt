@@ -77,6 +77,12 @@ object SearchKeywords {
     /** Stands in front of the text next to the chip so that backspace at its start has something to delete (and the keyboard something to report). */
     const val GUARD = '​'
 
+    /** The characters that are invisible in the field: the guard and its relatives, which a paste could bring along. */
+    private val zeroWidth = Regex("[\u200B\u200C\u200D\u2060\uFEFF]")
+
+    /** [text] without zero-width characters, so a pasted or copied guard never reaches a URL, the history or the calculator. */
+    fun stripZeroWidth(text: String): String = if (text.any { zeroWidth.matches(it.toString()) }) zeroWidth.replace(text, "") else text
+
     val defaults: List<SearchKeyword> = listOf(
         SearchKeyword("a", KeywordTarget.BuiltIn(SearchInApp.AMAZON)),
         SearchKeyword("yt", KeywordTarget.BuiltIn(SearchInApp.YOUTUBE)),
@@ -124,8 +130,27 @@ object SearchKeywords {
     /** The query once the chip is typed over [match] with [rest]: the keyword as typed, a space, the text. */
     fun withRest(match: KeywordMatch, rest: String): String = match.typed + " " + rest
 
+    /**
+     * [list] with the entry typed as [original] replaced by [saved], or [saved] added at the end when [original] is null
+     * or no longer there. Keyed by the keyword, not by identity, so a list that changed meanwhile still takes the edit.
+     */
+    fun upsert(list: List<SearchKeyword>, original: String?, saved: SearchKeyword): List<SearchKeyword> {
+        val at = original?.let { o -> list.indexOfFirst { it.keyword.equals(o, ignoreCase = true) } } ?: -1
+        return if (at >= 0) list.toMutableList().also { it[at] = saved } else list + saved
+    }
+
+    /** [list] without the entry typed as [keyword]; unchanged when it is gone already. */
+    fun remove(list: List<SearchKeyword>, keyword: String): List<SearchKeyword> = list.filterNot { it.keyword.equals(keyword, ignoreCase = true) }
+
+    /** [list] with the entry typed as [keyword] switched on or off. */
+    fun setEnabled(list: List<SearchKeyword>, keyword: String, enabled: Boolean): List<SearchKeyword> =
+        list.map { if (it.keyword.equals(keyword, ignoreCase = true)) it.copy(enabled = enabled) else it }
+
     /** The query once the chip turns back into letters: the keyword and the text, the space the backspace ate gone. */
     fun withoutChip(match: KeywordMatch): String = match.typed + match.rest
+
+    /** Where the cursor belongs in [withoutChip]'s text: right after the keyword that was a chip. */
+    fun cursorAfterChipRemoval(match: KeywordMatch): Int = match.typed.length
 
     /**
      * Reads what the field reports while a chip is showing. The field holds [GUARD] + [rest]; a
@@ -133,9 +158,9 @@ object SearchKeywords {
      * that loses the guard (a select-all delete, a paste over everything) just changes the text.
      */
     fun interpret(rest: String, raw: String): ChipEdit = when {
-        raw.startsWith(GUARD) -> ChipEdit.Text(raw.substring(1).replace(GUARD.toString(), ""))
+        raw.startsWith(GUARD) -> ChipEdit.Text(stripZeroWidth(raw.substring(1)))
         raw == rest -> ChipEdit.Remove
-        else -> ChipEdit.Text(raw.replace(GUARD.toString(), ""))
+        else -> ChipEdit.Text(stripZeroWidth(raw))
     }
 
     // --- storage ------------------------------------------------------------------------------
