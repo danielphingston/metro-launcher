@@ -123,4 +123,42 @@ internal object SearchGlyphs {
         drawLine(color, Offset(size.width * 0.25f, size.height * 0.7f), Offset(size.width * 0.25f, size.height * 0.92f), stroke, StrokeCap.Round)
         drawLine(color, Offset(size.width * 0.25f, size.height * 0.92f), Offset(size.width * 0.5f, size.height * 0.7f), stroke, StrokeCap.Round)
     }
+
+    /** A magnifier: search in an app. */
+    val search = glyph("search") { color ->
+        val r = size.minDimension * 0.32f
+        val c = Offset(size.width * 0.42f, size.height * 0.42f)
+        drawCircle(color, r, c, style = Stroke(stroke))
+        drawLine(color, Offset(c.x + r * 0.72f, c.y + r * 0.72f), Offset(size.width * 0.92f, size.height * 0.92f), stroke, StrokeCap.Round)
+    }
+
+    /** A head and shoulders: a person without a photo. */
+    val person = glyph("person") { color ->
+        drawCircle(color, size.minDimension * 0.2f, Offset(center.x, size.height * 0.3f), style = Stroke(stroke))
+        drawArc(
+            color, 180f, 180f, false,
+            topLeft = Offset(size.width * 0.12f, size.height * 0.55f),
+            size = Size(size.width * 0.76f, size.height * 0.8f),
+            style = Stroke(stroke, cap = StrokeCap.Round),
+        )
+    }
+
+    /** A speech bubble with a handset-like dash: WhatsApp buttons and chats. */
+    val chat = glyph("chat") { color ->
+        val c = Offset(center.x, size.height * 0.46f)
+        val r = size.minDimension * 0.4f
+        drawCircle(color, r, c, style = Stroke(stroke))
+        drawLine(color, Offset(size.width * 0.12f, size.height * 0.95f), Offset(size.width * 0.22f, size.height * 0.72f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(size.width * 0.12f, size.height * 0.95f), Offset(size.width * 0.38f, size.height * 0.83f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(c.x - r * 0.35f, c.y - r * 0.2f), Offset(c.x + r * 0.2f, c.y + r * 0.35f), stroke * 1.3f, StrokeCap.Round)
+    }
+
+    /** A calendar page with two rings and a header line. */
+    val calendar = glyph("calendar") { color ->
+        drawRect(color, Offset(size.width * 0.08f, size.height * 0.18f), Size(size.width * 0.84f, size.height * 0.74f), style = Stroke(stroke))
+        drawLine(color, Offset(size.width * 0.08f, size.height * 0.4f), Offset(size.width * 0.92f, size.height * 0.4f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(size.width * 0.3f, size.height * 0.05f), Offset(size.width * 0.3f, size.height * 0.28f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(size.width * 0.7f, size.height * 0.05f), Offset(size.width * 0.7f, size.height * 0.28f), stroke, StrokeCap.Round)
+        drawCircle(color, stroke * 0.7f, Offset(size.width * 0.34f, size.height * 0.62f))
+    }
 }

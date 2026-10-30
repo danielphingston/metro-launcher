@@ -23,9 +23,13 @@ import io.github.danielphingston.metro.data.LauncherSettings
 internal object SearchProviders {
     val all: List<SearchProvider> = listOf(
         CalculatorProvider,
-        QuickActionsProvider(),
+        QuickActionsProvider(ContactsPersonActions()),
         SettingsShortcutsProvider(),
         LauncherActionsProvider(),
+        ContactsProvider(),
+        WhatsAppProvider(),
+        CalendarProvider(),
+        SearchInAppsProvider(),
         AskAssistantProvider,
     )
 

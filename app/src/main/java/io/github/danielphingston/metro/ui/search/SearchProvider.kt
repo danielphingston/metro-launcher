@@ -69,6 +69,11 @@ data class SearchItem(
     val buttons: List<ItemButton> = emptyList(),
     /** Larger title, for an answer such as the calculator's. */
     val prominent: Boolean = false,
+    /**
+     * Set when the row is an app shortcut (see [WhatsAppMatcher.shortcutKey]): it is left out
+     * when the shortcuts section already lists that same shortcut.
+     */
+    val shortcutKey: String? = null,
 )
 
 /** The picture at the start of a row (or on a button). */

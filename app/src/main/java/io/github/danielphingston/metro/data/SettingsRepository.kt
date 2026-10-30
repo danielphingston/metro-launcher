@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -139,6 +140,10 @@ data class LauncherSettings(
     val lastAsked: LastAsked? = null,
     /** The smart search features that are switched on; they only act while Metro Plus is unlocked. */
     val smartFeatures: Set<SmartFeature> = SmartFeature.defaults,
+    /** The built-in apps "search in apps" offers; it only acts while that smart feature is on. */
+    val searchInApps: Set<SearchInApp> = SearchInApp.defaults,
+    /** Packages of other installed apps that accept a search and are switched on for "search in apps". */
+    val searchInOtherApps: Set<String> = emptySet(),
 ) {
     /** Whether [feature]'s own switch is on (it still needs Metro Plus to show anything). */
     fun smartOn(feature: SmartFeature): Boolean = feature in smartFeatures
@@ -273,6 +278,10 @@ class SettingsRepository(private val context: Context) {
 
         /** One switch per smart search feature; a missing key means the feature's default. */
         fun smart(feature: SmartFeature) = booleanPreferencesKey("smart_${feature.id}")
+
+        /** One switch per built-in "search in apps" app; a missing key means its default. */
+        fun searchInApp(app: SearchInApp) = booleanPreferencesKey("search_in_${app.id}")
+        val searchInOtherApps = stringSetPreferencesKey("search_in_other_apps")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -330,6 +339,8 @@ class SettingsRepository(private val context: Context) {
             lastAsked = this[Keys.lastQuestion]?.takeIf { it.isNotBlank() }
                 ?.let { LastAsked(it, this[Keys.lastAskedAt] ?: 0L) },
             smartFeatures = SmartFeature.entries.filterTo(LinkedHashSet()) { this[Keys.smart(it)] ?: it.defaultOn },
+            searchInApps = SearchInApp.entries.filterTo(LinkedHashSet()) { this[Keys.searchInApp(it)] ?: it.defaultOn },
+            searchInOtherApps = this[Keys.searchInOtherApps].orEmpty(),
         )
     }
 
@@ -434,6 +445,14 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setSmartFeature(feature: SmartFeature, enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.smart(feature)] = enabled }
+
+    suspend fun setSearchInApp(app: SearchInApp, enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.searchInApp(app)] = enabled }
+
+    suspend fun setSearchInOtherApp(packageName: String, enabled: Boolean) = context.metroDataStore.edit {
+        val current = it[Keys.searchInOtherApps].orEmpty()
+        it[Keys.searchInOtherApps] = if (enabled) current + packageName else current - packageName
+    }
 
     suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }
 

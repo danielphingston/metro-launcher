@@ -5,9 +5,9 @@
     <!-- Weather tile: forecast download (Open-Meteo) and approximate location. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- Optional: people tile. Requested only when the user adds it. -->
+    <!-- Optional: people tile and the contacts smart search. Requested only when the user adds the tile or switches the search on. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
-    <!-- Optional: live calendar tile. Requested only when the user enables it. -->
+    <!-- Optional: live calendar tile and the calendar smart search. Requested only when the user enables either. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- Lets the app list offer "uninstall" (system confirmation dialog still shown). -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
@@ -103,6 +103,33 @@
         </intent>
         <intent>
             <action android:name="android.intent.action.SET_WALLPAPER" />
+        </intent>
+        <!-- Smart search "search in apps" (Metro Plus): the built-in apps and the intents other apps
+             answer a search with. WhatsApp's packages are for chats and the contacts' WhatsApp button. -->
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.android.vending" />
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.amazon.mShop.android.shopping" />
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <intent>
+            <action android:name="android.intent.action.SEARCH" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.WEB_SEARCH" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="market" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="spotify" />
         </intent>
         <!-- Apps that provide widgets, so the widget picker can see and label them. -->
         <intent>

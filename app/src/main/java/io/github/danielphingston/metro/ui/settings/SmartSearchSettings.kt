@@ -26,11 +26,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.SearchInApp
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.MetroToggle
+import io.github.danielphingston.metro.ui.search.OtherSearchApp
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.launch
@@ -39,7 +41,9 @@ import kotlinx.coroutines.launch
  * The "smart search" section of the search settings. While Metro Plus is locked every feature is
  * listed with a lock and one button leads to the purchase; once unlocked each feature is a switch.
  * Calendar and contacts ask for their permission when switched on, like the tiles that use them.
- * [assistantReady] is whether an assistant app is chosen, which the ask row needs.
+ * [assistantReady] is whether an assistant app is chosen, which the ask row needs. "Search in
+ * apps" lists the apps it can search under its own switch; [otherSearchApps] are the installed
+ * apps beyond the built-in ones that accept a search.
  */
 @Composable
 internal fun SmartSearchSection(
@@ -48,6 +52,7 @@ internal fun SmartSearchSection(
     unlocked: Boolean,
     onUnlock: () -> Unit,
     assistantReady: Boolean = true,
+    otherSearchApps: List<OtherSearchApp> = emptyList(),
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -94,6 +99,7 @@ internal fun SmartSearchSection(
                 description = featureNote(feature, context.isDefaultHome(), assistantReady) ?: feature.description,
             )
         }
+        if (feature == SmartFeature.SEARCH_IN_APPS && on) SearchInAppsList(settings, repository, otherSearchApps)
     }
     Spacer(Modifier.height(4.dp))
     MetroText(
@@ -101,6 +107,40 @@ internal fun SmartSearchSection(
         MetroType.caption,
         color = Metro.colors.subtle,
     )
+}
+
+/** The per-app switches under "search in apps": the built-in apps, then other installed apps that accept a search. */
+@Composable
+private fun SearchInAppsList(settings: LauncherSettings, repository: SettingsRepository, others: List<OtherSearchApp>) {
+    val scope = rememberCoroutineScope()
+    Column(Modifier.padding(start = 20.dp)) {
+        SearchInApp.entries.forEach { app ->
+            MetroToggle(
+                app.label,
+                app in settings.searchInApps,
+                { scope.launch { repository.setSearchInApp(app, it) } },
+                description = searchInAppNote(app),
+            )
+        }
+        if (others.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            MetroText("other apps", MetroType.caption, color = Metro.colors.subtle)
+            others.forEach { other ->
+                MetroToggle(
+                    other.label,
+                    other.packageName in settings.searchInOtherApps,
+                    { scope.launch { repository.setSearchInOtherApp(other.packageName, it) } },
+                )
+            }
+        }
+    }
+}
+
+/** What to tell about a built-in app's row, or null for none. */
+internal fun searchInAppNote(app: SearchInApp): String? = when (app) {
+    SearchInApp.YOUTUBE -> "opens the website when the app isn't installed"
+    SearchInApp.AMAZON -> "the store for your country, in the Amazon app or the browser"
+    else -> null
 }
 
 /** A caption that replaces a feature's description when it can't work yet, or null when it can. */

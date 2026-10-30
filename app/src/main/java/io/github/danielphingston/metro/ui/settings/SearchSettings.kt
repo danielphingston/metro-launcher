@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -19,9 +20,13 @@ import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.LabeledSlider
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.search.OtherSearchApp
+import io.github.danielphingston.metro.ui.search.SearchInApps
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Picks the search engine the search overlay's "web" row uses, how far to pull down to open search,
@@ -61,8 +66,13 @@ fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsReposi
     val unlocked by purchases.quickTilesUnlocked.collectAsState()
     val apps by (context.applicationContext as MetroApplication).apps.apps.collectAsState()
     val installed = apps.orEmpty().mapTo(HashSet()) { it.key.packageName }
+    // Which other apps accept a search is a package manager query: ask off the main thread, once the apps are known.
+    val otherSearchApps by produceState(emptyList<OtherSearchApp>(), apps, unlocked) {
+        value = if (unlocked) withContext(Dispatchers.Default) { SearchInApps.otherApps(context, apps.orEmpty()) } else emptyList()
+    }
     SmartSearchSection(
         settings, repository, unlocked, onOpenMetroPlus,
         assistantReady = AssistantChoice.resolve(settings.assistant, installed) != null,
+        otherSearchApps = otherSearchApps,
     )
 }

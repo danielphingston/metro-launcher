@@ -179,9 +179,13 @@ internal fun searchRows(
             recent.map { SearchRow.App(it, SearchRanking.CONTAINS) }
     }
     return buildList {
+        // A shortcut the shortcuts section lists is not listed again by a provider (WhatsApp chats).
+        val listed = shortcuts.mapTo(HashSet()) { WhatsAppMatcher.shortcutKey(it.packageName, it.id, it.userSerial) }
         fun addProvided(placement: Placement) = provided.filter { it.provider.placement == placement }.forEach { group ->
+            val items = group.items.filter { it.shortcutKey == null || it.shortcutKey !in listed }
+            if (items.isEmpty()) return@forEach
             group.provider.section?.let { add(SearchRow.Caption(it)) }
-            group.items.forEach { add(SearchRow.Item(group.provider.id, it, placement)) }
+            items.forEach { add(SearchRow.Item(group.provider.id, it, placement)) }
         }
         addProvided(Placement.TOP)
         if (WebSearch.looksLikeUrl(q)) add(SearchRow.OpenUrl(WebSearch.toUrl(q), q))
