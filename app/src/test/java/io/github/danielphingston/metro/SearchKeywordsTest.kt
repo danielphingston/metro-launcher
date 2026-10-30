@@ -46,6 +46,18 @@ class SearchKeywordsTest {
     // --- detection -------------------------------------------------------------------------
 
     @Test
+    fun aRowStaysWhileTypingAfterTheSameKeyword() {
+        val built = detect("a cat")!!
+        assertTrue(KeywordRows.stillFits(built, detect("a cats")))
+        assertTrue(KeywordRows.stillFits(built, detect("a ca")))
+        assertTrue(KeywordRows.stillFits(built, built))
+        // Nothing left to search, another keyword or no keyword: the old row goes at once.
+        assertFalse(KeywordRows.stillFits(built, detect("a ")))
+        assertFalse(KeywordRows.stillFits(built, detect("yt cat")))
+        assertFalse(KeywordRows.stillFits(built, null))
+    }
+
+    @Test
     fun aKeywordAndASpaceTrigger() {
         val m = detect("a headphones")!!
         assertEquals("a", m.entry.keyword)
