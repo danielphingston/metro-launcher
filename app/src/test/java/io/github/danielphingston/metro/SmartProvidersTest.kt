@@ -188,6 +188,20 @@ class SmartProvidersTest {
         assertTrue(topResult(searchRows(apps, "cam", emptyList(), SearchEngine.GOOGLE, 0L, listOf(mid))) is SearchRow.App)
     }
 
+    @Test
+    fun aCalculatorAnswerNeverTakesEnter() {
+        val calc = ProvidedItems(
+            provider("c", Placement.TOP),
+            listOf(item("answer").copy(capturesEnter = false)),
+        )
+        val rows = searchRows(apps, "555-1234", emptyList(), SearchEngine.GOOGLE, 0L, listOf(calc))
+        assertEquals("item answer", rows.map { if (it is SearchRow.Item) "item ${it.item.title}" else "" }.first { it.isNotEmpty() })
+        assertTrue(topResult(rows) is SearchRow.Web)
+        val real = kotlinx.coroutines.runBlocking { CalculatorProvider.results("555-1234", ctx()) }.single()
+        assertEquals("-679", real.title)
+        assertFalse(real.capturesEnter)
+    }
+
     // --- calculator provider ---------------------------------------------------------------
 
     @Test

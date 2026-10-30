@@ -90,7 +90,10 @@ import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import io.github.danielphingston.metro.data.KeywordMatch
 
 /** The chip at the start of the search box while a search keyword is active. */
 internal class KeywordChipState(val label: String, val icon: SearchIcon)
@@ -223,13 +226,24 @@ internal fun searchRows(
 }
 
 /**
- * What Search or Enter opens: the search keyword's row when one is active, else the answer of a top provider (a sum, a timer) when there is one,
+ * Whether opening [row] is worth remembering as a recent search: the rows that act on the typed
+ * text (an app, the web, an address, a keyword, the ask-assistant row), not a calculator copy, a
+ * timer, a note or a contact, which would put numbers and names into the history.
+ */
+internal fun recordsSearch(row: SearchRow): Boolean = when (row) {
+    is SearchRow.App, is SearchRow.Web, is SearchRow.OpenUrl, is SearchRow.Keyword -> true
+    is SearchRow.Item -> row.provider == AskAssistantProvider.id
+    else -> false
+}
+
+/**
+ * What Search or Enter opens: the search keyword's row when one is active, else the action of a top provider (a timer; not a calculator answer, which only displays) when there is one,
  * else the first app when it is an exact or prefix match, else the address when the query is
  * one, else the web search. Null with nothing typed.
  */
 internal fun topResult(rows: List<SearchRow>): SearchRow? =
     rows.firstOrNull { it is SearchRow.Keyword }
-        ?: rows.firstOrNull { it is SearchRow.Item && it.placement == Placement.TOP }
+        ?: rows.firstOrNull { it is SearchRow.Item && it.placement == Placement.TOP && it.item.capturesEnter }
         ?: rows.firstOrNull { it is SearchRow.App && it.rank <= SearchRanking.PREFIX }
         ?: rows.firstOrNull { it is SearchRow.OpenUrl }
         ?: rows.firstOrNull { it is SearchRow.Web }
@@ -286,9 +300,15 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     val suggestions = remember(apps, history, suggestionsOn) {
         if (suggestionsOn) Suggestions(HistoryRules.mostUsed(apps, history), history.searches) else null
     }
-    val keywordRow = remember(keywordMatch, searchContext) {
-        keywordMatch?.let { KeywordRows.build(it, searchContext, RealSearchInPhone(context)) }
+    // Building the row asks the package manager and telephony, so it happens off the main thread. A row built
+    // for an earlier keyword or text is ignored, like the shortcut hits above.
+    val builtKeyword by produceState<Pair<KeywordMatch, KeywordRow?>?>(null, keywordMatch, searchContext) {
+        val match = keywordMatch
+        value = if (match == null) null else withContext(Dispatchers.Default) {
+            match to KeywordRows.build(match, searchContext, RealSearchInPhone(context))
+        }
     }
+    val keywordRow = builtKeyword?.takeIf { it.first == keywordMatch }?.second
     val rows = remember(apps, query, shortcuts, settings.searchEngine, provided, suggestions, keywordRow) {
         searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), provided, suggestions, keywordRow)
     }
@@ -309,14 +329,20 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
         }
     }
 
-    fun perform(action: ItemAction, bounds: Rect?) {
-        state.close()
+    /** Runs [action]; the panel closes only when the launcher took the launch (a double tap is ignored and keeps it open). */
+    fun perform(action: ItemAction, bounds: Rect?, onStarted: () -> Unit = {}) {
         when (action) {
-            is ItemAction.Start -> launcher.start(action.intent, bounds)
-            is ItemAction.Open -> launcher.open(bounds) { screenBounds, options ->
-                action.run(ActionEnv(context, screenBounds, options, commands))
+            is ItemAction.Start -> if (launcher.start(action.intent, bounds, onStarted)) state.close()
+            is ItemAction.Open -> {
+                val accepted = launcher.open(bounds, onStarted) { screenBounds, options ->
+                    action.run(ActionEnv(context, screenBounds, options, commands))
+                }
+                if (accepted) state.close()
             }
-            is ItemAction.Run -> action.run(ActionEnv(context, null, null, commands))
+            is ItemAction.Run -> {
+                state.close()
+                action.run(ActionEnv(context, null, null, commands))
+            }
         }
     }
 
@@ -324,25 +350,25 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
         // The history rows stay in the panel: one types the search again, the other wipes the history.
         if (row is SearchRow.RecentSearch) { state.query = row.text; return }
         if (row is SearchRow.ClearHistory) { viewModel.clearSearchHistory(); return }
-        // What was typed is worth remembering once it led somewhere.
-        if (row !is SearchRow.Caption) viewModel.recordSearch(query)
-        state.close()
-        when (row) {
-            is SearchRow.App -> launcher.launch(row.app, bounds)
+        // What was typed is worth remembering once it led somewhere: only after the launch really started.
+        val onStarted = { if (recordsSearch(row)) viewModel.recordSearch(query) }
+        val accepted = when (row) {
+            is SearchRow.App -> launcher.launch(row.app, bounds, onStarted)
             is SearchRow.Shortcut -> launcher.open(bounds) { screenBounds, options ->
                 val content = TileContent.Shortcut(row.hit.packageName, row.hit.id, row.hit.userSerial, row.hit.shortLabel)
                 ShortcutTiles.launch(context, content, screenBounds, options)
             }
-            is SearchRow.OpenUrl -> launcher.open(bounds) { screenBounds, options ->
+            is SearchRow.OpenUrl -> launcher.open(bounds, onStarted) { screenBounds, options ->
                 WebSearch.open(context, row.url, screenBounds, options)
             }
-            is SearchRow.Web -> launcher.open(bounds) { screenBounds, options ->
+            is SearchRow.Web -> launcher.open(bounds, onStarted) { screenBounds, options ->
                 WebSearch.open(context, row.url, screenBounds, options, inBrowser = true)
             }
-            is SearchRow.Item -> perform(row.item.action, bounds)
-            is SearchRow.Keyword -> perform(row.item.action, bounds)
-            is SearchRow.Caption, is SearchRow.RecentSearch, SearchRow.ClearHistory -> Unit
+            is SearchRow.Item -> { perform(row.item.action, bounds, onStarted); return }
+            is SearchRow.Keyword -> { perform(row.item.action, bounds, onStarted); return }
+            is SearchRow.Caption, is SearchRow.RecentSearch, SearchRow.ClearHistory -> return
         }
+        if (accepted) state.close()
     }
 
     Box(

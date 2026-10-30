@@ -74,6 +74,12 @@ data class SearchItem(
      * when the shortcuts section already lists that same shortcut.
      */
     val shortcutKey: String? = null,
+    /**
+     * Whether a top row may take Enter (see [topResult]). False for a row that only displays or
+     * copies something, such as the calculator's answer: "555-1234" is also a sum, but Enter there
+     * should still reach the app or web search.
+     */
+    val capturesEnter: Boolean = true,
 )
 
 /** The picture at the start of a row (or on a button). */

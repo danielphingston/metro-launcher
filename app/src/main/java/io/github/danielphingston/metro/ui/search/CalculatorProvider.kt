@@ -2,7 +2,7 @@ package io.github.danielphingston.metro.ui.search
 
 import io.github.danielphingston.metro.data.SmartFeature
 
-/** Feature 1: the answer of a calculation or unit conversion, as the top row; tapping it copies the answer. */
+/** Feature 1: the answer of a calculation or unit conversion, as the top row; tapping it copies the answer. It never takes Enter: a phone number or date also reads as a sum. */
 internal object CalculatorProvider : SearchProvider {
     override val id = "calculator"
     override val feature = SmartFeature.CALCULATOR
@@ -18,6 +18,7 @@ internal object CalculatorProvider : SearchProvider {
                 icon = SearchGlyphs.equals,
                 action = SearchActions.copy(answer.text),
                 prominent = true,
+                capturesEnter = false,
             ),
         )
     }
