@@ -10,6 +10,8 @@ data class Answer(val text: String, val input: String)
 
 /** Reading and writing the numbers people type, with the decimal comma of their language. */
 internal object NumberText {
+    /** Whole numbers up to this many digits are never rounded. */
+    private const val EXACT_DIGITS = 16
     private val token = Regex("""\d+(?:[.,]\d+)*|[.,]\d+""")
 
     /**
@@ -51,9 +53,13 @@ internal object NumberText {
 
     /**
      * [value] with at most [significant] digits, no trailing zeros, the decimal mark of [locale] and
-     * no grouping, so the text can be copied as is. Very large and very small values use "E" notation.
+     * no grouping, so the text can be copied as is. With [exactWholeNumbers] a whole number of up to 16 digits is
+     * shown in full instead of rounded to [significant] digits. Very large and very small values use "E" notation.
      */
-    fun format(value: BigDecimal, significant: Int, locale: Locale): String {
+    fun format(value: BigDecimal, significant: Int, locale: Locale, exactWholeNumbers: Boolean = false): String {
+        val exact = value.stripTrailingZeros()
+        // A whole number that fits a double's exact range is shown in full: 2^50 is 1125899906842624, not 1.12589990684E+15.
+        if (exactWholeNumbers && exact.signum() != 0 && exact.scale() <= 0 && exact.precision() - exact.scale() <= EXACT_DIGITS) return exact.toPlainString()
         val rounded = value.round(MathContext(significant)).stripTrailingZeros()
         if (rounded.signum() == 0) return "0"
         val magnitude = rounded.precision() - rounded.scale() // digits before the point
@@ -65,7 +71,7 @@ internal object NumberText {
 /**
  * A small offline calculator: + - * / ^ and % with parentheses, "15% of 2400", decimals with a
  * point or a comma. [evaluate] answers only inputs that really are a calculation (at least one
- * operator), so a bare number, a word or a half-typed sum shows nothing. Division by zero and
+ * operator; a lone percentage such as "50%" is not one), so a bare number, a word or a half-typed sum shows nothing. Division by zero and
  * results too large to show are no answer.
  */
 object Calculator {
@@ -84,9 +90,11 @@ object Calculator {
                 val base = Parser(match.groupValues[2], locale).parseAll()
                 rate.multiply(base, math).divide(HUNDRED, math)
             } ?: Parser(text, locale).parseAll(requireOperator = true)
-            Answer(NumberText.format(value, SIGNIFICANT, locale), shown)
+            Answer(NumberText.format(value, SIGNIFICANT, locale, exactWholeNumbers = true), shown)
         } catch (_: Bad) {
             null
+        } catch (_: ArithmeticException) {
+            null // A remainder or power too large for BigDecimal.
         }
     }
 
@@ -146,9 +154,13 @@ object Calculator {
             while (isOp('+') || isOp('-')) {
                 val plus = isOp('+')
                 pos++
+                val rightStart = pos
                 val right = term()
                 operations++
-                left = if (plus) left.add(right, math) else left.subtract(right, math)
+                // "100+10%" adds a tenth of the 100, not 0.1: a bare percentage after + or - is a share of the left side.
+                val share = pos - rightStart == 2 && tokens[rightStart] is Tok.Num && (tokens[rightStart + 1] as? Tok.Op)?.c == '%'
+                val delta = if (share) left.multiply(right, math) else right
+                left = if (plus) left.add(delta, math) else left.subtract(delta, math)
             }
             return left
         }
@@ -198,7 +210,6 @@ object Calculator {
             var value = primary()
             while (isOp('%') && !startsOperand(pos + 1)) {
                 pos++
-                operations++
                 value = value.divide(HUNDRED, math)
             }
             return value

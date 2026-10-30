@@ -33,11 +33,14 @@ class CalculatorTest {
 
     @Test
     fun percentIsPostfixOrModulo() {
-        assertEquals("0.5", calc("50%"))
+        assertNull(calc("50%")) // a lone percentage is nothing to compute
         assertEquals("360", calc("2400*15%"))
         assertEquals("1", calc("10 % 3"))
         assertEquals("1", calc("10%3"))
-        assertEquals("20.1", calc("20+10%"))
+        assertEquals("22", calc("20+10%")) // a share of the left side
+        assertEquals("110", calc("100+10%"))
+        assertEquals("90", calc("100-10%"))
+        assertEquals("0.25", calc("50%/2"))
     }
 
     @Test
@@ -84,6 +87,29 @@ class CalculatorTest {
         assertEquals("0.000000001".let { "1E-9" }, calc("10^-9"))
         assertEquals("1000000000000", calc("10^12"))
         assertEquals("0.333333333333", calc("1/3"))
+    }
+
+    @Test
+    fun phoneDateAndVersionLookalikes() {
+        // Anything that parses is answered (the row only displays; Enter never goes to it).
+        assertEquals("-679", calc("555-1234"))
+        assertEquals("2018", calc("2024-05-01"))
+        assertEquals("0.00118577075099", calc("12/05/2024"))
+        assertNull(calc("1.2.3"))
+        assertNull(calc("42"))
+    }
+
+    @Test
+    fun bigWholeNumbersAreExact() {
+        assertEquals("1125899906842624", calc("2^50"))
+        assertEquals("9999999999999999", calc("10^16-1"))
+        assertEquals("1E+20", calc("10^20"))
+    }
+
+    @Test
+    fun hugeRemaindersAndPowersDoNotThrow() {
+        assertNull(calc("1" + "0".repeat(100) + "%3"))
+        listOf("10^999^2", "9^999^1", "(10^999)^999", "10^999%7", "1e999").forEach { Calculator.evaluate(it, us) }
     }
 
     @Test
@@ -139,6 +165,21 @@ class CalculatorTest {
     fun unitsUseLocaleDecimals() {
         assertEquals("5,51156 lb", unit("2,5 kg to lb", Locale.GERMANY))
         assertEquals("5.51156 lb", unit("2,5 kg to lb", us))
+    }
+
+    @Test
+    fun bitsAndBytesKeepTheirCase() {
+        assertEquals("125000 B", unit("1 Mb in B"))
+        assertEquals("8 Mbit", unit("1 MB in Mb"))
+        assertEquals("1 MB", unit("8 Mb in MB"))
+        assertEquals("1 MB", unit("8 Mbit in MB"))
+        assertEquals("8 kbit", unit("1 KB in Kb"))
+        assertEquals("1000 MB", unit("1 gb in mb")) // lower case stays bytes
+    }
+
+    @Test
+    fun longPastesAreNotConversions() {
+        assertNull(unit("5 " + "km ".repeat(100) + "in m"))
     }
 
     @Test

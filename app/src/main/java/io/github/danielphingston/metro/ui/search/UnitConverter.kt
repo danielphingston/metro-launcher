@@ -22,9 +22,13 @@ object UnitConverter {
 
     private val table = HashMap<String, Unit>()
 
+    /** Symbols by their exact spelling, tried first: "Mb" (megabit) and "MB" (megabyte) differ only in case. */
+    private val exact = HashMap<String, Unit>()
+
     private fun scaled(kind: Kind, symbol: String, factor: Double, vararg names: String) {
         val unit = Unit(kind, symbol, { it * factor }, { it / factor })
         (names.asList() + symbol).forEach { table.putIfAbsent(key(it), unit) }
+        exact.putIfAbsent(symbol, unit)
     }
 
     private fun key(name: String) = name.trim().trimEnd('.').lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
@@ -98,6 +102,11 @@ object UnitConverter {
         scaled(Kind.DATA, "kbit", 125.0, "kilobit", "kilobits")
         scaled(Kind.DATA, "Mbit", 125_000.0, "megabit", "megabits")
         scaled(Kind.DATA, "Gbit", 125_000_000.0, "gigabit", "gigabits")
+        // Bits are a lower-case b by convention; the byte symbols are listed below.
+        exact["Kb"] = table.getValue(key("kbit"))
+        exact["kb"] = table.getValue(key("kbit"))
+        exact["Mb"] = table.getValue(key("Mbit"))
+        exact["Gb"] = table.getValue(key("Gbit"))
         scaled(Kind.DATA, "KB", 1e3, "kilobyte", "kilobytes")
         scaled(Kind.DATA, "MB", 1e6, "megabyte", "megabytes")
         scaled(Kind.DATA, "GB", 1e9, "gigabyte", "gigabytes")
@@ -115,13 +124,17 @@ object UnitConverter {
         RegexOption.IGNORE_CASE,
     )
 
+    private fun lookup(name: String): Unit? = exact[name.trim().trimEnd('.')] ?: table[key(name)]
+
     /** The conversion typed in [input], or null when it isn't one or a unit is unknown or the kinds differ. */
     fun convert(input: String, locale: Locale = Locale.getDefault()): Answer? {
+        // The pattern backtracks: a long paste is never a conversion and must not be matched.
+        if (input.length > MAX_LENGTH) return null
         val match = pattern.matchEntire(input) ?: return null
         val amount = NumberText.parse(match.groupValues[1].removePrefix("+").removePrefix("-"), locale) ?: return null
         val negative = match.groupValues[1].startsWith("-")
-        val from = table[key(match.groupValues[2])] ?: return null
-        val to = table[key(match.groupValues[3])] ?: return null
+        val from = lookup(match.groupValues[2]) ?: return null
+        val to = lookup(match.groupValues[3]) ?: return null
         if (from.kind != to.kind) return null
         val value = (if (negative) amount.negate() else amount).toDouble()
         val result = to.fromBase(from.toBase(value))
@@ -130,4 +143,5 @@ object UnitConverter {
     }
 
     private const val SIGNIFICANT = 6
+    private const val MAX_LENGTH = 120
 }
