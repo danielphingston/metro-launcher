@@ -110,7 +110,8 @@ class SmartProvidersTest {
             SmartFeature.CALCULATOR, SmartFeature.SETTINGS_SHORTCUTS, SmartFeature.QUICK_ACTIONS, SmartFeature.SUGGESTIONS,
             SmartFeature.LAUNCHER_ACTIONS, SmartFeature.WHATSAPP, SmartFeature.SEARCH_IN_APPS, SmartFeature.ASK_ASSISTANT,
         ).forEach { assertTrue(it.name, it in on) }
-        assertEquals(10, SmartFeature.entries.size) // eleven features, one of them (matching) free and switchless
+        assertEquals(11, SmartFeature.entries.size) // twelve features, one of them (matching) free and switchless
+        assertTrue(SmartFeature.SEARCH_KEYWORDS in on)
         assertEquals("android.permission.READ_CALENDAR", SmartFeature.CALENDAR.permission)
         assertEquals("android.permission.READ_CONTACTS", SmartFeature.CONTACTS.permission)
     }

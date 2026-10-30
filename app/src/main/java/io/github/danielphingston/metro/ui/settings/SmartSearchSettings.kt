@@ -25,6 +25,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import io.github.danielphingston.metro.data.AppInfo
+import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SearchInApp
 import io.github.danielphingston.metro.data.SettingsRepository
@@ -43,7 +45,9 @@ import kotlinx.coroutines.launch
  * Calendar and contacts ask for their permission when switched on, like the tiles that use them.
  * [assistantReady] is whether an assistant app is chosen, which the ask row needs. "Search in
  * apps" lists the apps it can search under its own switch; [otherSearchApps] are the installed
- * apps beyond the built-in ones that accept a search.
+ * apps beyond the built-in ones that accept a search. "Search keywords" lists the keywords under
+ * its own switch; a tap on one (or on "add keyword") goes to [onEditKeyword], with [apps] and
+ * [icons] for the target icons.
  */
 @Composable
 internal fun SmartSearchSection(
@@ -53,6 +57,9 @@ internal fun SmartSearchSection(
     onUnlock: () -> Unit,
     assistantReady: Boolean = true,
     otherSearchApps: List<OtherSearchApp> = emptyList(),
+    apps: List<AppInfo> = emptyList(),
+    icons: IconCache? = null,
+    onEditKeyword: (KeywordEdit) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -100,6 +107,7 @@ internal fun SmartSearchSection(
             )
         }
         if (feature == SmartFeature.SEARCH_IN_APPS && on) SearchInAppsList(settings, repository, otherSearchApps)
+        if (feature == SmartFeature.SEARCH_KEYWORDS && on) SearchKeywordList(settings, repository, apps, icons, onEditKeyword)
     }
     Spacer(Modifier.height(4.dp))
     MetroText(

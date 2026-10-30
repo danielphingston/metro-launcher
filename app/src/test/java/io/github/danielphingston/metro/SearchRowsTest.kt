@@ -47,6 +47,7 @@ class SearchRowsTest {
             is SearchRow.OpenUrl -> "open ${it.url}"
             is SearchRow.Web -> "web ${it.query}"
             is SearchRow.Item -> "item ${it.item.title}"
+            is SearchRow.Keyword -> "keyword ${it.item.title}"
             is SearchRow.RecentSearch -> "recent ${it.text}"
             SearchRow.ClearHistory -> "clear history"
         }

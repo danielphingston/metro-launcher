@@ -1,5 +1,6 @@
 package io.github.danielphingston.metro.ui.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -7,6 +8,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -35,6 +39,36 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsRepository, onOpenMetroPlus: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
+    // The keyword editor takes the place of the page while a keyword is added or edited.
+    var editing by remember { mutableStateOf<KeywordEdit?>(null) }
+    BackHandler(enabled = editing != null) { editing = null }
+    editing?.let { edit ->
+        val context = LocalContext.current
+        val apps by (context.applicationContext as MetroApplication).apps.apps.collectAsState()
+        val otherSearchApps by produceState(emptyList<OtherSearchApp>(), apps) {
+            value = withContext(Dispatchers.Default) { SearchInApps.otherApps(context, apps.orEmpty()) }
+        }
+        SearchKeywordEditor(
+            original = edit.original,
+            keywords = settings.searchKeywords,
+            otherApps = otherSearchApps,
+            onSave = { saved ->
+                scope.launch {
+                    val list = settings.searchKeywords
+                    repository.setSearchKeywords(
+                        if (edit.original == null) list + saved else list.map { if (it == edit.original) saved else it },
+                    )
+                }
+                editing = null
+            },
+            onDelete = {
+                scope.launch { repository.setSearchKeywords(settings.searchKeywords.filter { it != edit.original }) }
+                editing = null
+            },
+            onCancel = { editing = null },
+        )
+        return
+    }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SearchEngine.entries.forEach { engine ->
@@ -74,5 +108,8 @@ fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsReposi
         settings, repository, unlocked, onOpenMetroPlus,
         assistantReady = AssistantChoice.resolve(settings.assistant, installed) != null,
         otherSearchApps = otherSearchApps,
+        apps = apps.orEmpty(),
+        icons = (context.applicationContext as MetroApplication).icons,
+        onEditKeyword = { editing = it },
     )
 }
