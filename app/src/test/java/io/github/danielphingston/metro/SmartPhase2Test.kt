@@ -85,7 +85,9 @@ class SmartPhase2Test {
     fun amazonDomainDefaultsToCom() {
         assertEquals("amazon.com", AmazonDomain.choose(null, null, null))
         assertEquals("amazon.com", AmazonDomain.choose("", " ", ""))
-        assertEquals("amazon.com", AmazonDomain.choose("zz", "de", "de")) // the SIM decides, even without a store
+        assertEquals("amazon.de", AmazonDomain.choose("zz", "de", "de")) // a country without a store falls through to the next
+        assertEquals("amazon.de", AmazonDomain.choose("ch", null, "de")) // Swiss SIM, German language: amazon.de
+        assertEquals("amazon.com", AmazonDomain.choose("ch", "li", "xx"))
         assertEquals("amazon.com", AmazonDomain.choose("us", null, "de"))
     }
 

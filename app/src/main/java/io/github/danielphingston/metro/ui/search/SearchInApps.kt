@@ -26,11 +26,9 @@ internal object AmazonDomain {
 
     const val DEFAULT = "amazon.com"
 
-    /** The store's host for the first non-blank country of [sim], [network], [locale] (ISO 3166 codes, any case). */
-    fun choose(sim: String?, network: String?, locale: String?): String {
-        val country = listOf(sim, network, locale).firstOrNull { !it.isNullOrBlank() }?.trim()?.lowercase(Locale.ROOT)
-        return stores[country] ?: DEFAULT
-    }
+    /** The store's host for the first of [sim], [network], [locale] (ISO 3166 codes, any case) that has an Amazon store. */
+    fun choose(sim: String?, network: String?, locale: String?): String =
+        listOf(sim, network, locale).firstNotNullOfOrNull { stores[it?.trim()?.lowercase(Locale.ROOT)] } ?: DEFAULT
 
     /** [choose] with the phone's own SIM, network and language. */
     fun forPhone(context: Context, locale: Locale): String {
@@ -95,6 +93,18 @@ internal object SearchInApps {
 
     /** Apps that take an ACTION_SEARCH or ACTION_WEB_SEARCH aimed at their package, other than the built-in ones and Metro itself. */
     fun otherApps(context: Context, apps: List<AppInfo>): List<OtherSearchApp> {
+        val cache = otherCache
+        if (cache != null && cache.apps === apps) return cache.found
+        return queryOtherApps(context, apps).also { otherCache = OtherCache(apps, it) }
+    }
+
+    /** The last answer of [otherApps], for the apps list it was asked about: the list is replaced when packages change. */
+    private class OtherCache(val apps: List<AppInfo>, val found: List<OtherSearchApp>)
+
+    @Volatile
+    private var otherCache: OtherCache? = null
+
+    private fun queryOtherApps(context: Context, apps: List<AppInfo>): List<OtherSearchApp> {
         val pm = context.packageManager
         val found = LinkedHashMap<String, OtherSearchApp>()
         for (web in listOf(false, true)) {

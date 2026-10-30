@@ -98,12 +98,14 @@ internal object SystemContacts : ContactsSource {
 
     override suspend fun all(context: Context): List<ContactStub> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        cached?.takeIf { now - loadedAt < TTL_MILLIS } ?: runCatching { load(context) }.getOrDefault(emptyList()).also {
+        cached?.takeIf { now - loadedAt < TTL_MILLIS } ?: runCatching { load(context) }.getOrNull()?.also {
             cached = it
             loadedAt = now
-        }
+        // A failed read (permission not granted yet) is not kept: the contacts show as soon as it is granted.
+        } ?: emptyList()
     }
 
+    /** Throws when the contacts can't be read (no permission); a null cursor counts the same. */
     private fun load(context: Context): List<ContactStub> {
         val columns = arrayOf(
             ContactsContract.Contacts._ID,
@@ -121,7 +123,7 @@ internal object SystemContacts : ContactsSource {
                     if (name.isNotEmpty()) add(ContactStub(c.getLong(0), c.getString(1), name, c.getString(3)))
                 }
             }
-        }.orEmpty()
+        } ?: error("contacts unavailable")
     }
 
     override suspend fun byNumber(context: Context, query: String): List<ContactStub> = withContext(Dispatchers.IO) {
@@ -132,11 +134,13 @@ internal object SystemContacts : ContactsSource {
                 ContactsContract.CommonDataKinds.Phone.LOOKUP_KEY,
                 ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY,
                 ContactsContract.CommonDataKinds.Phone.PHOTO_THUMBNAIL_URI,
+                ContactsContract.CommonDataKinds.Phone.NUMBER,
             )
             context.contentResolver.query(uri, columns, null, null, null)?.use { c ->
                 buildList {
                     while (c.moveToNext() && size < MAX_NUMBER_HITS * 3) {
-                        add(ContactStub(c.getLong(0), c.getString(1), c.getString(2).orEmpty(), c.getString(3)))
+                        // A contact saved without a name is shown by its number rather than as an empty title.
+                        add(ContactStub(c.getLong(0), c.getString(1), c.getString(2)?.trim().orEmpty().ifEmpty { c.getString(4).orEmpty() }, c.getString(3)))
                     }
                 }.distinctBy { it.id }.take(MAX_NUMBER_HITS)
             }.orEmpty()
