@@ -47,6 +47,9 @@ object WebSearch {
         } catch (_: ActivityNotFoundException) {
             Toast.makeText(context, "no browser found", Toast.LENGTH_SHORT).show()
             false
+        } catch (_: SecurityException) {
+            Toast.makeText(context, "no browser found", Toast.LENGTH_SHORT).show()
+            false
         }
     }
 

@@ -77,8 +77,9 @@ internal object QuickActionParser {
             parts++
             rest = rest.substring(m.range.last + 1).trim().removePrefix("and").trim()
         }
-        val whole = Math.round(total).toInt()
-        return whole.takeIf { parts > 0 && it in 1..MAX_TIMER_SECONDS }
+        // Compared as a Long: a huge total must not wrap around into a valid-looking Int.
+        val whole = Math.round(total)
+        return whole.takeIf { parts > 0 && it in 1..MAX_TIMER_SECONDS.toLong() }?.toInt()
     }
 
     private const val HOURS = 3

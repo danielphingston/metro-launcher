@@ -276,6 +276,10 @@ class SmartProvidersTest {
         assertEquals(60, t("TIMER 1 MINUTE"))
         assertEquals(86400, t("timer 24h"))
         assertNull(t("timer 25h"))
+        // Totals past Int range must be rejected, not wrap around into a valid-looking timer.
+        assertNull(t("timer 99999999999999 h"))
+        assertNull(t("timer 1" + "0".repeat(30) + " s"))
+        assertNull(t("timer 1193046 h")) // 4,294,965,600 s: low 32 bits would be a small positive number
         assertNull(t("timer"))
         assertNull(t("timer 0"))
         assertNull(t("timer soon"))
