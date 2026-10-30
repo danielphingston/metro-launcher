@@ -612,13 +612,14 @@ private fun ChipStrip(item: SearchItem, icons: IconCache, monochrome: Boolean, p
         ) {
             items(item.chips, key = { it.id }) { chip -> StripChip(chip, icons, monochrome, plainIcons, onChip) }
         }
+        Spacer(Modifier.height(6.dp))
     }
 }
 
-private val ChipWidth = 72.dp
-private val ChipPad = 4.dp
+private val ChipWidth = 76.dp
+private val ChipPad = 2.dp
 
-/** One chip: the icon over a one-line name; the whole 72dp-wide column is the touch target. */
+/** One chip: the icon over a name (two lines at most); the whole 76dp-wide column is the touch target. */
 @Composable
 private fun StripChip(chip: ItemChip, icons: IconCache, monochrome: Boolean, plainIcons: Boolean, onChip: (ItemChip, Rect?) -> Unit) {
     val tracker = remember { BoundsTracker() }
@@ -638,7 +639,7 @@ private fun StripChip(chip: ItemChip, icons: IconCache, monochrome: Boolean, pla
         MetroText(
             chip.label,
             MetroType.caption.copy(textAlign = TextAlign.Center),
-            maxLines = 1,
+            maxLines = 2,
             modifier = Modifier.fillMaxWidth().clearAndSetSemantics { },
         )
     }

@@ -22,9 +22,15 @@ import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.data.ListFilter
+import io.github.danielphingston.metro.ui.components.SearchField
+import io.github.danielphingston.metro.ui.components.SearchFieldStyle
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.launch
+
+/** Lists longer than this get a filter field. */
+internal const val FILTER_FROM = 8
 
 /**
  * The shared assistant choice: off, one of the installed known assistants, or any launchable app
@@ -63,8 +69,16 @@ fun AssistantChoiceControl(settings: LauncherSettings, repository: SettingsRepos
         if (others.isEmpty()) {
             MetroText("No other app that accepts shared text was found.", MetroType.caption, color = Metro.colors.subtle)
         } else {
+            // Every app that takes shared text can be listed here, which may be dozens: a filter past eight.
+            var filter by remember { mutableStateOf("") }
+            if (others.size > FILTER_FROM) {
+                SearchField(filter, { filter = it }, placeholder = "filter apps", style = SearchFieldStyle.OUTLINED)
+                Spacer(Modifier.height(8.dp))
+            }
+            val shown = others.filter { ListFilter.matches(filter, it.label) }
+            if (shown.isEmpty()) MetroText("no app matches “${filter.trim()}”", MetroType.caption, color = Metro.colors.subtle)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                others.forEach { app ->
+                shown.forEach { app ->
                     MetroChoice(app.label, current == app.key.packageName, {
                         showOthers = false
                         scope.launch { repository.setAssistant(app.key.packageName) }
