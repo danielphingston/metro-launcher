@@ -4,6 +4,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
@@ -109,13 +112,21 @@ internal object SearchGlyphs {
         drawLine(color, c, Offset(c.x + r * 0.45f, c.y + r * 0.2f), stroke, StrokeCap.Round)
     }
 
-    /** A handset, for call buttons. */
+    /** A handset, for call buttons: the classic receiver outline, drawn from a 24-unit outline. */
     val phone = glyph("phone") { color ->
-        drawLine(color, Offset(size.width * 0.2f, size.height * 0.15f), Offset(size.width * 0.38f, size.height * 0.15f), stroke * 1.4f, StrokeCap.Round)
-        drawLine(color, Offset(size.width * 0.2f, size.height * 0.15f), Offset(size.width * 0.3f, size.height * 0.6f), stroke * 1.4f, StrokeCap.Round)
-        drawLine(color, Offset(size.width * 0.3f, size.height * 0.6f), Offset(size.width * 0.85f, size.height * 0.8f), stroke * 1.4f, StrokeCap.Round)
-        drawLine(color, Offset(size.width * 0.85f, size.height * 0.8f), Offset(size.width * 0.85f, size.height * 0.62f), stroke * 1.4f, StrokeCap.Round)
+        val scale = size.minDimension / 24f
+        withTransform({ scale(scale, scale, pivot = Offset.Zero) }) {
+            drawPath(handset, color, style = Stroke(stroke / scale, join = StrokeJoin.Round))
+        }
     }
+
+    // A telephone receiver in a 24-unit box, earpiece top left and mouthpiece bottom right.
+    private val handset = PathParser().parsePathString(
+        "M6.62,10.79c1.44,2.83 3.76,5.14 6.59,6.59l2.2,-2.2c0.27,-0.27 0.67,-0.36 1.02,-0.24 " +
+            "1.12,0.37 2.33,0.57 3.57,0.57 0.55,0 1,0.45 1,1V20c0,0.55 -0.45,1 -1,1 " +
+            "-9.39,0 -17,-7.61 -17,-17 0,-0.55 0.45,-1 1,-1h3.5c0.55,0 1,0.45 1,1 " +
+            "0,1.25 0.2,2.45 0.57,3.57 0.11,0.35 0.03,0.74 -0.25,1.02l-2.2,2.2z",
+    ).toPath()
 
     /** A speech bubble, for message buttons. */
     val message = glyph("message") { color ->
