@@ -157,9 +157,10 @@ internal fun SearchKeywordEditor(
     onSave: (SearchKeyword) -> Unit,
     onDelete: () -> Unit,
     onCancel: () -> Unit,
+    initialText: String? = null,
 ) {
     val colors = Metro.colors
-    var text by remember { mutableStateOf(original?.keyword.orEmpty()) }
+    var text by remember { mutableStateOf(initialText ?: original?.keyword.orEmpty()) }
     val originalTarget = original?.target
     var picked by remember { mutableStateOf(originalTarget.takeIf { it !is KeywordTarget.Website }) }
     var site by remember { mutableStateOf(originalTarget is KeywordTarget.Website) }
