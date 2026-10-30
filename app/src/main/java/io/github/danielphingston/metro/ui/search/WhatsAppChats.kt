@@ -71,32 +71,54 @@ internal class WhatsAppIndex(
     private var loadedAt = 0L
 
     suspend fun search(query: String, limit: Int): List<ChatHit> = withContext(Dispatchers.Default) {
-        val hits = all?.takeIf { clock() - loadedAt < ttlMillis } ?: load().also {
-            all = it
-            loadedAt = clock()
+        val hits = all?.takeIf { clock() - loadedAt < ttlMillis } ?: load().let { loaded ->
+            // A partial read (a profile that was locked) or "not the default home app" is used but not kept.
+            if (loaded.complete) {
+                all = loaded.hits
+                loadedAt = clock()
+            }
+            loaded.hits
         }
         WhatsAppMatcher.top(hits, query, limit)
     }
 
-    private fun load(): List<ChatHit> {
+    /** Forgets the loaded chats, e.g. when an app was installed, updated or removed. */
+    fun invalidate() {
+        all = null
+    }
+
+    private fun load(): ShortcutLoad<ChatHit> {
         val launcherApps = context.getSystemService(LauncherApps::class.java)
-        return try {
-            if (!launcherApps.hasShortcutHostPermission()) return emptyList()
-            val flags = LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
-                LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED or
-                LauncherApps.ShortcutQuery.FLAG_MATCH_CACHED
-            launcherApps.profiles.flatMap { user ->
-                val serial = ShortcutTiles.serialOf(context, user)
-                WhatsAppApps.packages.flatMap { pkg ->
-                    val query = LauncherApps.ShortcutQuery().setQueryFlags(flags).setPackage(pkg)
-                    launcherApps.getShortcuts(query, user).orEmpty().mapNotNull { info -> hit(info, serial) }
+        val flags = LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
+            LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED or
+            LauncherApps.ShortcutQuery.FLAG_MATCH_CACHED
+        val hits = ArrayList<ChatHit>()
+        var complete = true
+        try {
+            if (!launcherApps.hasShortcutHostPermission()) return ShortcutLoad(emptyList(), false)
+            for (user in launcherApps.profiles) {
+                if (!shortcutsReadable(context, user)) {
+                    complete = false
+                    continue
                 }
-            }.distinctBy { Triple(it.packageName, it.id, it.userSerial) }
+                val serial = ShortcutTiles.serialOf(context, user)
+                for (pkg in WhatsAppApps.packages) {
+                    val query = LauncherApps.ShortcutQuery().setQueryFlags(flags).setPackage(pkg)
+                    try {
+                        launcherApps.getShortcuts(query, user).orEmpty().mapNotNullTo(hits) { info -> hit(info, serial) }
+                    } catch (_: SecurityException) {
+                        complete = false
+                    } catch (_: IllegalStateException) {
+                        complete = false
+                    }
+                }
+            }
         } catch (_: SecurityException) {
-            emptyList()
+            return ShortcutLoad(emptyList(), false)
         } catch (_: IllegalStateException) {
-            emptyList()
+            return ShortcutLoad(emptyList(), false)
         }
+        return ShortcutLoad(hits.distinctBy { Triple(it.packageName, it.id, it.userSerial) }, complete)
     }
 
     private fun hit(info: ShortcutInfo, serial: Long): ChatHit? {
