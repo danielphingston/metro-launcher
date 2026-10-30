@@ -7,7 +7,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -49,6 +54,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -62,7 +68,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
-import io.github.danielphingston.metro.data.AssistantChoice
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.SearchEngine
 import io.github.danielphingston.metro.data.TileContent
@@ -78,6 +83,7 @@ import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.drawMagnifier
+import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
@@ -113,18 +119,19 @@ internal sealed interface SearchRow {
         override val key get() = "web"
     }
 
-    /** Ask the assistant [target] the question [query]. */
-    data class Assistant(val query: String, val target: AssistantTarget) : SearchRow {
-        override val key get() = "assistant"
+    /** A row made by a [SearchProvider]; [provider] is its id. */
+    data class Item(val provider: String, val item: SearchItem, val placement: Placement) : SearchRow {
+        override val key get() = "p:$provider:${item.key}"
     }
 }
 
 private const val MAX_APPS = 8
 
 /**
- * The results for [query]: an "open" row when it looks like an address, then matching [apps]
- * and [shortcuts] under their captions, then the web search. With nothing typed, the
- * "recently added" apps.
+ * The results for [query], top to bottom: the [Placement.TOP] rows of [provided] (calculator,
+ * quick actions), an "open" row when it looks like an address, matching [apps] and [shortcuts]
+ * under their captions, the [Placement.MIDDLE] provider rows, the web search, then the
+ * [Placement.BOTTOM] provider rows (ask assistant). With nothing typed, the "recently added" apps.
  */
 internal fun searchRows(
     apps: List<AppInfo>,
@@ -132,7 +139,7 @@ internal fun searchRows(
     shortcuts: List<ShortcutHit>,
     engine: SearchEngine,
     now: Long,
-    assistant: AssistantTarget? = null,
+    provided: List<ProvidedItems> = emptyList(),
 ): List<SearchRow> {
     val q = query.trim()
     if (q.isEmpty()) {
@@ -141,6 +148,11 @@ internal fun searchRows(
             recent.map { SearchRow.App(it, SearchRanking.CONTAINS) }
     }
     return buildList {
+        fun addProvided(placement: Placement) = provided.filter { it.provider.placement == placement }.forEach { group ->
+            group.provider.section?.let { add(SearchRow.Caption(it)) }
+            group.items.forEach { add(SearchRow.Item(group.provider.id, it, placement)) }
+        }
+        addProvided(Placement.TOP)
         if (WebSearch.looksLikeUrl(q)) add(SearchRow.OpenUrl(WebSearch.toUrl(q), q))
         val matches = SearchRanking.top(apps, q, MAX_APPS) { listOf(it.label) }
         if (matches.isNotEmpty()) {
@@ -153,18 +165,21 @@ internal fun searchRows(
                 add(SearchRow.Shortcut(hit, apps.firstOrNull { it.key.packageName == hit.packageName && it.key.userSerial == hit.userSerial }))
             }
         }
+        addProvided(Placement.MIDDLE)
         add(SearchRow.Caption("web"))
         add(SearchRow.Web(q, engine))
-        assistant?.let { add(SearchRow.Assistant(q, it)) }
+        addProvided(Placement.BOTTOM)
     }
 }
 
 /**
- * What Search or Enter opens: the first app when it is an exact or prefix match, else the
- * address when the query is one, else the web search. Null with nothing typed.
+ * What Search or Enter opens: the answer of a top provider (a sum, a timer) when there is one,
+ * else the first app when it is an exact or prefix match, else the address when the query is
+ * one, else the web search. Null with nothing typed.
  */
 internal fun topResult(rows: List<SearchRow>): SearchRow? =
-    rows.firstOrNull { it is SearchRow.App && it.rank <= SearchRanking.PREFIX }
+    rows.firstOrNull { it is SearchRow.Item && it.placement == Placement.TOP }
+        ?: rows.firstOrNull { it is SearchRow.App && it.rank <= SearchRanking.PREFIX }
         ?: rows.firstOrNull { it is SearchRow.OpenUrl }
         ?: rows.firstOrNull { it is SearchRow.Web }
 
@@ -173,19 +188,19 @@ internal fun topResult(rows: List<SearchRow>): SearchRow? =
  * field and results as you type. Composed (and so doing any work) only while it is open.
  */
 @Composable
-fun SearchOverlay(viewModel: LauncherViewModel, state: SearchState, launcher: AppLauncher) {
+fun SearchOverlay(viewModel: LauncherViewModel, state: SearchState, launcher: AppLauncher, commands: LauncherCommands) {
     AnimatedVisibility(
         visible = state.isOpen,
         modifier = Modifier.fillMaxSize(),
         enter = fadeIn(tween(200)) + slideInVertically(tween(200, easing = FastOutSlowInEasing)) { -it / 8 },
         exit = fadeOut(tween(120)),
     ) {
-        SearchPanel(viewModel, state, launcher)
+        SearchPanel(viewModel, state, launcher, commands)
     }
 }
 
 @Composable
-private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launcher: AppLauncher) {
+private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launcher: AppLauncher, commands: LauncherCommands) {
     val context = LocalContext.current
     val focus = LocalFocusManager.current
     val haptics = LocalHapticFeedback.current
@@ -206,13 +221,13 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     }
     // Hits of an earlier query are ignored even in the frame before the reset above.
     val shortcuts = found?.takeIf { it.first == query }?.second.orEmpty()
-    val assistant = remember(apps, settings.assistant) {
-        val pkg = AssistantChoice.resolve(settings.assistant, apps.mapTo(HashSet()) { it.key.packageName })
-        val app = pkg?.let { p -> apps.firstOrNull { it.key.packageName == p && it.key.userSerial == 0L } ?: apps.firstOrNull { it.key.packageName == p } }
-        app?.let { AssistantTarget(it, AssistantChoice.displayName(it.key.packageName, it.label)) }
-    }
-    val rows = remember(apps, query, shortcuts, settings.searchEngine, assistant) {
-        searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), assistant)
+    // Metro Plus features: only the providers that are unlocked and switched on are asked at all.
+    val unlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
+    val providers = remember(settings.smartFeatures, unlocked) { SearchProviders.active(settings, unlocked) }
+    val searchContext = remember(context, apps, settings) { SearchContext(context, apps, settings) }
+    val provided = rememberProviderResults(providers, query, searchContext)
+    val rows = remember(apps, query, shortcuts, settings.searchEngine, provided) {
+        searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), provided)
     }
 
     val focusRequester = remember { FocusRequester() }
@@ -225,6 +240,17 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
         if (!state.isOpen) {
             focus.clearFocus()
             keyboard?.hide()
+        }
+    }
+
+    fun perform(action: ItemAction, bounds: Rect?) {
+        state.close()
+        when (action) {
+            is ItemAction.Start -> launcher.start(action.intent, bounds)
+            is ItemAction.Open -> launcher.open(bounds) { screenBounds, options ->
+                action.run(ActionEnv(context, screenBounds, options, commands))
+            }
+            is ItemAction.Run -> action.run(ActionEnv(context, null, null, commands))
         }
     }
 
@@ -242,12 +268,7 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
             is SearchRow.Web -> launcher.open(bounds) { screenBounds, options ->
                 WebSearch.open(context, row.url, screenBounds, options, inBrowser = true)
             }
-            is SearchRow.Assistant -> {
-                viewModel.recordAssistantQuestion(row.query)
-                launcher.open(bounds) { screenBounds, options ->
-                    AssistantAsk.ask(context, row.target.app.key.packageName, row.query, screenBounds, options)
-                }
-            }
+            is SearchRow.Item -> perform(row.item.action, bounds)
             is SearchRow.Caption -> Unit
         }
     }
@@ -269,6 +290,7 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
             plainIcons = settings.appListPlainIcons,
             focusRequester = focusRequester,
             onActivate = ::activate,
+            onButton = { perform(it, null) },
             onLongClick = { app, _ ->
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 focus.clearFocus()
@@ -310,6 +332,7 @@ internal fun SearchContent(
     onActivate: (SearchRow, Rect?) -> Unit,
     onLongClick: (AppInfo, Rect) -> Unit,
     onDismiss: () -> Unit,
+    onButton: (ItemAction) -> Unit = {},
 ) {
     val colors = Metro.colors
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
@@ -362,11 +385,7 @@ internal fun SearchContent(
                             subtitle = row.engine.label,
                             onClick = { onActivate(row, it) },
                         ) { Glyph { drawMagnifier(colors.foreground) } }
-                        is SearchRow.Assistant -> ResultRow(
-                            title = "ask ${row.target.name}",
-                            subtitle = row.query,
-                            onClick = { onActivate(row, it) },
-                        ) { AppListIcon(row.target.app, icons, monochrome, plainIcons) }
+                        is SearchRow.Item -> ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, onButton)
                     }
                 }
             }
@@ -374,23 +393,79 @@ internal fun SearchContent(
     }
 }
 
-/** An icon, a title and an optional subtitle; tilts when pressed, and [onLongClick] opens a menu. */
+/**
+ * An icon, a title and an optional subtitle; tilts when pressed, and [onLongClick] opens a menu.
+ * [trailing] adds content (buttons) after the text; [prominent] sets the title larger, for an answer.
+ */
 @Composable
 private fun ResultRow(
     title: String,
     subtitle: String?,
     onClick: (Rect?) -> Unit,
     onLongClick: ((Rect) -> Unit)? = null,
+    prominent: Boolean = false,
+    trailing: @Composable RowScope.() -> Unit = {},
     icon: @Composable () -> Unit,
 ) {
     ClickableRow(onClick = onClick, onLongClick = onLongClick) {
         icon()
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            MetroText(title, MetroType.listItem, maxLines = 2)
+            MetroText(title, if (prominent) MetroType.sectionTitle else MetroType.listItem, maxLines = 2)
             subtitle?.let { MetroText(it, MetroType.caption, color = Metro.colors.subtle, maxLines = 2) }
         }
+        trailing()
     }
+}
+
+/** A provider's row: its icon, texts and round action buttons. */
+@Composable
+private fun ItemRow(
+    item: SearchItem,
+    icons: IconCache,
+    monochrome: Boolean,
+    plainIcons: Boolean,
+    onClick: (Rect?) -> Unit,
+    onButton: (ItemAction) -> Unit,
+) {
+    ResultRow(
+        title = item.title,
+        subtitle = item.subtitle,
+        onClick = onClick,
+        prominent = item.prominent,
+        trailing = {
+            item.buttons.forEach { button ->
+                Spacer(Modifier.width(8.dp))
+                RoundButton(button.label, { onButton(button.action) }) { IconView(button.icon, icons, monochrome, plainIcons, boxed = false) }
+            }
+        },
+    ) { IconView(item.icon, icons, monochrome, plainIcons) }
+}
+
+/** The icon square of a provider row: an app icon, a hairline glyph on a control square, or a picture. */
+@Composable
+private fun IconView(icon: SearchIcon, icons: IconCache, monochrome: Boolean, plainIcons: Boolean, boxed: Boolean = true) {
+    when (icon) {
+        is SearchIcon.App -> AppListIcon(icon.app, icons, monochrome, plainIcons)
+        is SearchIcon.Glyph -> {
+            val color = Metro.colors.foreground
+            if (boxed) Glyph { icon.draw(this, color) } else Box(Modifier.size(18.dp).drawBehind { icon.draw(this, color) })
+        }
+        is SearchIcon.Image -> Image(icon.bitmap, null, Modifier.size(IconBox), contentScale = ContentScale.Crop)
+    }
+}
+
+/** A thin circle with an icon in it, for the actions on a row; [label] is what a screen reader says. */
+@Composable
+private fun RoundButton(label: String, onClick: () -> Unit, icon: @Composable () -> Unit) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .metroTilt()
+            .border(1.dp, Metro.colors.subtle, CircleShape)
+            .clickable(role = Role.Button, onClickLabel = label, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { icon() }
 }
 
 /** A hairline glyph, centred on a control-coloured square the size of an app icon. */

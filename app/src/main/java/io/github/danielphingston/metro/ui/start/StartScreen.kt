@@ -180,6 +180,11 @@ class StartState(val scroll: ScrollState) {
         selectedId = id
     }
 
+    /** Enters edit mode with no tile selected, e.g. from a search action. */
+    fun startEditing() {
+        editing = true
+    }
+
     /** Folder currently expanded on the start screen, if any. */
     var openFolderId by mutableStateOf<Long?>(null)
 

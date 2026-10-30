@@ -24,7 +24,7 @@ enum class SmartFeature(
     LAUNCHER_ACTIONS("launcher_actions", "launcher actions", "wallpaper, edit tiles, app info and uninstall for an app", true),
     CONTACTS("contacts", "contacts", "find people, then call, message or WhatsApp them", false, Manifest.permission.READ_CONTACTS),
     WHATSAPP("whatsapp", "WhatsApp chats & groups", "open a chat or group by name; needs Metro as the default home app", true),
-    SEARCH_IN_APPS("search_in_apps", "search in apps", "search YouTube, Play Store, Maps and other apps for what you typed", true),
+    SEARCH_IN_APPS("search_in_apps", "search in apps", "search YouTube, Play Store, Maps, Spotify, Amazon and other apps for what you typed", true),
     ASK_ASSISTANT("ask_assistant", "ask assistant", "send what you typed to your assistant app", true),
     ;
 

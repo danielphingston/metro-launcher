@@ -7,11 +7,7 @@ import android.content.Intent
 import android.graphics.Rect
 import android.os.Bundle
 import android.widget.Toast
-import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.AssistantIntents
-
-/** The assistant app the search row sends to; [name] is the label to show ("Claude"). */
-internal data class AssistantTarget(val app: AppInfo, val name: String)
 
 /** Sends a typed question to an assistant app with plain Android intents; no APIs, no accounts. */
 internal object AssistantAsk {

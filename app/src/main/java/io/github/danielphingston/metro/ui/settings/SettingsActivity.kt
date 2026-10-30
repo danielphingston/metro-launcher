@@ -104,9 +104,9 @@ class SettingsActivity : ComponentActivity() {
     internal companion object {
         private const val EXTRA_PAGE = "page"
 
-        /** Opens settings on [page], e.g. so a tile that needs a choice can take the user to it. */
-        fun intent(context: android.content.Context, page: SettingsPage): android.content.Intent =
-            android.content.Intent(context, SettingsActivity::class.java).putExtra(EXTRA_PAGE, page.name)
+        /** Opens settings on [page] (the menu when null), e.g. so a tile that needs a choice can take the user to it. */
+        fun intent(context: android.content.Context, page: SettingsPage? = null): android.content.Intent =
+            android.content.Intent(context, SettingsActivity::class.java).apply { page?.let { putExtra(EXTRA_PAGE, it.name) } }
     }
 }
 

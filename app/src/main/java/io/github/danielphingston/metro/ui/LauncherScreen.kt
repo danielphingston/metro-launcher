@@ -33,6 +33,7 @@ import io.github.danielphingston.metro.ui.applist.AppListScreen
 import io.github.danielphingston.metro.ui.applist.AppListState
 import io.github.danielphingston.metro.ui.components.LocalMotion
 import io.github.danielphingston.metro.ui.components.Motion
+import io.github.danielphingston.metro.ui.search.LauncherCommands
 import io.github.danielphingston.metro.ui.search.SearchOverlay
 import io.github.danielphingston.metro.ui.search.SearchState
 import io.github.danielphingston.metro.ui.search.pullToSearch
@@ -152,6 +153,15 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
         AppLauncher(view, viewModel, turnstile, scope, motion = { currentMotion })
     }
     TurnstileReturn(turnstile, animate = motion.animateReturn)
+    // What search results can ask of the launcher itself (edit mode, app info, uninstall...).
+    val commands = remember(viewModel, startState) {
+        object : LauncherCommands {
+            override fun editStart() = startState.startEditing()
+            override fun appInfo(app: AppInfo) = viewModel.openAppInfo(app)
+            override fun uninstall(app: AppInfo) = viewModel.uninstall(app)
+            override fun recordAssistantQuestion(question: String) = viewModel.recordAssistantQuestion(question)
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.homePresses.collect { animate ->
@@ -252,7 +262,7 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
                 }
             }
             // Outside LocalTurnstile's scope: its own field must not swing with the tiles.
-            SearchOverlay(viewModel, searchState, launcher)
+            SearchOverlay(viewModel, searchState, launcher, commands)
         }
     }
 }
