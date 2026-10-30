@@ -20,6 +20,7 @@ enum class SmartFeature(
     SETTINGS_SHORTCUTS("settings_shortcuts", "phone settings shortcuts", "type wifi or battery to jump to that page of the phone's settings", true),
     QUICK_ACTIONS("quick_actions", "quick actions", "timer 5 min, alarm 7:30, note buy milk", true),
     SUGGESTIONS("suggestions", "suggestions before typing", "most used apps and recent searches when search opens", true),
+    TYPING_EXAMPLES("typing_examples", "examples before typing", "a few things to try, such as days till nov 3, until you start typing", true),
     CALENDAR("calendar", "calendar events", "upcoming events whose title or place matches", false, Manifest.permission.READ_CALENDAR),
     LAUNCHER_ACTIONS("launcher_actions", "launcher actions", "wallpaper, edit tiles, app info and uninstall for an app", true),
     CONTACTS("contacts", "contacts", "find people, then call, message or WhatsApp them", false, Manifest.permission.READ_CONTACTS),

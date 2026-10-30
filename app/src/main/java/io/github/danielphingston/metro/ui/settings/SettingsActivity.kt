@@ -135,6 +135,7 @@ internal enum class SettingsPage(val title: String, val summary: String, val par
     // Long lists of the search settings, each on a page of its own (reached from the search page, not listed in the menu).
     SEARCH_IN_APPS("search in apps", "which apps the results can search, and their order", SEARCH),
     SEARCH_KEYWORDS("search keywords", "short words that search one app or site", SEARCH),
+    SEARCH_HELP("what can I type?", "the phrases smart search understands", SEARCH),
 }
 
 @Composable
@@ -171,6 +172,7 @@ internal fun SettingsScreen(
                     )
                     SettingsPage.SEARCH_IN_APPS -> SearchInAppsPageHost(settings, repository, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
                     SettingsPage.SEARCH_KEYWORDS -> SearchKeywordsPageHost(settings, repository, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
+                    SettingsPage.SEARCH_HELP -> SearchHelpPageHost(settings, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
                     SettingsPage.APPEARANCE -> AppearancePage(settings, repository)
                     SettingsPage.ANIMATIONS -> AnimationsPage(settings, repository)
                     SettingsPage.TILES -> TilesPage(settings, repository)

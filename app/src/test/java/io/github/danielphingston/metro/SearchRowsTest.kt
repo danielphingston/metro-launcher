@@ -49,6 +49,7 @@ class SearchRowsTest {
             is SearchRow.Item -> "item ${it.item.title}"
             is SearchRow.Keyword -> "keyword ${it.item.title}"
             is SearchRow.RecentSearch -> "recent ${it.text}"
+            is SearchRow.Examples -> "try ${it.phrases.joinToString()}"
             SearchRow.ClearHistory -> "clear history"
         }
     }

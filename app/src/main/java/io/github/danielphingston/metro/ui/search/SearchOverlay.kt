@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.ime
@@ -147,6 +148,11 @@ internal sealed interface SearchRow {
         override val key get() = "q:$text"
     }
 
+    /** Phrases to try on the empty search, side by side: text only, nothing to tap. */
+    data class Examples(val phrases: List<String>) : SearchRow {
+        override val key get() = "examples"
+    }
+
     /** Wipes the recent searches and launch counts. */
     data object ClearHistory : SearchRow {
         override val key get() = "clear-history"
@@ -176,7 +182,8 @@ internal data class Suggestions(val apps: List<AppInfo>, val searches: List<Stri
  * under their captions, the [Placement.MIDDLE] provider rows, the web search, then the
  * [Placement.BOTTOM] provider rows (ask assistant). With nothing typed, the "recently added" apps.
  * A search [keyword] puts its highlighted row first of all; the web row below still opens the
- * browser (unless the keyword is the web search itself, which is then that very row).
+ * browser (unless the keyword is the web search itself, which is then that very row). While the
+ * field is empty, [examples] of what to type come first, under "try typing".
  */
 internal fun searchRows(
     apps: List<AppInfo>,
@@ -187,10 +194,18 @@ internal fun searchRows(
     provided: List<ProvidedItems> = emptyList(),
     suggestions: Suggestions? = null,
     keyword: KeywordRow? = null,
+    examples: List<SearchHelp.Example> = emptyList(),
 ): List<SearchRow> {
     val q = query.trim()
+    // The phrases to try lead the empty search, and only while the field is truly empty: a space is typing.
+    val tries = if (query.isEmpty() && examples.isNotEmpty()) {
+        listOf(SearchRow.Caption("try typing"), SearchRow.Examples(examples.map { it.phrase }))
+    } else {
+        emptyList()
+    }
     if (q.isEmpty() && suggestions != null && !suggestions.isEmpty) {
         return buildList {
+            addAll(tries)
             if (suggestions.apps.isNotEmpty()) {
                 add(SearchRow.Caption("most used"))
                 suggestions.apps.forEach { add(SearchRow.App(it, SearchRanking.CONTAINS)) }
@@ -204,7 +219,7 @@ internal fun searchRows(
     }
     if (q.isEmpty()) {
         val recent = AppGroups.recentlyAdded(apps, now)
-        return if (recent.isEmpty()) emptyList() else listOf(SearchRow.Caption("recently added")) +
+        return tries + if (recent.isEmpty()) emptyList() else listOf(SearchRow.Caption("recently added")) +
             recent.map { SearchRow.App(it, SearchRanking.CONTAINS) }
     }
     return buildList {
@@ -326,8 +341,16 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
         }
     }
     val keywordRow = builtKeyword?.takeIf { KeywordRows.stillFits(it.first, keywordMatch) }?.second
-    val rows = remember(apps, query, shortcuts, settings.searchEngine, provided, suggestions, keywordRow) {
-        searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), provided, suggestions, keywordRow)
+    // The same few phrases for the whole day, so they never change while search is open; none after a keyword's chip.
+    val examples = remember(settings.smartFeatures, unlocked, keywordMatch == null) {
+        if (unlocked && keywordMatch == null && settings.smartOn(SmartFeature.TYPING_EXAMPLES)) {
+            SearchHelp.examples(settings::smartOn, java.time.LocalDate.now().toEpochDay())
+        } else {
+            emptyList()
+        }
+    }
+    val rows = remember(apps, query, shortcuts, settings.searchEngine, provided, suggestions, keywordRow, examples) {
+        searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), provided, suggestions, keywordRow, examples)
     }
     val chip = keywordMatch?.let {
         KeywordChipState(KeywordRows.chipLabel(it.entry.target, apps, settings.assistant), KeywordRows.icon(it.entry.target, apps, settings.assistant))
@@ -388,7 +411,7 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
                 perform((current?.item ?: row.item).action, bounds, onStarted)
                 return
             }
-            is SearchRow.Caption, is SearchRow.RecentSearch, SearchRow.ClearHistory -> return
+            is SearchRow.Caption, is SearchRow.Examples, is SearchRow.RecentSearch, SearchRow.ClearHistory -> return
         }
         if (accepted) state.close()
     }
@@ -549,6 +572,13 @@ private fun ResultRowFor(
             color = colors.subtle,
             modifier = Modifier.padding(top = 16.dp, bottom = 6.dp).semantics { heading() },
         )
+        is SearchRow.Examples -> FlowRow(
+            Modifier.fillMaxWidth().padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            row.phrases.forEach { MetroText(it, MetroType.body, color = colors.accent, maxLines = 1) }
+        }
         is SearchRow.App -> ResultRow(
             title = row.app.label,
             subtitle = null,

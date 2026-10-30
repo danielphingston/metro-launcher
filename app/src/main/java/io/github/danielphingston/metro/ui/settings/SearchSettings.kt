@@ -80,5 +80,6 @@ internal fun SearchSettingsSection(
         assistantReady = AssistantChoice.resolve(settings.assistant, installed) != null,
         onOpenSearchInApps = { onOpenPage(SettingsPage.SEARCH_IN_APPS) },
         onOpenKeywords = { onOpenPage(SettingsPage.SEARCH_KEYWORDS) },
+        onOpenHelp = { onOpenPage(SettingsPage.SEARCH_HELP) },
     )
 }
