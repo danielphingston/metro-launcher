@@ -52,6 +52,8 @@ class SearchContext(
     val apps: List<AppInfo>,
     val settings: LauncherSettings,
     val locale: Locale = Locale.getDefault(),
+    /** How often each "search in" target was used from the results, for the strip's most-used order. */
+    val searchInUses: Map<String, Int> = emptyMap(),
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     val now: Long get() = clock()
@@ -80,7 +82,15 @@ data class SearchItem(
      * should still reach the app or web search.
      */
     val capturesEnter: Boolean = true,
+    /**
+     * When not empty the row is a strip: [title] as a caption, then these as icon chips in a
+     * horizontal list (search in apps). [action] and [icon] are then not used.
+     */
+    val chips: List<ItemChip> = emptyList(),
 )
+
+/** One icon chip in a strip row. [id] identifies it for usage counts, [description] is what a screen reader says. */
+data class ItemChip(val id: String, val label: String, val description: String, val icon: SearchIcon, val action: ItemAction)
 
 /** The picture at the start of a row (or on a button). */
 sealed interface SearchIcon {

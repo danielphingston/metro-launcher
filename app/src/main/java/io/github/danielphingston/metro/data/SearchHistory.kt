@@ -11,8 +11,10 @@ data class HistoryData(
     val searches: List<String> = emptyList(),
     val launchCounts: Map<String, Int> = emptyMap(),
     val lastLaunched: Map<String, Long> = emptyMap(),
+    /** How often each "search in" target (see [SearchInOrdering]) was used from the results; orders the strip. */
+    val searchInUses: Map<String, Int> = emptyMap(),
 ) {
-    val isEmpty: Boolean get() = searches.isEmpty() && launchCounts.isEmpty() && lastLaunched.isEmpty()
+    val isEmpty: Boolean get() = searches.isEmpty() && launchCounts.isEmpty() && lastLaunched.isEmpty() && searchInUses.isEmpty()
 }
 
 /** The rules of the history, with no storage so they can be tested. */
@@ -37,6 +39,9 @@ object HistoryRules {
 
     /** [searches] cut to the newest [max] (clamped), for when the setting is lowered. */
     fun trim(searches: List<String>, max: Int): List<String> = searches.take(LauncherSettings.clampSearchHistory(max))
+
+    /** [uses] with one more use of [id]. */
+    fun addUse(uses: Map<String, Int>, id: String): Map<String, Int> = uses + (id to (uses[id] ?: 0) + 1)
 
     /** [data] with the launch counts and times of apps outside [installed] (serialized keys) dropped, so uninstalled apps don't pile up. */
     fun pruneLaunches(data: HistoryData, installed: Set<String>): HistoryData = data.copy(
@@ -75,6 +80,9 @@ class SearchHistory(context: Context) {
         update { d -> d.copy(launchCounts = d.launchCounts + (key to (d.launchCounts[key] ?: 0) + 1), lastLaunched = d.lastLaunched + (key to now)) }
     }
 
+    /** Counts one use of the "search in" target [id]. */
+    fun recordSearchInUse(id: String) = update { it.copy(searchInUses = HistoryRules.addUse(it.searchInUses, id)) }
+
     /** Drops the oldest searches beyond [max], e.g. right after the setting is lowered. */
     fun trimSearches(max: Int) = update { it.copy(searches = HistoryRules.trim(it.searches, max)) }
 
@@ -102,6 +110,7 @@ class SearchHistory(context: Context) {
             putString(SEARCHES, JSONArray(d.searches).toString())
             d.launchCounts.forEach { (k, v) -> putInt("n:$k", v) }
             d.lastLaunched.forEach { (k, v) -> putLong("t:$k", v) }
+            d.searchInUses.forEach { (k, v) -> putInt("u:$k", v) }
         }.apply()
     }
 
@@ -114,6 +123,7 @@ class SearchHistory(context: Context) {
             searches,
             all.filterKeys { it.startsWith("n:") }.mapKeys { it.key.drop(2) }.mapNotNull { (k, v) -> (v as? Int)?.let { k to it } }.toMap(),
             all.filterKeys { it.startsWith("t:") }.mapKeys { it.key.drop(2) }.mapNotNull { (k, v) -> (v as? Long)?.let { k to it } }.toMap(),
+            all.filterKeys { it.startsWith("u:") }.mapKeys { it.key.drop(2) }.mapNotNull { (k, v) -> (v as? Int)?.let { k to it } }.toMap(),
         )
     }
 

@@ -139,7 +139,7 @@ class SmartPhase2Test {
 
     private fun searchRows(settings: LauncherSettings, phone: SearchInPhone, others: List<OtherSearchApp> = emptyList(), apps: List<AppInfo> = emptyList()) =
         runBlocking {
-            SearchInAppsProvider({ phone }, { _, _ -> others }).results("cats", ctx(settings, apps))
+            SearchInAppsProvider({ phone }, { _, _ -> others }).results("cats", ctx(settings, apps)).flatMap { it.chips }
         }
 
     @Test
@@ -147,8 +147,8 @@ class SmartPhase2Test {
         assertEquals(setOf(SearchInApp.YOUTUBE, SearchInApp.PLAY_STORE), LauncherSettings().searchInApps)
         assertEquals(emptySet<String>(), LauncherSettings().searchInOtherApps)
         val rows = searchRows(LauncherSettings(), FakePhone { true })
-        assertEquals(listOf("youtube", "play_store"), rows.map { it.key })
-        assertEquals("search YouTube for “cats”", rows[0].title)
+        assertEquals(listOf("youtube", "play_store"), rows.map { it.id })
+        assertEquals("search YouTube for cats", rows[0].description)
     }
 
     @Test
@@ -183,7 +183,7 @@ class SmartPhase2Test {
     @Test
     fun uninstalledAppsGetNoRow() {
         val all = LauncherSettings(searchInApps = SearchInApp.entries.toSet())
-        val keys = searchRows(all, FakePhone { it.`package` == null }).map { it.key }
+        val keys = searchRows(all, FakePhone { it.`package` == null }).map { it.id }
         // Play Store, Spotify (package-bound) are gone; YouTube and Amazon fall back to the web, maps resolves without a package.
         assertEquals(listOf("youtube", "maps", "amazon"), keys)
     }
@@ -199,7 +199,7 @@ class SmartPhase2Test {
         val browser = OtherSearchApp("com.example.browser", "Browser", web = true)
         val settings = LauncherSettings(searchInApps = emptySet(), searchInOtherApps = setOf("com.example.notes", "com.example.browser"))
         val rows = searchRows(settings, FakePhone { it.`package` == "com.example.notes" }, listOf(notes, browser))
-        assertEquals(listOf("other:com.example.notes"), rows.map { it.key })
+        assertEquals(listOf("app:com.example.notes"), rows.map { it.id })
         val off = searchRows(LauncherSettings(searchInApps = emptySet()), FakePhone { true }, listOf(notes))
         assertTrue(off.isEmpty())
     }

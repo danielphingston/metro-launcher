@@ -221,6 +221,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Recent searches and launch counts for the empty search. */
     val searchHistory: StateFlow<HistoryData> = metro.searchHistory.data
 
+    /** Counts one use of the "search in" target [id] (see SearchInOrdering) to order the results strip. */
+    fun recordSearchInUse(id: String) = metro.searchHistory.recordSearchInUse(id)
+
     fun recordSearch(query: String) {
         if (suggestionsOn) metro.searchHistory.recordSearch(query, settings.value.searchHistorySize)
     }

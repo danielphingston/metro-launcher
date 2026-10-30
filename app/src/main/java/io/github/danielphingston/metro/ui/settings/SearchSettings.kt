@@ -37,33 +37,13 @@ import kotlinx.coroutines.withContext
  * and which smart search features (Metro Plus) are on. [onOpenMetroPlus] leads to the purchase.
  */
 @Composable
-fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsRepository, onOpenMetroPlus: () -> Unit = {}) {
+internal fun SearchSettingsSection(
+    settings: LauncherSettings,
+    repository: SettingsRepository,
+    onOpenMetroPlus: () -> Unit = {},
+    onOpenPage: (SettingsPage) -> Unit = {},
+) {
     val scope = rememberCoroutineScope()
-    // The keyword editor takes the place of the page while a keyword is added or edited.
-    var editing by remember { mutableStateOf<KeywordEdit?>(null) }
-    BackHandler(enabled = editing != null) { editing = null }
-    editing?.let { edit ->
-        val context = LocalContext.current
-        val apps by (context.applicationContext as MetroApplication).apps.apps.collectAsState()
-        val otherSearchApps by produceState(emptyList<OtherSearchApp>(), apps) {
-            value = withContext(Dispatchers.Default) { SearchInApps.otherApps(context, apps.orEmpty()) }
-        }
-        SearchKeywordEditor(
-            original = edit.original,
-            keywords = settings.searchKeywords,
-            otherApps = otherSearchApps,
-            onSave = { saved ->
-                scope.launch { repository.saveSearchKeyword(edit.original?.keyword, saved) }
-                editing = null
-            },
-            onDelete = {
-                edit.original?.let { original -> scope.launch { repository.deleteSearchKeyword(original.keyword) } }
-                editing = null
-            },
-            onCancel = { editing = null },
-        )
-        return
-    }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SearchEngine.entries.forEach { engine ->
@@ -95,16 +75,10 @@ fun SearchSettingsSection(settings: LauncherSettings, repository: SettingsReposi
     val unlocked by purchases.quickTilesUnlocked.collectAsState()
     val apps by (context.applicationContext as MetroApplication).apps.apps.collectAsState()
     val installed = apps.orEmpty().mapTo(HashSet()) { it.key.packageName }
-    // Which other apps accept a search is a package manager query: ask off the main thread, once the apps are known.
-    val otherSearchApps by produceState(emptyList<OtherSearchApp>(), apps, unlocked) {
-        value = if (unlocked) withContext(Dispatchers.Default) { SearchInApps.otherApps(context, apps.orEmpty()) } else emptyList()
-    }
     SmartSearchSection(
         settings, repository, unlocked, onOpenMetroPlus,
         assistantReady = AssistantChoice.resolve(settings.assistant, installed) != null,
-        otherSearchApps = otherSearchApps,
-        apps = apps.orEmpty(),
-        icons = (context.applicationContext as MetroApplication).icons,
-        onEditKeyword = { editing = it },
+        onOpenSearchInApps = { onOpenPage(SettingsPage.SEARCH_IN_APPS) },
+        onOpenKeywords = { onOpenPage(SettingsPage.SEARCH_KEYWORDS) },
     )
 }

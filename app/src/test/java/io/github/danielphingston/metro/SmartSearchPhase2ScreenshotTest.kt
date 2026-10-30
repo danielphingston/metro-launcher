@@ -169,7 +169,7 @@ class SmartSearchPhase2ScreenshotTest {
             MetroTheme(settings) {
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
                     SettingsPageFrame(SettingsPage.SEARCH, rememberScrollState(SCROLL_TO_SEARCH_IN_APPS)) {
-                        SmartSearchSection(settings, repository, true, onUnlock = {}, otherSearchApps = others)
+                        SmartSearchSection(settings, repository, true, onUnlock = {})
                     }
                 }
             }

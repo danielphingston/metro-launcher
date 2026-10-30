@@ -127,15 +127,40 @@ class SmartProvidersTest {
     private fun item(title: String) = SearchItem(title, title, null, SearchGlyphs.gear, ItemAction.Run { })
 
     @Test
+    fun rowsStayWhileTheTypingContinuesThemAndNeverBlinkOut() {
+        val a = Fake("a")
+        var tagged = mapOf("a" to TaggedItems("w", listOf(item("w-row"))))
+        // Typing w -> wh -> wha: the previous answer stays until the new one replaces it in one step.
+        for (typed in listOf("w", "wh", "wha")) {
+            assertEquals("rows vanished while typing $typed", 1, ProviderResults.visible(listOf(a), tagged, typed).size)
+        }
+        tagged = mapOf("a" to TaggedItems("wha", listOf(item("wha-row"))))
+        assertEquals(listOf("wha-row"), ProviderResults.visible(listOf(a), tagged, "wha").single().items.map { it.title })
+        // Deleting back keeps them too; unrelated text drops them.
+        assertEquals(1, ProviderResults.visible(listOf(a), tagged, "wh").size)
+        assertTrue(ProviderResults.visible(listOf(a), tagged, "zzz").isEmpty())
+        // An empty new answer replaces the old rows.
+        assertTrue(ProviderResults.visible(listOf(a), mapOf("a" to TaggedItems("whax", emptyList())), "whax").isEmpty())
+    }
+
+    @Test
+    fun continuationIgnoresCaseAndBlanks() {
+        assertTrue(ProviderResults.continues("Cat", "cats "))
+        assertTrue(ProviderResults.continues("cats", "ca"))
+        assertFalse(ProviderResults.continues("", "a"))
+        assertFalse(ProviderResults.continues("cat", "dog"))
+    }
+
+    @Test
     fun onlyResultsOfTheCurrentQueryAreVisible() {
         val a = Fake("a")
         val b = Fake("b")
-        val tagged = mapOf("a" to TaggedItems("ab", listOf(item("old"))), "b" to TaggedItems("abc", listOf(item("new"))))
+        val tagged = mapOf("a" to TaggedItems("xy", listOf(item("old"))), "b" to TaggedItems("abc", listOf(item("new"))))
         val shown = ProviderResults.visible(listOf(a, b), tagged, "abc")
         assertEquals(listOf("b"), shown.map { it.provider.id })
         assertEquals(listOf("new"), shown.single().items.map { it.title })
         // The same query keeps its rows while the provider is asked again.
-        assertEquals(1, ProviderResults.visible(listOf(a), tagged, "ab").size)
+        assertEquals(1, ProviderResults.visible(listOf(a), tagged, "xy").size)
         assertTrue(ProviderResults.visible(emptyList(), tagged, "abc").isEmpty())
         assertTrue(ProviderResults.visible(listOf(a), emptyMap(), "abc").isEmpty())
     }

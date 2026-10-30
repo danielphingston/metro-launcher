@@ -123,7 +123,7 @@ class SearchKeywordsScreenshotTest {
             MetroTheme(settings) {
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
                     SettingsPageFrame(SettingsPage.SEARCH, rememberScrollState(scroll)) {
-                        SmartSearchSection(settings, repository, unlocked, onUnlock = {}, otherSearchApps = others, apps = apps, icons = icons)
+                        SmartSearchSection(settings, repository, unlocked, onUnlock = {})
                     }
                 }
             }

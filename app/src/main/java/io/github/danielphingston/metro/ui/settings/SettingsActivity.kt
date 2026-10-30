@@ -122,7 +122,7 @@ internal fun <T> rememberOnResume(read: () -> T): T {
 }
 
 /** One page of the settings: a menu entry with a one-line summary of what is inside. */
-internal enum class SettingsPage(val title: String, val summary: String) {
+internal enum class SettingsPage(val title: String, val summary: String, val parent: SettingsPage? = null) {
     START("start", "tiles per row, padding, background, transparency"),
     APP_LIST("app list", "icons, scrubber highlight and position"),
     SEARCH("search", "search engine, pull distance, smart search"),
@@ -131,6 +131,10 @@ internal enum class SettingsPage(val title: String, val summary: String) {
     TILES("tiles", "weather, photos, people, calendar, notifications"),
     METRO_PLUS("metro plus", "quick settings tiles, assistant, smart search"),
     ABOUT("about", "default home app, app info, crash log, version"),
+
+    // Long lists of the search settings, each on a page of its own (reached from the search page, not listed in the menu).
+    SEARCH_IN_APPS("search in apps", "which apps the results can search, and their order", SEARCH),
+    SEARCH_KEYWORDS("search keywords", "short words that search one app or site", SEARCH),
 }
 
 @Composable
@@ -143,7 +147,8 @@ internal fun SettingsScreen(
     var page by rememberSaveable { mutableStateOf(initialPage?.name) }
     val menuScroll = rememberScrollState()
     val pageScrolls = SettingsPage.entries.associateWith { rememberScrollState() }
-    BackHandler(enabled = page != null) { page = null }
+    // A sub page goes back to its parent page, any other page to the menu.
+    BackHandler(enabled = page != null) { page = SettingsPage.entries.firstOrNull { it.name == page }?.parent?.name }
 
     AnimatedContent(
         targetState = page,
@@ -159,7 +164,13 @@ internal fun SettingsScreen(
                 when (current) {
                     SettingsPage.START -> StartPage(settings, repository)
                     SettingsPage.APP_LIST -> AppListPage(settings, repository)
-                    SettingsPage.SEARCH -> SearchSettingsSection(settings, repository, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
+                    SettingsPage.SEARCH -> SearchSettingsSection(
+                        settings, repository,
+                        onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
+                        onOpenPage = { page = it.name },
+                    )
+                    SettingsPage.SEARCH_IN_APPS -> SearchInAppsPageHost(settings, repository, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
+                    SettingsPage.SEARCH_KEYWORDS -> SearchKeywordsPageHost(settings, repository, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
                     SettingsPage.APPEARANCE -> AppearancePage(settings, repository)
                     SettingsPage.ANIMATIONS -> AnimationsPage(settings, repository)
                     SettingsPage.TILES -> TilesPage(settings, repository)
@@ -185,7 +196,7 @@ private fun SettingsMenu(scroll: ScrollState, onOpen: (SettingsPage) -> Unit) {
         MetroText("METRO LAUNCHER", MetroType.appName, color = colors.subtle)
         MetroText("settings", MetroType.pageTitle, maxLines = 1)
         Spacer(Modifier.height(12.dp))
-        SettingsPage.entries.forEach { entry ->
+        SettingsPage.entries.filter { it.parent == null }.forEach { entry ->
             Column(
                 Modifier
                     .fillMaxWidth()

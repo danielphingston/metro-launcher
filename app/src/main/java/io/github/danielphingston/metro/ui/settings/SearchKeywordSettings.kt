@@ -32,6 +32,7 @@ import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.KeywordTarget
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.ListFilter
 import io.github.danielphingston.metro.data.SearchInApp
 import io.github.danielphingston.metro.data.SearchKeyword
 import io.github.danielphingston.metro.data.SearchKeywords
@@ -55,7 +56,7 @@ import kotlinx.coroutines.launch
 internal class KeywordEdit(val original: SearchKeyword?)
 
 /**
- * The list under the "search keywords" switch: one row per keyword (target icon, "a → Amazon", its
+ * The keywords page's list: one row per keyword matching [filter] (target icon, "a → Amazon", its
  * own switch; tap to edit), then "add keyword" and "reset to defaults".
  */
 @Composable
@@ -65,10 +66,12 @@ internal fun SearchKeywordList(
     apps: List<AppInfo>,
     icons: IconCache?,
     onEdit: (KeywordEdit) -> Unit,
+    filter: String = "",
 ) {
     val scope = rememberCoroutineScope()
-    Column(Modifier.padding(start = 20.dp)) {
-        settings.searchKeywords.forEach { entry ->
+    Column {
+        val shown = settings.searchKeywords.filter { keywordMatches(it, filter) }
+        shown.forEach { entry ->
             KeywordRow(
                 entry,
                 apps,
@@ -82,6 +85,8 @@ internal fun SearchKeywordList(
         }
         if (settings.searchKeywords.isEmpty()) {
             MetroText("no keywords; add one or reset to the defaults", MetroType.caption, color = Metro.colors.subtle)
+        } else if (shown.isEmpty()) {
+            MetroText("no keyword matches “${filter.trim()}”", MetroType.caption, color = Metro.colors.subtle)
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -90,6 +95,10 @@ internal fun SearchKeywordList(
         }
     }
 }
+
+/** Whether [entry] answers the typed [filter]: by keyword, by its summary or by where it searches. */
+internal fun keywordMatches(entry: SearchKeyword, filter: String) =
+    ListFilter.matches(filter, entry.keyword, entry.summary, entry.target.label, targetNote(entry.target))
 
 @Composable
 private fun KeywordRow(

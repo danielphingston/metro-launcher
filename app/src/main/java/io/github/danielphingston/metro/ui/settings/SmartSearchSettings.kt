@@ -11,6 +11,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import io.github.danielphingston.metro.ui.components.metroTilt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -57,10 +62,8 @@ internal fun SmartSearchSection(
     unlocked: Boolean,
     onUnlock: () -> Unit,
     assistantReady: Boolean = true,
-    otherSearchApps: List<OtherSearchApp> = emptyList(),
-    apps: List<AppInfo> = emptyList(),
-    icons: IconCache? = null,
-    onEditKeyword: (KeywordEdit) -> Unit = {},
+    onOpenSearchInApps: () -> Unit = {},
+    onOpenKeywords: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -107,7 +110,7 @@ internal fun SmartSearchSection(
                 description = featureNote(feature, context.isDefaultHome(), assistantReady) ?: feature.description,
             )
         }
-        if (feature == SmartFeature.SEARCH_IN_APPS && on) SearchInAppsList(settings, repository, otherSearchApps)
+        if (feature == SmartFeature.SEARCH_IN_APPS && on) SummaryRow(searchInSummary(settings), onOpenSearchInApps)
         if (feature == SmartFeature.SUGGESTIONS && on) {
             LabeledSlider(
                 "Recent searches",
@@ -117,7 +120,7 @@ internal fun SmartSearchSection(
                 Modifier.padding(start = 20.dp, bottom = 8.dp),
             ) { repository.setSearchHistorySize(it) }
         }
-        if (feature == SmartFeature.SEARCH_KEYWORDS && on) SearchKeywordList(settings, repository, apps, icons, onEditKeyword)
+        if (feature == SmartFeature.SEARCH_KEYWORDS && on) SummaryRow(keywordsSummary(settings), onOpenKeywords)
     }
     Spacer(Modifier.height(4.dp))
     MetroText(
@@ -127,30 +130,28 @@ internal fun SmartSearchSection(
     )
 }
 
-/** The per-app switches under "search in apps": the built-in apps, then other installed apps that accept a search. */
+/** "search in apps · 3 on": the built-in apps and other apps switched on. */
+internal fun searchInSummary(settings: LauncherSettings) =
+    "search in apps · ${settings.searchInApps.size + settings.searchInOtherApps.size} on"
+
+/** "search keywords · 7 on": the keywords whose own switch is on. */
+internal fun keywordsSummary(settings: LauncherSettings) =
+    "search keywords · ${settings.searchKeywords.count { it.enabled }} on"
+
+/** A row under a feature's switch that opens the page with its long list: the text and a chevron. */
 @Composable
-private fun SearchInAppsList(settings: LauncherSettings, repository: SettingsRepository, others: List<OtherSearchApp>) {
-    val scope = rememberCoroutineScope()
-    Column(Modifier.padding(start = 20.dp)) {
-        SearchInApp.entries.forEach { app ->
-            MetroToggle(
-                app.label,
-                app in settings.searchInApps,
-                { scope.launch { repository.setSearchInApp(app, it) } },
-                description = searchInAppNote(app),
-            )
-        }
-        if (others.isNotEmpty()) {
-            Spacer(Modifier.height(6.dp))
-            MetroText("other apps", MetroType.caption, color = Metro.colors.subtle)
-            others.forEach { other ->
-                MetroToggle(
-                    other.label,
-                    other.packageName in settings.searchInOtherApps,
-                    { scope.launch { repository.setSearchInOtherApp(other.packageName, it) } },
-                )
-            }
-        }
+internal fun SummaryRow(text: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .padding(start = 20.dp)
+            .fillMaxWidth()
+            .metroTilt()
+            .defaultMinSize(minHeight = 48.dp)
+            .clickable(role = Role.Button, onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MetroText(text, MetroType.body, color = Metro.colors.accent, modifier = Modifier.weight(1f), maxLines = 1)
+        MetroText("›", MetroType.sectionTitle, color = Metro.colors.accent, modifier = Modifier.clearAndSetSemantics { })
     }
 }
 

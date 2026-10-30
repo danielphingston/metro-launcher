@@ -18,6 +18,13 @@ import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.components.SearchField
+import io.github.danielphingston.metro.ui.components.SearchFieldStyle
+import io.github.danielphingston.metro.data.ListFilter
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +47,11 @@ fun IconPackSettingsSection(settings: LauncherSettings, repository: SettingsRepo
             MetroChoice("none (app icons)", settings.iconPack == null, {
                 scope.launch { repository.setIconPack(null) }
             }, Modifier.fillMaxWidth())
-            installed.forEach { pack ->
+            var filter by remember { mutableStateOf("") }
+            if (installed.size > FILTER_FROM) {
+                SearchField(filter, { filter = it }, placeholder = "filter icon packs", style = SearchFieldStyle.OUTLINED)
+            }
+            installed.filter { ListFilter.matches(filter, it.label) || it.packageName == settings.iconPack }.forEach { pack ->
                 MetroChoice(pack.label, settings.iconPack == pack.packageName, {
                     scope.launch { repository.setIconPack(pack.packageName) }
                 }, Modifier.fillMaxWidth())

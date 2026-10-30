@@ -19,6 +19,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -32,10 +35,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import io.github.danielphingston.metro.ui.start.BoundsTracker
+import io.github.danielphingston.metro.ui.start.trackBounds
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -284,18 +298,20 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     // Shortcuts come from a binder call, so they follow the typing after a short pause.
     val index = remember { ShortcutIndex.shared(context) }
     val found by produceState<Pair<String, List<ShortcutHit>>?>(null, query) {
-        // Drop the previous query's hits at once, so no row is shown for text no longer typed.
-        value = null
-        if (query.isBlank()) return@produceState
+        // The previous hits stay until the new ones arrive (see below), so the section does not blink while typing.
+        if (query.isBlank()) { value = null; return@produceState }
         delay(SHORTCUT_DEBOUNCE_MILLIS)
         value = query to index.search(query)
     }
-    // Hits of an earlier query are ignored even in the frame before the reset above.
-    val shortcuts = found?.takeIf { it.first == query }?.second.orEmpty()
+    // Hits of an earlier query stay only while the typing continues it; unrelated text drops them at once.
+    val shortcuts = found?.takeIf { it.first == query || ProviderResults.continues(it.first, query) }?.second.orEmpty()
     val providers = remember(settings.smartFeatures, unlocked) { SearchProviders.active(settings, unlocked) }
-    val searchContext = remember(context, apps, settings) { SearchContext(context, apps, settings) }
-    val provided = rememberProviderResults(providers, query, searchContext)
     val history by viewModel.searchHistory.collectAsStateWithLifecycle()
+    val searchInUses = history.searchInUses
+    val searchContext = remember(context, apps, settings, searchInUses) {
+        SearchContext(context, apps, settings, searchInUses = searchInUses)
+    }
+    val provided = rememberProviderResults(providers, query, searchContext)
     val suggestionsOn = unlocked && settings.smartOn(SmartFeature.SUGGESTIONS)
     val suggestions = remember(apps, history, suggestionsOn) {
         if (suggestionsOn) Suggestions(HistoryRules.mostUsed(apps, history), history.searches) else null
@@ -401,6 +417,13 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
             focusRequester = focusRequester,
             onActivate = ::activate,
             onButton = { perform(it, null) },
+            onChip = { chip, bounds ->
+                // The chip acts on the typed text: count its use for the strip's order, and remember the search.
+                perform(chip.action, bounds) {
+                    viewModel.recordSearchInUse(chip.id)
+                    viewModel.recordSearch(query)
+                }
+            },
             onLongClick = { app, _ ->
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 focus.clearFocus()
@@ -443,6 +466,7 @@ internal fun SearchContent(
     onLongClick: (AppInfo, Rect) -> Unit,
     onDismiss: () -> Unit,
     onButton: (ItemAction) -> Unit = {},
+    onChip: (ItemChip, Rect?) -> Unit = { _, _ -> },
     chip: KeywordChipState? = null,
     onChipBackspace: () -> Unit = {},
     cursorAfterReset: Int? = null,
@@ -459,76 +483,165 @@ internal fun SearchContent(
             cursorAfterReset = cursorAfterReset,
         )
         val list = rememberLazyListState()
+        // Items are keyed, so a LazyColumn follows the item that was first: rows arriving above it (the
+        // calculator's answer, a moment after the web row) would scroll themselves out of view, under the
+        // search field. While the user has not scrolled, every change of rows stays at the top instead.
+        var userScrolled by remember { mutableStateOf(false) }
+        LaunchedEffect(query) { userScrolled = false }
+        LaunchedEffect(list) { snapshotFlow { list.isScrollInProgress }.collect { if (it) userScrolled = true } }
+        SideEffect { if (!userScrolled) list.requestScrollToItem(0) }
         // Swiping up past the end of the results (or with nothing to scroll) closes the panel too.
         val swipeUp = rememberSwipeUpToClose(list, onDismiss)
-        // Taps on the gaps between results close the panel; the rows consume their own.
-        Box(Modifier.weight(1f).fillMaxWidth().nestedScroll(swipeUp).pointerInput(Unit) { detectTapGestures { onDismiss() } }) {
+        // The keyboard's inset already covers the navigation bar, so only one of the two pads the end of the list.
+        val imeUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+        val bottomInset = if (imeUp) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        // Taps on the gaps between results close the panel; the rows consume their own. The list is clipped to
+        // this box, which starts under the search field, so no row is ever drawn behind the field.
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clipToBounds()
+                .nestedScroll(swipeUp)
+                .pointerInput(Unit) { detectTapGestures { onDismiss() } },
+        ) {
             LazyColumn(
                 Modifier.fillMaxSize(),
                 state = list,
-                contentPadding = PaddingValues(
-                    start = ListStart,
-                    end = 12.dp,
-                    bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp,
-                ),
+                contentPadding = PaddingValues(top = 4.dp, bottom = bottomInset + 16.dp),
             ) {
-                items(rows, key = { it.key }) { row ->
-                    when (row) {
-                        is SearchRow.Caption -> MetroText(
-                            row.text,
-                            MetroType.caption,
-                            color = colors.subtle,
-                            modifier = Modifier.padding(top = 16.dp, bottom = 6.dp).semantics { heading() },
-                        )
-                        is SearchRow.App -> ResultRow(
-                            title = row.app.label,
-                            subtitle = null,
-                            onClick = { onActivate(row, it) },
-                            onLongClick = { onLongClick(row.app, it) },
-                        ) { AppListIcon(row.app, icons, monochrome, plainIcons) }
-                        is SearchRow.Shortcut -> ResultRow(
-                            title = row.hit.shortLabel,
-                            subtitle = row.app?.label,
-                            onClick = { onActivate(row, it) },
-                        ) { row.app?.let { AppListIcon(it, icons, monochrome, plainIcons) } ?: Spacer(Modifier.size(IconBox)) }
-                        is SearchRow.OpenUrl -> ResultRow(
-                            title = "open ${row.shown}",
-                            subtitle = null,
-                            onClick = { onActivate(row, it) },
-                        ) { Glyph { drawArrow(colors.foreground) } }
-                        is SearchRow.Web -> ResultRow(
-                            title = "search the web for “${row.query}”",
-                            subtitle = row.engine.label,
-                            onClick = { onActivate(row, it) },
-                        ) { Glyph { drawMagnifier(colors.foreground) } }
-                        is SearchRow.RecentSearch -> ResultRow(
-                            title = row.text,
-                            subtitle = null,
-                            onClick = { onActivate(row, it) },
-                        ) { Glyph { SearchGlyphs.history.draw(this, colors.foreground) } }
-                        SearchRow.ClearHistory -> MetroText(
-                            "clear history",
-                            MetroType.body,
-                            color = colors.accent,
-                            modifier = Modifier
-                                .padding(top = 8.dp)
-                                .metroTilt()
-                                .clickable(role = Role.Button) { onActivate(row, null) }
-                                .padding(vertical = 8.dp),
-                        )
-                        is SearchRow.Item -> ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, onButton)
-                        is SearchRow.Keyword -> Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .background(colors.accent.copy(alpha = 0.2f))
-                                .drawBehind { drawRect(colors.accent, size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height)) }
-                                .padding(start = 12.dp, end = 4.dp),
-                        ) { ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, onButton) }
+                // Keys belong to the item, not the query, so a row that stays keeps its place and state.
+                items(rows, key = { it.key }, contentType = { it::class }) { row ->
+                    if (row is SearchRow.Item && row.item.chips.isNotEmpty()) {
+                        ChipStrip(row.item, icons, monochrome, plainIcons, onChip)
+                        return@items
+                    }
+                    Box(Modifier.padding(start = ListStart, end = 12.dp)) {
+                        ResultRowFor(row, icons, monochrome, plainIcons, onActivate, onLongClick, onButton)
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ResultRowFor(
+    row: SearchRow,
+    icons: IconCache,
+    monochrome: Boolean,
+    plainIcons: Boolean,
+    onActivate: (SearchRow, Rect?) -> Unit,
+    onLongClick: (AppInfo, Rect) -> Unit,
+    onButton: (ItemAction) -> Unit,
+) {
+    val colors = Metro.colors
+    when (row) {
+        is SearchRow.Caption -> MetroText(
+            row.text,
+            MetroType.caption,
+            color = colors.subtle,
+            modifier = Modifier.padding(top = 16.dp, bottom = 6.dp).semantics { heading() },
+        )
+        is SearchRow.App -> ResultRow(
+            title = row.app.label,
+            subtitle = null,
+            onClick = { onActivate(row, it) },
+            onLongClick = { onLongClick(row.app, it) },
+        ) { AppListIcon(row.app, icons, monochrome, plainIcons) }
+        is SearchRow.Shortcut -> ResultRow(
+            title = row.hit.shortLabel,
+            subtitle = row.app?.label,
+            onClick = { onActivate(row, it) },
+        ) { row.app?.let { AppListIcon(it, icons, monochrome, plainIcons) } ?: Spacer(Modifier.size(IconBox)) }
+        is SearchRow.OpenUrl -> ResultRow(
+            title = "open ${row.shown}",
+            subtitle = null,
+            onClick = { onActivate(row, it) },
+        ) { Glyph { drawArrow(colors.foreground) } }
+        is SearchRow.Web -> ResultRow(
+            title = "search the web for “${row.query}”",
+            subtitle = row.engine.label,
+            onClick = { onActivate(row, it) },
+        ) { Glyph { drawMagnifier(colors.foreground) } }
+        is SearchRow.RecentSearch -> ResultRow(
+            title = row.text,
+            subtitle = null,
+            onClick = { onActivate(row, it) },
+        ) { Glyph { SearchGlyphs.history.draw(this, colors.foreground) } }
+        SearchRow.ClearHistory -> MetroText(
+            "clear history",
+            MetroType.body,
+            color = colors.accent,
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .metroTilt()
+                .clickable(role = Role.Button) { onActivate(row, null) }
+                .padding(vertical = 8.dp),
+        )
+        is SearchRow.Item -> ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, onButton)
+        is SearchRow.Keyword -> Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .background(colors.accent.copy(alpha = 0.2f))
+                .drawBehind { drawRect(colors.accent, size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height)) }
+                .padding(start = 12.dp, end = 4.dp),
+        ) { ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, onButton) }
+    }
+}
+
+/**
+ * "search “query” in" and the apps that can search it, as a strip of icon chips that scrolls sideways
+ * (search in apps). It runs to both screen edges so a chip scrolls off the screen, not off an invisible margin;
+ * the chips use the app list's icons, so they follow the plain / tiled setting.
+ */
+@Composable
+private fun ChipStrip(item: SearchItem, icons: IconCache, monochrome: Boolean, plainIcons: Boolean, onChip: (ItemChip, Rect?) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        MetroText(
+            item.title,
+            MetroType.caption,
+            color = Metro.colors.subtle,
+            maxLines = 1,
+            modifier = Modifier.padding(start = ListStart, end = 12.dp, top = 16.dp, bottom = 2.dp).semantics { heading() },
+        )
+        LazyRow(
+            contentPadding = PaddingValues(start = ListStart - ChipPad, end = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            items(item.chips, key = { it.id }) { chip -> StripChip(chip, icons, monochrome, plainIcons, onChip) }
+        }
+        Spacer(Modifier.height(6.dp))
+    }
+}
+
+private val ChipWidth = 76.dp
+private val ChipPad = 2.dp
+
+/** One chip: the icon over a name (two lines at most); the whole 76dp-wide column is the touch target. */
+@Composable
+private fun StripChip(chip: ItemChip, icons: IconCache, monochrome: Boolean, plainIcons: Boolean, onChip: (ItemChip, Rect?) -> Unit) {
+    val tracker = remember { BoundsTracker() }
+    Column(
+        Modifier
+            .width(ChipWidth)
+            .trackBounds(tracker)
+            .metroTilt()
+            .clickable(role = Role.Button) { onChip(chip, tracker.bounds()) }
+            .padding(horizontal = ChipPad, vertical = 6.dp)
+            .semantics(mergeDescendants = true) { contentDescription = chip.description },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // The description above says it all; the picture and the label are not read again.
+        Box(Modifier.clearAndSetSemantics { }) { IconView(chip.icon, icons, monochrome, plainIcons) }
+        Spacer(Modifier.height(4.dp))
+        MetroText(
+            chip.label,
+            MetroType.caption.copy(textAlign = TextAlign.Center),
+            maxLines = 2,
+            modifier = Modifier.fillMaxWidth().clearAndSetSemantics { },
+        )
     }
 }
 
@@ -575,7 +688,7 @@ private fun ItemRow(
         trailing = {
             item.buttons.forEach { button ->
                 Spacer(Modifier.width(8.dp))
-                RoundButton(button.label, { onButton(button.action) }) { IconView(button.icon, icons, monochrome, plainIcons, boxed = false) }
+                RoundButton(button.label, { onButton(button.action) }) { ButtonIcon(button.icon, icons, monochrome, plainIcons) }
             }
         },
     ) { IconView(item.icon, icons, monochrome, plainIcons) }
@@ -592,6 +705,15 @@ private fun IconView(icon: SearchIcon, icons: IconCache, monochrome: Boolean, pl
         }
         is SearchIcon.Image -> Image(icon.bitmap, null, Modifier.size(IconBox), contentScale = ContentScale.Crop)
     }
+}
+
+/**
+ * The picture inside a round button: a hairline glyph, or an installed app's own icon (WhatsApp's, read
+ * from the phone) at a size that sits inside the ring like the glyphs do.
+ */
+@Composable
+private fun ButtonIcon(icon: SearchIcon, icons: IconCache, monochrome: Boolean, plainIcons: Boolean) {
+    if (icon is SearchIcon.App) KeywordIcon(icon, icons, 28.dp, Metro.colors.foreground) else IconView(icon, icons, monochrome, plainIcons, boxed = false)
 }
 
 /** A thin circle with an icon in it, for the actions on a row; [label] is what a screen reader says. */
