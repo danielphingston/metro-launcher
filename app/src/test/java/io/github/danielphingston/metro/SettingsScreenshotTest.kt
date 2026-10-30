@@ -6,7 +6,11 @@ import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.ui.settings.SettingsPage
 import io.github.danielphingston.metro.ui.settings.SettingsScreen
 import io.github.danielphingston.metro.ui.theme.MetroTheme
+import org.junit.Rule
 import org.junit.Test
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onRoot
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -18,6 +22,9 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], qualifiers = "w411dp-h891dp-xxhdpi", application = MetroApplication::class)
 class SettingsScreenshotTest {
+    @get:Rule
+    val compose = createComposeRule()
+
     @Test
     fun menu() = capture("settings_menu", null)
 
@@ -31,7 +38,16 @@ class SettingsScreenshotTest {
     fun search() = capture("settings_search", SettingsPage.SEARCH)
 
     @Test
-    fun appearance() = capture("settings_appearance", SettingsPage.APPEARANCE)
+    fun appearance() {
+        // The icon pack list loads off the main thread: wait for it, or the capture can miss it.
+        val settings = LauncherSettings()
+        val repository = SettingsRepository(RuntimeEnvironment.getApplication())
+        compose.setContent { MetroTheme(settings) { SettingsScreen(settings, repository, SettingsPage.APPEARANCE) } }
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("no icon packs installed", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onRoot().captureRoboImage("src/test/screenshots/settings_appearance.png", roborazziOptions = ScreenshotOptions)
+    }
 
     @Test
     fun tiles() = capture("settings_tiles", SettingsPage.TILES)
