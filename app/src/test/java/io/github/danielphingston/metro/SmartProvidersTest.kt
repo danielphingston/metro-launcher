@@ -333,7 +333,7 @@ class SmartProvidersTest {
     fun quickActionRowsBuildTheRightIntents() = runBlocking {
         val provider = QuickActionsProvider(resolves = { _, _ -> true }, is24Hour = { true })
         val timer = provider.results("timer 5 min", ctx()).single()
-        assertEquals("start a 5 minutes timer", timer.title)
+        assertEquals("start a timer for 5 minutes", timer.title)
         val timerIntent = (timer.action as ItemAction.Start).intent
         assertEquals(AlarmClock.ACTION_SET_TIMER, timerIntent.action)
         assertEquals(300, timerIntent.getIntExtra(AlarmClock.EXTRA_LENGTH, 0))

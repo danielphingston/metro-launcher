@@ -28,7 +28,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Tablets and unfolded foldables: tiles keep about a phone's size and, by default, the number of tiles per row ("auto") follows the width so the grid fills the screen edge to edge, also after rotating or folding; the app list sits in the middle of the screen. Settings also offer four, six or eight tiles per row there.
 - Tiles keep the place you give them and only ever slide straight up into free space, never sideways into gaps; resizing or dropping a tile pushes the ones in its way down. Any tile can rise one row into a row left half empty, such as under a pair of small tiles. New tiles go at the bottom.
 - Press and hold a tile to edit: drag to move (dragging never makes a folder), the corner badges unpin, resize or group into a folder. Back, Home or a tap on empty space leaves edit mode.
-- "+" under the tiles adds weather, photos, people, widget and paid tiles (quick settings and assistant); the arrow opens the app list. Settings can tint these buttons ("+", magnifier, arrow) in the accent colour.
+- "+" under the tiles adds weather, photos, people, widget and Metro Plus tiles (quick settings and assistant); the arrow opens the app list. Settings can tint these buttons ("+", magnifier, arrow) in the accent colour.
 - Padding is adjustable on all four edges (top, bottom, left, right). TalkBack gets custom actions (open folder, group into folder, remove from folder, unpin, resize) as an alternative to dragging.
 
 **Tiles and live tiles**
@@ -51,25 +51,36 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Press and hold an app for pin to start, app shortcuts, uninstall and app info.
 
 **Search**
-- Pull down on the start screen, or tap the magnifier under the tiles. Search opens when you release, ignores sideways pulls and gives a haptic tick at the threshold; the pull distance is adjustable. Swipe up or press Home to close it. Results appear as you type: apps, app shortcuts (when Metro is the default home app) and a web row that opens google, bing or duckduckgo (settings) in your default browser. A typed address gets an "open" row. With an assistant app set (see below) an "ask Claude" row follows the web row. Search or Enter opens the best app match, else the web search.
+- Pull down on the start screen, or tap the magnifier under the tiles. Search opens when you release, ignores sideways pulls and gives a haptic tick at the threshold; the pull distance is adjustable. Swipe up or press Home to close it. Results appear as you type: apps, app shortcuts (when Metro is the default home app) and a web row that opens google, bing or duckduckgo (settings) in your default browser. A typed address gets an "open" row. Smarter app matching is free: initials ("yt" finds YouTube, "gm" Google Maps), small typos (one slip for 4 to 7 letters, two from 8), and matches inside words, ranked exact, prefix, word start, initials, contains, typo. Metro Plus adds smart search (below). Search or Enter opens the answer of a calculator or quick action when there is one, else the best app match, else the web search.
 - Search results follow the app list's icon style, so "plain icons" applies there too.
 - Metro makes no network requests while you type; nothing leaves the phone until you open a web result, and then your browser does it.
 
-**Paid tiles** (one paid pack)
-- A one-time Google Play purchase (product `tiles_quick_settings`), always unlocked in debug builds; locked tiles show "unlock to use". Add them from "+" under the tiles; settings has a "paid tiles" page. The picker and the page have two sections: "quick settings" and "assistant".
-- *Quick settings.* Kinds: flashlight, do not disturb, ringer (ring, vibrate, silent), auto-rotate, brightness (auto, 25%, 50%, 100%), wi-fi, mobile data, bluetooth, airplane mode, location, hotspot and battery. Larger tiles show extra detail such as signal bars, carrier or charge state.
+**Metro Plus** (one paid pack: quick settings tiles, assistant, smart search)
+- A one-time Google Play purchase (Play product id `tiles_quick_settings`, unchanged), always unlocked in debug builds; locked tiles show "unlock to use". Add tiles from "+" under the tiles; settings has a "metro plus" page with three sections: "quick settings tiles", "assistant" and "smart search".
+- *Quick settings tiles.* Kinds: flashlight, do not disturb, ringer (ring, vibrate, silent), auto-rotate, brightness (auto, 25%, 50%, 100%), wi-fi, mobile data, bluetooth, airplane mode, location, hotspot and battery. Larger tiles show extra detail such as signal bars, carrier or charge state.
 - Tapping flashlight, do not disturb, ringer, auto-rotate and brightness changes the setting in place (the first tap on do not disturb or silent, or on brightness or auto-rotate, opens the system screen where you grant do not disturb access or "modify system settings"). Android doesn't let apps toggle Wi-Fi, mobile data or Bluetooth directly, so those open the system panel or settings page; airplane mode, location, hotspot and battery open their settings pages.
 - Opt-in extras, off by default: the Wi-Fi network name (needs precise location) and connected Bluetooth devices (needs nearby devices permission).
-- *Assistant.* One tile that follows the shared assistant choice: the app's icon and unread count, the latest reply (conversation title over the reply text, read from its notifications; the last message of a MessagingStyle notification is preferred and SECRET notifications are never shown), a "you asked: ..." footer, and a flip to the last question you asked from search. A notification titled with just the app's name shows the reply text only. Tap opens the assistant app; with no assistant chosen it shows "choose an assistant in settings". Nothing is polled: it reacts to notification changes. When the notification is gone (opened or dismissed) the tile keeps the assistant's last reply, dimmed and with a relative time ("2h ago") instead of an unread count; "clear last reply" in the paid tiles page deletes it, as do changing the assistant or turning notification access or previews off.
+- *Assistant.* One tile that follows the shared assistant choice: the app's icon and unread count, the latest reply (conversation title over the reply text, read from its notifications; the last message of a MessagingStyle notification is preferred and SECRET notifications are never shown), a "you asked: ..." footer, and a flip to the last question you asked from search. A notification titled with just the app's name shows the reply text only. Tap opens the assistant app; with no assistant chosen it shows "choose an assistant in settings". Nothing is polled: it reacts to notification changes. When the notification is gone (opened or dismissed) the tile keeps the assistant's last reply, dimmed and with a relative time ("2h ago") instead of an unread count; "clear last reply" in the metro plus page deletes it, as do changing the assistant or turning notification access or previews off.
+- *Smart search.* Each feature has its own switch in settings, "search", "smart search"; while Metro Plus is locked none shows in results and that page lists them all with a lock and an "unlock with Metro Plus" button. Free forever: plain app-name search, the web row, the typed-address "open" row and smarter app matching.
 
-**Ask an assistant** (free, no APIs)
-- Settings, "search", "ask assistant": off, one of the installed known apps (Claude, ChatGPT, Gemini, Perplexity, Copilot) or "other app" (any launchable app that accepts shared text). Until you choose, Claude is used if installed, else the first installed known assistant, else it stays off.
+**Smart search features** (Metro Plus; default in brackets)
+1. Calculator and units [on]: + - * / ^ % and brackets, "15% of 2400", comma or point decimals, and offline unit conversion (length, mass, temperature, volume, speed, area, time, data) such as "5 km in miles", "70 f in c", "2.5 kg to lb". No currency. The answer is the top row; tap copies it.
+2. Phone settings shortcuts [on]: keywords such as wifi, bluetooth, battery, display, sound, storage, location, date, language, hotspot, nfc, do not disturb, about phone lead to that page of the system settings; only pages that exist on the phone show (developer options only when enabled).
+3. Quick actions [on]: "timer 5 min", "timer 90s", "alarm 7:30" or "alarm 6am" (opens the clock app to confirm), "note buy milk" (share to a notes app). "call <name>" and "message <name>" are recognised and handed to contacts search when that feature exists.
+4. Smarter app matching: free, see Search.
+5. Suggestions before typing [on]: with nothing typed, your most used apps and the last eight searches, with "clear history". Launch counts and searches are stored on the phone only and left out of backups.
+7. Launcher actions [on]: "wallpaper", "edit tiles" or "edit start", "Metro settings", "smart search settings", "app info <app>", "uninstall <app>".
+11. Ask assistant [on]: the "ask <assistant>" row after the web row, below.
+Calendar events, contacts, WhatsApp chats and search in apps also have switches (calendar and contacts [off], asking their permission when switched on).
+
+**Ask an assistant** (Metro Plus, no APIs)
+- Pick the assistant in the metro plus page, "assistant": off, one of the installed known apps (Claude, ChatGPT, Gemini, Perplexity, Copilot) or "other app" (any launchable app that accepts shared text). Until you choose, Claude is used if installed, else the first installed known assistant, else it stays off. The row has its own switch under smart search.
 - Typing a query adds an "ask <app>" row after the web row. Tapping it sends the question with a plain `ACTION_SEND` text/plain intent to that app; if the app can't take shared text, the question is copied to the clipboard, the app opens and a toast says "question copied". The last question is kept on the phone for the assistant tile.
 
 **Backgrounds and personalisation**
 - Theme: dark, light or follow system. The 20 Windows Phone accent colours.
 - Start background: solid; photo tiles (each tile is a window onto one photo); full photo with parallax; or the system wallpaper.
-- Settings are a menu of pages: start, app list, search, appearance, animations, tiles, paid tiles and about.
+- Settings are a menu of pages: start, app list, search, appearance, animations, tiles, metro plus and about.
 - Tile transparency slider, and "accent colour from my background" for the photo modes.
 - Themed (monochrome) app icons on Android 13+, and icon packs (ADW, Nova and Apex formats).
 - "Metro settings" lives in the app list and also sets Metro as the default home app.
@@ -97,18 +108,20 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 |---|---|---|
 | `INTERNET` | Download the forecast and search places on Open-Meteo | Only used once a weather place is set |
 | `ACCESS_COARSE_LOCATION` | Weather for "my location" (rounded to about 1 km, no continuous updates) | When you tap "use my location" in settings |
-| `READ_CONTACTS` | Photos for the people tile | When you tap "show contacts on people tile" in settings |
-| `READ_CALENDAR` | Next appointment on the calendar tile | When you tap "show appointments on calendar tile" in settings |
-| `ACCESS_FINE_LOCATION` | Wi-Fi name on the quick settings Wi-Fi tile (Android hides it without precise location) | When you turn on "show Wi-Fi name" in paid tiles settings |
-| `BLUETOOTH_CONNECT` | Names of connected devices on the Bluetooth quick tile | When you turn on "show Bluetooth devices" in paid tiles settings |
+| `READ_CONTACTS` | Photos for the people tile; contact search results (smart search) | When you tap "show contacts on people tile", or turn on "contacts" in smart search, in settings. Read on the phone, never uploaded |
+| `READ_CALENDAR` | Next appointment on the calendar tile; event search results (smart search) | When you tap "show appointments on calendar tile", or turn on "calendar events" in smart search, in settings. Read on the phone, never uploaded |
+| `ACCESS_FINE_LOCATION` | Wi-Fi name on the quick settings Wi-Fi tile (Android hides it without precise location) | When you turn on "show Wi-Fi name" in metro plus settings |
+| `BLUETOOTH_CONNECT` | Names of connected devices on the Bluetooth quick tile | When you turn on "show Bluetooth devices" in metro plus settings |
 | `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` | Read Wi-Fi and mobile data state for the quick settings tiles | Normal permissions, granted at install; read only while such a tile is shown |
 | `WRITE_SETTINGS` | Auto-rotate and brightness quick tiles | Only when you tap one of those tiles; Metro opens the system "modify system settings" screen |
 | `ACCESS_NOTIFICATION_POLICY` | Do not disturb and silent on the quick settings tiles | Only when you tap one of those tiles; Metro opens the system "do not disturb access" screen |
-| `BILLING` (`com.android.vending.BILLING`, added by the Play Billing library) | The one-time paid tiles purchase | Only when you choose to buy |
+| `BILLING` (`com.android.vending.BILLING`, added by the Play Billing library) | The one-time Metro Plus purchase | Only when you choose to buy |
 | `REQUEST_DELETE_PACKAGES` | "Uninstall" in the app list (the system still asks to confirm) | Only when you choose uninstall |
 | Notification access (`BIND_NOTIFICATION_LISTENER_SERVICE`) | Counts, latest message and now-playing on tiles | You enable it in system settings from a button in Metro settings, after an in-app explanation |
 
-Background and tile photos use the system photo picker, so no media permission is needed. Nothing else is requested, and `QUERY_ALL_PACKAGES` is not used: `<queries>` lists launchable apps, the `ACTION_SEND` text/plain intent (to find apps that take shared text for the assistant row) and the five known assistant packages.
+Background and tile photos use the system photo picker, so no media permission is needed. Nothing else is requested, and `QUERY_ALL_PACKAGES` is not used: `<queries>` lists launchable apps, the `ACTION_SEND` text/plain intent (to find apps that take shared text for the assistant row) and the five known assistant packages, the system settings app (settings shortcuts), the clock app's `SET_ALARM`/`SET_TIMER` intents and the wallpaper picker (quick actions and launcher actions).
+
+**Play Data safety notes:** contacts and calendar are read on the device to show search results and tiles and are never uploaded; recent searches and launch counts are stored locally (`search_history.xml`) and excluded from backup and device transfer; billing state is excluded too.
 
 ## Building
 

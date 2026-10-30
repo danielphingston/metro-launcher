@@ -202,7 +202,7 @@ private fun SettingsMenu(scroll: ScrollState, onOpen: (SettingsPage) -> Unit) {
 }
 
 @Composable
-private fun SettingsPageFrame(page: SettingsPage, scroll: ScrollState, content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsPageFrame(page: SettingsPage, scroll: ScrollState, content: @Composable ColumnScope.() -> Unit) {
     val colors = Metro.colors
     Column(
         Modifier

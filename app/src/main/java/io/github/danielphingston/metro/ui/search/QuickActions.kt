@@ -175,7 +175,7 @@ internal class QuickActionsProvider(
                     .putExtra(AlarmClock.EXTRA_LENGTH, action.seconds)
                     .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
                 if (!resolves(context, intent)) return emptyList()
-                listOf(item("timer", "start a ${QuickActionParser.describe(action.seconds)} timer", "clock app", SearchGlyphs.timer, intent))
+                listOf(item("timer", "start a timer for ${QuickActionParser.describe(action.seconds)}", "clock app", SearchGlyphs.timer, intent))
             }
             is QuickAction.Alarm -> {
                 val intent = Intent(AlarmClock.ACTION_SET_ALARM)
