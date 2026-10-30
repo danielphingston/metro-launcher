@@ -31,6 +31,7 @@ import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SearchInApp
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.SmartFeature
+import io.github.danielphingston.metro.ui.components.LabeledSlider
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.MetroToggle
@@ -107,6 +108,15 @@ internal fun SmartSearchSection(
             )
         }
         if (feature == SmartFeature.SEARCH_IN_APPS && on) SearchInAppsList(settings, repository, otherSearchApps)
+        if (feature == SmartFeature.SUGGESTIONS && on) {
+            LabeledSlider(
+                "Recent searches",
+                settings.searchHistorySize,
+                LauncherSettings.MIN_SEARCH_HISTORY..LauncherSettings.MAX_SEARCH_HISTORY,
+                { "$it" },
+                Modifier.padding(start = 20.dp, bottom = 8.dp),
+            ) { repository.setSearchHistorySize(it) }
+        }
         if (feature == SmartFeature.SEARCH_KEYWORDS && on) SearchKeywordList(settings, repository, apps, icons, onEditKeyword)
     }
     Spacer(Modifier.height(4.dp))

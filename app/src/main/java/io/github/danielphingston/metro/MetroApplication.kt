@@ -78,6 +78,10 @@ class MetroApplication : Application(), Configuration.Provider {
             settings.settings.map { it.showNotificationContent }.distinctUntilChanged().collect { if (!it) assistantReply.clear() }
         }
         appScope.launch {
+            // Lowering the number of remembered searches trims what is stored at once.
+            settings.settings.map { it.searchHistorySize }.distinctUntilChanged().collect { searchHistory.trimSearches(it) }
+        }
+        appScope.launch {
             settings.settings.map { it.iconPack }.distinctUntilChanged().collect { icons.iconPack = it }
         }
     }

@@ -220,7 +220,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     val searchHistory: StateFlow<HistoryData> = metro.searchHistory.data
 
     fun recordSearch(query: String) {
-        if (suggestionsOn) metro.searchHistory.recordSearch(query)
+        if (suggestionsOn) metro.searchHistory.recordSearch(query, settings.value.searchHistorySize)
     }
 
     fun clearSearchHistory() = metro.searchHistory.clear()

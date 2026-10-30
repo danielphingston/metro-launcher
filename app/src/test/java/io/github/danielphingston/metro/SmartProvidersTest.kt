@@ -427,9 +427,27 @@ class SmartProvidersTest {
         list = HistoryRules.addSearch(list, "MAPS GO")
         assertEquals(listOf("MAPS GO", "calendar"), list)
         (1..12).forEach { list = HistoryRules.addSearch(list, "query $it") }
-        assertEquals(HistoryRules.MAX_SEARCHES, list.size)
+        assertEquals(io.github.danielphingston.metro.data.LauncherSettings.DEFAULT_SEARCH_HISTORY, list.size)
         assertEquals("query 12", list.first())
         assertEquals(HistoryRules.MAX_SEARCH_LENGTH, HistoryRules.addSearch(emptyList(), "a".repeat(500)).single().length)
+    }
+
+    @Test
+    fun searchHistorySizeIsClampedAndTrims() {
+        val l = io.github.danielphingston.metro.data.LauncherSettings
+        assertEquals(5, l.DEFAULT_SEARCH_HISTORY)
+        assertEquals(1, l.clampSearchHistory(0))
+        assertEquals(1, l.clampSearchHistory(-7))
+        assertEquals(25, l.clampSearchHistory(99))
+        assertEquals(12, l.clampSearchHistory(12))
+        var list = emptyList<String>()
+        (1..30).forEach { list = HistoryRules.addSearch(list, "query $it", 12) }
+        assertEquals(12, list.size)
+        (1..30).forEach { list = HistoryRules.addSearch(list, "other $it", 99) }
+        assertEquals(25, list.size)
+        assertEquals(listOf("other 30", "other 29"), HistoryRules.trim(list, 2))
+        assertEquals(1, HistoryRules.trim(list, 0).size)
+        assertEquals(list, HistoryRules.trim(list, 25))
     }
 
     @Test

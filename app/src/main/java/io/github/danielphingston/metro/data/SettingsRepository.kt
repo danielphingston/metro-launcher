@@ -132,6 +132,8 @@ data class LauncherSettings(
     val liveTileFlips: Boolean = true,
     /** The average time (seconds) between one live tile flipping and the next. */
     val flipIntervalSeconds: Int = DEFAULT_FLIP_INTERVAL,
+    /** How many recent searches the empty search remembers and shows. */
+    val searchHistorySize: Int = DEFAULT_SEARCH_HISTORY,
     /** The start screen and app list lean while the pager is dragged between them. */
     val swingPages: Boolean = true,
     /** The assistant app: null while the user never chose, [AssistantChoice.OFF] for off, else a package; see [AssistantChoice.resolve]. */
@@ -203,6 +205,10 @@ data class LauncherSettings(
         const val MAX_TILT_DEGREES = 15
         const val DEFAULT_TILT_DEGREES = 9
 
+        const val MIN_SEARCH_HISTORY = 1
+        const val MAX_SEARCH_HISTORY = 25
+        const val DEFAULT_SEARCH_HISTORY = 5
+
         const val MIN_FLIP_INTERVAL = 2
         const val MAX_FLIP_INTERVAL = 15
         const val DEFAULT_FLIP_INTERVAL = 4
@@ -219,6 +225,7 @@ data class LauncherSettings(
         fun clampStartSidePadding(dp: Int) = dp.coerceIn(MIN_START_SIDE_PADDING, MAX_START_SIDE_PADDING)
         fun clampAnimationSpeed(percent: Int) = percent.coerceIn(MIN_ANIMATION_SPEED, MAX_ANIMATION_SPEED)
         fun clampTiltDegrees(degrees: Int) = degrees.coerceIn(MIN_TILT_DEGREES, MAX_TILT_DEGREES)
+        fun clampSearchHistory(count: Int) = count.coerceIn(MIN_SEARCH_HISTORY, MAX_SEARCH_HISTORY)
         fun clampFlipInterval(seconds: Int) = seconds.coerceIn(MIN_FLIP_INTERVAL, MAX_FLIP_INTERVAL)
 
         /** Colours are drawn as stored; a transparent one would be invisible, so force it opaque. */
@@ -273,6 +280,7 @@ class SettingsRepository(private val context: Context) {
         val tiltDegrees = intPreferencesKey("tilt_degrees")
         val liveTileFlips = booleanPreferencesKey("live_tile_flips")
         val flipInterval = intPreferencesKey("flip_interval")
+        val searchHistorySize = intPreferencesKey("search_history_size")
         val swingPages = booleanPreferencesKey("swing_pages")
         val assistant = stringPreferencesKey("assistant_package")
         val lastQuestion = stringPreferencesKey("assistant_last_question")
@@ -339,6 +347,8 @@ class SettingsRepository(private val context: Context) {
             liveTileFlips = this[Keys.liveTileFlips] ?: defaults.liveTileFlips,
             flipIntervalSeconds = this[Keys.flipInterval]?.let(LauncherSettings::clampFlipInterval)
                 ?: defaults.flipIntervalSeconds,
+            searchHistorySize = this[Keys.searchHistorySize]?.let(LauncherSettings::clampSearchHistory)
+                ?: defaults.searchHistorySize,
             swingPages = this[Keys.swingPages] ?: defaults.swingPages,
             assistant = this[Keys.assistant],
             lastAsked = this[Keys.lastQuestion]?.takeIf { it.isNotBlank() }
@@ -438,6 +448,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setFlipInterval(seconds: Int) = context.metroDataStore.edit {
         it[Keys.flipInterval] = LauncherSettings.clampFlipInterval(seconds)
+    }
+
+    suspend fun setSearchHistorySize(count: Int) = context.metroDataStore.edit {
+        it[Keys.searchHistorySize] = LauncherSettings.clampSearchHistory(count)
     }
 
     /** [packageName] null switches the assistant off; a package chooses it. Either ends the automatic default. */
