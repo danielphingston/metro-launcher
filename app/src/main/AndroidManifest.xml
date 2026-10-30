@@ -111,6 +111,7 @@
         <package android:name="com.google.android.apps.maps" />
         <package android:name="com.spotify.music" />
         <package android:name="com.amazon.mShop.android.shopping" />
+        <package android:name="in.amazon.mShop.android.shopping" />
         <package android:name="com.whatsapp" />
         <package android:name="com.whatsapp.w4b" />
         <intent>

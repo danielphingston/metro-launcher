@@ -20,14 +20,25 @@ internal class TaggedItems(val query: String, val items: List<SearchItem>)
 /** Which provider results may be shown for the current query. Pure, so the no-stale-rows rule is tested. */
 internal object ProviderResults {
     /**
-     * The rows of each of [providers] whose results were made for exactly [query]. A provider that
-     * has not answered yet for this query shows nothing, never its answer to an earlier query;
-     * an answer for the same query stays on screen while the provider is asked again (the apps or
-     * settings changed), so nothing flickers. Providers without rows are left out.
+     * Whether [old] and [now] are one piece of typing: one is the start of the other (typing on or
+     * deleting back), ignoring case. Rows made for [old] may then stay on screen until the answer
+     * for [now] arrives; for an unrelated text they would be wrong, so they go at once.
+     */
+    fun continues(old: String, now: String): Boolean {
+        val o = old.trim().lowercase()
+        val n = now.trim().lowercase()
+        return o.isNotEmpty() && n.isNotEmpty() && (o.startsWith(n) || n.startsWith(o))
+    }
+
+    /**
+     * The rows of each of [providers] to show for [query]: its answer for exactly [query], else
+     * (while the next answer is on its way) its previous answer if that was for a [continues] text,
+     * so typing never makes rows vanish for a moment and pop back. An answer for an unrelated text is
+     * never shown. The new answer replaces the old one in one step; providers without rows are left out.
      */
     fun visible(providers: List<SearchProvider>, tagged: Map<String, TaggedItems>, query: String): List<ProvidedItems> =
         providers.mapNotNull { provider ->
-            val found = tagged[provider.id]?.takeIf { it.query == query }?.items.orEmpty()
+            val found = tagged[provider.id]?.takeIf { it.query == query || continues(it.query, query) }?.items.orEmpty()
             if (found.isEmpty()) null else ProvidedItems(provider, found)
         }
 

@@ -36,7 +36,7 @@ internal object KeywordRows {
 
     /** The picture for [target] in the chip and the settings: the app's own icon when installed, else a drawing. */
     fun icon(target: KeywordTarget, apps: List<AppInfo>, assistantSetting: String? = null): SearchIcon = when (target) {
-        is KeywordTarget.BuiltIn -> appIcon(apps, target.app.packageName) ?: SearchGlyphs.search
+        is KeywordTarget.BuiltIn -> SearchInApps.icon(apps, target.app)
         KeywordTarget.Web -> SearchGlyphs.search
         KeywordTarget.Assistant -> AssistantTarget.resolve(apps, assistantSetting)?.let { SearchIcon.App(it.app) } ?: SearchGlyphs.chat
         is KeywordTarget.InstalledApp -> appIcon(apps, target.packageName) ?: SearchGlyphs.search

@@ -7,6 +7,8 @@ import android.net.Uri
 import android.telephony.TelephonyManager
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.SearchInApp
+import io.github.danielphingston.metro.data.SearchInOrdering
+import io.github.danielphingston.metro.data.SearchInTarget
 import io.github.danielphingston.metro.data.SmartFeature
 import java.util.Locale
 
@@ -58,11 +60,14 @@ internal object SearchInIntents {
     fun spotify(query: String): Intent =
         Intent(Intent.ACTION_VIEW, Uri.parse("spotify:search:${enc(query)}")).setPackage(SearchInApp.SPOTIFY.packageName)
 
-    /** The store's search page; [app] true opens it in the Amazon Shopping app, false in the browser. */
-    fun amazon(query: String, domain: String, app: Boolean): Intent =
+    /**
+     * The store's search page; [app] true opens it in the Amazon Shopping app ([packageName]: the
+     * global build, or the India one), false in the browser.
+     */
+    fun amazon(query: String, domain: String, app: Boolean, packageName: String = AMAZON_PACKAGE): Intent =
         Intent(Intent.ACTION_VIEW, Uri.parse("https://www.$domain/s?k=${enc(query)}")).apply {
             addCategory(Intent.CATEGORY_BROWSABLE)
-            if (app) setPackage(AMAZON_PACKAGE)
+            if (app) setPackage(packageName)
         }
 
     /** A search through any app that offers one; [web] picks ACTION_WEB_SEARCH over ACTION_SEARCH. */
@@ -89,7 +94,25 @@ internal class RealSearchInPhone(private val context: Context) : SearchInPhone {
 
 /** The rows "search <app> for ..." and which apps they are for. */
 internal object SearchInApps {
-    private val builtInPackages = SearchInApp.entries.mapTo(HashSet()) { it.packageName }
+    private val builtInPackages = SearchInApp.entries.flatMapTo(HashSet()) { it.packages }
+
+    /**
+     * The installed app (one of [packages], the main profile's copy first) among [apps], or null. Looked up by
+     * every package the app ships under, so Amazon's India build gets its own icon too.
+     */
+    fun installedApp(apps: List<AppInfo>, packages: List<String>): AppInfo? =
+        packages.firstNotNullOfOrNull { pkg ->
+            apps.firstOrNull { it.key.packageName == pkg && it.key.userSerial == 0L } ?: apps.firstOrNull { it.key.packageName == pkg }
+        }
+
+    /** The picture of [app] in the strip and the settings: its own icon when installed, else the plain search glyph. */
+    fun icon(apps: List<AppInfo>, app: SearchInApp): SearchIcon =
+        installedApp(apps, app.packages)?.let { SearchIcon.App(it) } ?: SearchGlyphs.search
+
+    /** Every target the strip and its settings can offer, in natural order: the built-in apps, then [others]. */
+    fun allTargets(others: List<OtherSearchApp>): List<SearchInTarget> =
+        SearchInApp.entries.map { SearchInTarget(SearchInOrdering.builtInId(it), it.label) } +
+            others.map { SearchInTarget(SearchInOrdering.otherId(it.packageName), it.label) }
 
     /** Apps that take an ACTION_SEARCH or ACTION_WEB_SEARCH aimed at their package, other than the built-in ones and Metro itself. */
     fun otherApps(context: Context, apps: List<AppInfo>): List<OtherSearchApp> {
@@ -131,8 +154,9 @@ internal object SearchInApps {
         SearchInApp.SPOTIFY -> SearchInIntents.spotify(query).takeIf { phone.resolves(it) }
         SearchInApp.AMAZON -> {
             val domain = phone.amazonDomain(locale)
-            SearchInIntents.amazon(query, domain, app = true).takeIf { phone.resolves(it) }
-                ?: SearchInIntents.amazon(query, domain, app = false)
+            app.packages.firstNotNullOfOrNull { pkg ->
+                SearchInIntents.amazon(query, domain, app = true, packageName = pkg).takeIf { phone.resolves(it) }
+            } ?: SearchInIntents.amazon(query, domain, app = false)
         }
     }
 
@@ -142,9 +166,16 @@ internal object SearchInApps {
 
     /** The title of a row: "search YouTube for 'cats'". */
     fun title(label: String, query: String) = "search $label for “$query”"
+
+    /** The caption above the strip: search “cats” in */
+    fun stripCaption(query: String) = "search “$query” in"
 }
 
-/** Feature 10: rows that hand the typed text to another app's own search. */
+/**
+ * Feature 10: one row for "search <query> in", a strip of the apps that take the typed text, in the
+ * order the user chose (most used from search, or custom). Each chip is the app's own icon in the
+ * app list's style, or a plain search glyph when the app isn't installed and a web page stands in.
+ */
 internal class SearchInAppsProvider(
     private val phoneFor: (Context) -> SearchInPhone = ::RealSearchInPhone,
     private val others: (Context, List<AppInfo>) -> List<OtherSearchApp> = SearchInApps::otherApps,
@@ -152,40 +183,40 @@ internal class SearchInAppsProvider(
     override val id = "search_in_apps"
     override val feature = SmartFeature.SEARCH_IN_APPS
     override val placement = Placement.BOTTOM
-    override val section = "search in apps"
 
     override suspend fun results(query: String, ctx: SearchContext): List<SearchItem> {
         val phone = phoneFor(ctx.context)
-        val items = ArrayList<SearchItem>()
-        fun iconOf(packageName: String, fallback: SearchIcon) =
-            ctx.apps.firstOrNull { it.key.packageName == packageName && it.key.userSerial == 0L }
-                ?.let { SearchIcon.App(it) }
-                ?: ctx.apps.firstOrNull { it.key.packageName == packageName }?.let { SearchIcon.App(it) }
-                ?: fallback
-
+        // In natural order (built-in apps, then others by name); the user's order is applied below.
+        val found = ArrayList<Pair<SearchInTarget, ItemChip>>()
+        fun add(id: String, label: String, icon: SearchIcon, intent: Intent) {
+            found += SearchInTarget(id, label) to ItemChip(id, label, "search $label for $query", icon, SearchActions.start(intent))
+        }
         for (app in SearchInApp.entries) {
             if (app !in ctx.settings.searchInApps) continue
             val intent = SearchInApps.intentFor(app, query, phone, ctx.locale) ?: continue
-            items += SearchItem(
-                key = app.id,
-                title = SearchInApps.title(app.label, query),
-                icon = iconOf(app.packageName, SearchGlyphs.search),
-                action = SearchActions.start(intent),
-            )
+            add(SearchInOrdering.builtInId(app), app.label, SearchInApps.icon(ctx.apps, app), intent)
         }
         val enabledOthers = ctx.settings.searchInOtherApps
         if (enabledOthers.isNotEmpty()) {
             others(ctx.context, ctx.apps).filter { it.packageName in enabledOthers }.forEach { other ->
                 val intent = SearchInIntents.other(other.packageName, query, other.web)
                 if (!phone.resolves(intent)) return@forEach
-                items += SearchItem(
-                    key = "other:${other.packageName}",
-                    title = SearchInApps.title(other.label, query),
-                    icon = iconOf(other.packageName, SearchGlyphs.search),
-                    action = SearchActions.start(intent),
-                )
+                val icon = SearchInApps.installedApp(ctx.apps, listOf(other.packageName))?.let { SearchIcon.App(it) } ?: SearchGlyphs.search
+                add(SearchInOrdering.otherId(other.packageName), other.label, icon, intent)
             }
         }
-        return items
+        if (found.isEmpty()) return emptyList()
+        val chips = found.associate { (target, chip) -> target.id to chip }
+        val ordered = SearchInOrdering.ordered(found.map { it.first }, ctx.settings.searchInOrder, ctx.settings.searchInCustomOrder, ctx.searchInUses)
+        return listOf(
+            SearchItem(
+                key = "strip",
+                title = SearchInApps.stripCaption(query),
+                icon = SearchGlyphs.search,
+                action = ItemAction.Run { },
+                chips = ordered.mapNotNull { chips[it.id] },
+                capturesEnter = false,
+            ),
+        )
     }
 }

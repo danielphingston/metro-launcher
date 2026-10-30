@@ -214,7 +214,7 @@ internal class ContactsProvider(
                 subtitle = number,
                 icon = contact.photoUri?.let { photo(context, it) }?.let { SearchIcon.Image(it) } ?: SearchGlyphs.person,
                 action = SearchActions.start(ContactIntents.open(contact.id, contact.lookupKey)),
-                buttons = buttonsFor(number, details.whatsapp),
+                buttons = buttonsFor(number, details.whatsapp, details.whatsapp?.let { WhatsAppApps.icon(ctx.apps, WhatsAppApps.packageForMime(it.mimeType)) } ?: SearchGlyphs.chat),
             )
         }
     }
@@ -223,13 +223,13 @@ internal class ContactsProvider(
         private const val MAX_ROWS = 4
 
         /** Call and message need a number; WhatsApp only appears when the contact has a WhatsApp data row. */
-        fun buttonsFor(number: String?, whatsapp: WhatsAppRow?): List<ItemButton> = buildList {
+        fun buttonsFor(number: String?, whatsapp: WhatsAppRow?, whatsAppIcon: SearchIcon = SearchGlyphs.chat): List<ItemButton> = buildList {
             if (number != null) {
                 add(ItemButton("call", SearchGlyphs.phone, SearchActions.start(ContactIntents.dial(number))))
                 add(ItemButton("message", SearchGlyphs.message, SearchActions.start(ContactIntents.message(number))))
             }
             if (whatsapp != null) {
-                add(ItemButton("WhatsApp", SearchGlyphs.chat, whatsAppAction(whatsapp, number)))
+                add(ItemButton("WhatsApp", whatsAppIcon, whatsAppAction(whatsapp, number)))
             }
         }
 

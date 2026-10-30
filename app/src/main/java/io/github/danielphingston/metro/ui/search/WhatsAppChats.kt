@@ -6,6 +6,7 @@ import android.content.pm.ShortcutInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.ui.graphics.asImageBitmap
+import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
@@ -26,6 +27,17 @@ internal object WhatsAppApps {
     )
 
     fun isWhatsApp(packageName: String) = packageName in packages
+
+    /**
+     * WhatsApp's own icon, read from the installed app (never bundled): the app that owns
+     * [preferred] when installed, else the other WhatsApp, else a neutral chat bubble.
+     */
+    fun icon(apps: List<AppInfo>, preferred: String = PERSONAL): SearchIcon {
+        val installed = (listOf(preferred) + packages).distinct().firstNotNullOfOrNull { pkg ->
+            apps.firstOrNull { it.key.packageName == pkg && it.key.userSerial == 0L } ?: apps.firstOrNull { it.key.packageName == pkg }
+        }
+        return installed?.let { SearchIcon.App(it) } ?: SearchGlyphs.chat
+    }
 
     /** Whether [mimeType] is a WhatsApp contact data row. */
     fun isProfileMime(mimeType: String?) = mimeType != null && mimeType in profileMimeTypes
@@ -182,13 +194,12 @@ internal class WhatsAppProvider(
     override suspend fun results(query: String, ctx: SearchContext): List<SearchItem> {
         val found = chats(ctx.context)(query, MAX_ROWS)
         return found.map { hit ->
-            val app = ctx.apps.firstOrNull { it.key.packageName == hit.packageName }
             SearchItem(
                 key = "${hit.packageName}/${hit.id}#${hit.userSerial}",
                 title = hit.label,
                 subtitle = hit.longLabel?.takeIf { it != hit.label } ?: if (hit.packageName == WhatsAppApps.BUSINESS) "WhatsApp Business" else "WhatsApp",
                 icon = iconOf(ctx.context, hit)?.let { SearchIcon.Image(it.asImageBitmap()) }
-                    ?: app?.let { SearchIcon.App(it) } ?: SearchGlyphs.chat,
+                    ?: WhatsAppApps.icon(ctx.apps, hit.packageName),
                 action = ItemAction.Open { env ->
                     ShortcutTiles.launch(
                         env.context,

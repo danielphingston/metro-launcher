@@ -146,6 +146,10 @@ data class LauncherSettings(
     val searchInOtherApps: Set<String> = emptySet(),
     /** The search keywords ("a" for Amazon); they only act while the SEARCH_KEYWORDS smart feature is on. */
     val searchKeywords: List<SearchKeyword> = SearchKeywords.defaults,
+    /** How the "search in" strip in the results is ordered. */
+    val searchInOrder: SearchInOrder = SearchInOrder.default,
+    /** The custom order of the strip: target ids (see [SearchInOrdering]); targets not listed come last. */
+    val searchInCustomOrder: List<String> = emptyList(),
 ) {
     /** Whether [feature]'s own switch is on (it still needs Metro Plus to show anything). */
     fun smartOn(feature: SmartFeature): Boolean = feature in smartFeatures
@@ -293,6 +297,9 @@ class SettingsRepository(private val context: Context) {
 
         /** The keywords as JSON (see [SearchKeywords.encode]); missing means the defaults. */
         val searchKeywords = stringPreferencesKey("search_keywords")
+
+        val searchInOrder = stringPreferencesKey("search_in_order")
+        val searchInCustomOrder = stringPreferencesKey("search_in_custom_order")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -353,6 +360,8 @@ class SettingsRepository(private val context: Context) {
             searchInApps = SearchInApp.entries.filterTo(LinkedHashSet()) { this[Keys.searchInApp(it)] ?: it.defaultOn },
             searchInOtherApps = this[Keys.searchInOtherApps].orEmpty(),
             searchKeywords = SearchKeywords.decode(this[Keys.searchKeywords]),
+            searchInOrder = SearchInOrder.fromId(this[Keys.searchInOrder]),
+            searchInCustomOrder = SearchInOrdering.decode(this[Keys.searchInCustomOrder]),
         )
     }
 
@@ -477,6 +486,17 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSearchInOtherApp(packageName: String, enabled: Boolean) = context.metroDataStore.edit {
         val current = it[Keys.searchInOtherApps].orEmpty()
         it[Keys.searchInOtherApps] = if (enabled) current + packageName else current - packageName
+    }
+
+    suspend fun setSearchInOrder(order: SearchInOrder) = context.metroDataStore.edit { it[Keys.searchInOrder] = order.id }
+
+    /**
+     * Moves [id] by [delta] places in the custom order. [known] are all the ids the page lists, so a
+     * target never ordered before takes its natural place first; read and written in one edit.
+     */
+    suspend fun moveSearchInTarget(id: String, delta: Int, known: List<String>) = context.metroDataStore.edit {
+        val current = SearchInOrdering.complete(SearchInOrdering.decode(it[Keys.searchInCustomOrder]), known)
+        it[Keys.searchInCustomOrder] = SearchInOrdering.encode(SearchInOrdering.move(current, id, delta))
     }
 
     suspend fun setSearchKeywords(keywords: List<SearchKeyword>) =

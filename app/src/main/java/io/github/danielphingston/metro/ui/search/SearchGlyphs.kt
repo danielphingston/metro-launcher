@@ -143,14 +143,14 @@ internal object SearchGlyphs {
         )
     }
 
-    /** A speech bubble with a handset-like dash: WhatsApp buttons and chats. */
+    /** A round speech bubble with three dots: a chat, when the chat app's own icon is not available. */
     val chat = glyph("chat") { color ->
-        val c = Offset(center.x, size.height * 0.46f)
-        val r = size.minDimension * 0.4f
+        val c = Offset(center.x, size.height * 0.44f)
+        val r = size.minDimension * 0.42f
         drawCircle(color, r, c, style = Stroke(stroke))
-        drawLine(color, Offset(size.width * 0.12f, size.height * 0.95f), Offset(size.width * 0.22f, size.height * 0.72f), stroke, StrokeCap.Round)
-        drawLine(color, Offset(size.width * 0.12f, size.height * 0.95f), Offset(size.width * 0.38f, size.height * 0.83f), stroke, StrokeCap.Round)
-        drawLine(color, Offset(c.x - r * 0.35f, c.y - r * 0.2f), Offset(c.x + r * 0.2f, c.y + r * 0.35f), stroke * 1.3f, StrokeCap.Round)
+        drawLine(color, Offset(size.width * 0.14f, size.height * 0.96f), Offset(size.width * 0.22f, size.height * 0.72f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(size.width * 0.14f, size.height * 0.96f), Offset(size.width * 0.4f, size.height * 0.84f), stroke, StrokeCap.Round)
+        for (dx in listOf(-0.45f, 0f, 0.45f)) drawCircle(color, stroke * 0.7f, Offset(c.x + r * dx, c.y))
     }
 
     /** A calendar page with two rings and a header line. */
