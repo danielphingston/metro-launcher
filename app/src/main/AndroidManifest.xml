@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- Lets the app list offer "uninstall" (system confirmation dialog still shown). -->
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <!-- Smart search "timer 5 min" and "alarm 7:30": the clock app refuses SET_TIMER and SET_ALARM
+         from apps without it. Granted at install, no prompt. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Quick settings tiles: auto-rotate and brightness (granted in system settings), do not
          disturb and silent (policy access, granted in system settings), wi-fi and data state. -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS"

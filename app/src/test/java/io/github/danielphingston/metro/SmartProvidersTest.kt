@@ -118,6 +118,13 @@ class SmartProvidersTest {
         assertEquals("android.permission.READ_CONTACTS", SmartFeature.CONTACTS.permission)
     }
 
+    /** Without it the clock app throws on SET_TIMER / SET_ALARM and tapping the row does nothing. */
+    @Test
+    fun manifestDeclaresSetAlarm() {
+        val manifest = java.io.File("src/main/AndroidManifest.xml").readText()
+        assertTrue(manifest.contains("\"com.android.alarm.permission.SET_ALARM\""))
+    }
+
     // --- stale rows ------------------------------------------------------------------------
 
     private class Fake(override val id: String) : SearchProvider {
