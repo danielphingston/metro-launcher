@@ -82,7 +82,8 @@ class SmartProvidersTest {
         val all = SearchProviders.all
         assertTrue(all.isNotEmpty())
         assertTrue(SearchProviders.active(LauncherSettings(), unlocked = false).isEmpty())
-        assertEquals(all.size, SearchProviders.active(LauncherSettings(), unlocked = true).size)
+        val allOn = LauncherSettings(smartFeatures = SmartFeature.entries.toSet())
+        assertEquals(all.size, SearchProviders.active(allOn, unlocked = true).size)
     }
 
     @Test
