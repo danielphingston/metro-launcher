@@ -23,8 +23,10 @@ internal object AskAssistantProvider : SearchProvider {
                 subtitle = query,
                 icon = SearchIcon.App(target.app),
                 action = ItemAction.Open { env ->
-                    env.commands.recordAssistantQuestion(query)
-                    AssistantAsk.ask(env.context, target.app.key.packageName, query, env.bounds, env.options)
+                    // Only a question that was actually sent is remembered for the assistant tile.
+                    val sent = AssistantAsk.ask(env.context, target.app.key.packageName, query, env.bounds, env.options)
+                    if (sent) env.commands.recordAssistantQuestion(query)
+                    sent
                 },
             ),
         )

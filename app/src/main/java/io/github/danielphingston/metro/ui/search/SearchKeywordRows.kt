@@ -78,8 +78,10 @@ internal object KeywordRows {
                 row(
                     "ask ${assistant.name}",
                     ItemAction.Open { env ->
-                        env.commands.recordAssistantQuestion(rest)
-                        AssistantAsk.ask(env.context, assistant.app.key.packageName, rest, env.bounds, env.options)
+                        // Only a question that was actually sent is remembered for the assistant tile.
+                        val sent = AssistantAsk.ask(env.context, assistant.app.key.packageName, rest, env.bounds, env.options)
+                        if (sent) env.commands.recordAssistantQuestion(rest)
+                        sent
                     },
                     subtitle = rest,
                 )

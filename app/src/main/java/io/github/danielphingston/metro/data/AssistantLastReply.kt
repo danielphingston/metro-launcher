@@ -190,3 +190,67 @@ class AssistantReplyStore(
         const val FILE = "assistant_last_reply.json"
     }
 }
+
+/**
+ * The last question asked from search, for the assistant tile's back. Like the reply it is the
+ * user's conversation, so it lives in [Context.getNoBackupFilesDir] and not in the backed-up
+ * settings. A question the settings store still holds from an older version is moved here once
+ * ([legacy] reads it and deletes it there).
+ */
+class LastAskedStore(
+    context: Context,
+    private val scope: CoroutineScope,
+    private val legacy: suspend () -> LastAsked? = { null },
+    private val io: CoroutineDispatcher = Dispatchers.IO,
+) {
+    private val file = File(context.noBackupFilesDir, FILE)
+    private val lock = Mutex()
+    private val generation = AtomicInteger()
+    private val _asked = MutableStateFlow<LastAsked?>(null)
+    val asked: StateFlow<LastAsked?> = _asked.asStateFlow()
+
+    init {
+        val mine = generation.get()
+        scope.launch(io) {
+            lock.withLock {
+                val stored = try { if (file.exists()) fromJson(file.readText()) else null } catch (_: IOException) { null }
+                val loaded = stored ?: legacy()?.also { write(it) }
+                // A set or clear after this load was queued is newer than what was on disk.
+                if (generation.get() == mine) _asked.value = loaded
+            }
+        }
+    }
+
+    fun set(question: String, at: Long) {
+        val value = LastAsked(AssistantIntents.storable(question), at)
+        _asked.value = value
+        val mine = generation.incrementAndGet()
+        scope.launch(io) { lock.withLock { if (generation.get() == mine) write(value) } }
+    }
+
+    fun clear() {
+        _asked.value = null
+        val mine = generation.incrementAndGet()
+        scope.launch(io) { lock.withLock { if (generation.get() == mine) file.delete() } }
+    }
+
+    private fun write(value: LastAsked) {
+        try {
+            val tmp = File(file.parentFile, "$FILE.tmp")
+            tmp.writeText(JSONObject().put("text", value.text).put("at", value.at).toString())
+            if (!tmp.renameTo(file)) tmp.delete()
+        } catch (_: IOException) {
+            // The tile still has it in memory.
+        }
+    }
+
+    private fun fromJson(text: String): LastAsked? = try {
+        JSONObject(text).let { LastAsked(it.getString("text"), it.getLong("at")) }.takeIf { it.text.isNotBlank() }
+    } catch (_: JSONException) {
+        null
+    }
+
+    private companion object {
+        const val FILE = "assistant_last_asked.json"
+    }
+}

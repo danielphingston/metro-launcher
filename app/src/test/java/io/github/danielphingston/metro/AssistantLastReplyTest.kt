@@ -170,4 +170,24 @@ class AssistantLastReplyTest {
         assertNull(store.reply.value)
         assertFalse(file.exists())
     }
+
+    @Test
+    fun lastAskedMigratesOnceAndIsNotUndoneByTheInitialLoad() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val file = java.io.File(context.noBackupFilesDir, "assistant_last_asked.json")
+        file.delete()
+        val old = io.github.danielphingston.metro.data.LastAsked("old question", 7L)
+        val dispatcher = QueuedDispatcher()
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Job())
+        val store = io.github.danielphingston.metro.data.LastAskedStore(context, scope, { old }, dispatcher)
+        dispatcher.runAll()
+        assertEquals(old, store.asked.value)
+        assertTrue(file.exists()) // moved to the no-backup file
+
+        val again = io.github.danielphingston.metro.data.LastAskedStore(context, scope, { error("no second migration") }, dispatcher)
+        again.clear() // before its load has run
+        dispatcher.runAll()
+        assertNull(again.asked.value)
+        assertFalse(file.exists())
+    }
 }

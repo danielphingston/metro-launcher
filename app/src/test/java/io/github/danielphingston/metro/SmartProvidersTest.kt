@@ -15,6 +15,7 @@ import io.github.danielphingston.metro.data.SearchEngine
 import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.ui.search.ActionEnv
 import io.github.danielphingston.metro.ui.search.CalculatorProvider
+import io.github.danielphingston.metro.ui.search.AskAssistantProvider
 import io.github.danielphingston.metro.ui.search.ItemAction
 import io.github.danielphingston.metro.ui.search.LauncherActionsProvider
 import io.github.danielphingston.metro.ui.search.LauncherAction
@@ -479,5 +480,19 @@ class SmartProvidersTest {
         assertTrue(searchRows(emptyList(), "", emptyList(), SearchEngine.GOOGLE, 0L, suggestions = Suggestions(emptyList(), emptyList())).isEmpty())
         // Typing hides the suggestions.
         assertTrue(searchRows(apps, "ca", emptyList(), SearchEngine.GOOGLE, 0L, suggestions = s).none { it is SearchRow.RecentSearch })
+    }
+
+    @Test
+    fun aQuestionThatCouldNotBeSentIsNotRemembered() {
+        // No such package: nothing can be opened, so the assistant tile must not claim it was asked.
+        val missing = app("Ghost")
+        val settings = LauncherSettings(assistant = missing.key.packageName)
+        val item = kotlinx.coroutines.runBlocking {
+            AskAssistantProvider.results("hello", SearchContext(RuntimeEnvironment.getApplication(), listOf(missing), settings)).single()
+        }
+        val commands = Commands()
+        val opened = (item.action as ItemAction.Open).run(env(commands))
+        assertFalse(opened)
+        assertTrue(commands.calls.none { it.startsWith("asked") })
     }
 }

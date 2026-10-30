@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.work.Configuration
 import io.github.danielphingston.metro.data.AppRepository
 import io.github.danielphingston.metro.data.AssistantReplyStore
+import io.github.danielphingston.metro.data.LastAskedStore
 import io.github.danielphingston.metro.data.CacheTrim
 import io.github.danielphingston.metro.data.CrashLog
 import io.github.danielphingston.metro.data.IconCache
@@ -47,6 +48,10 @@ class MetroApplication : Application(), Configuration.Provider {
     lateinit var assistantReply: AssistantReplyStore
         private set
 
+    /** The last question asked from search, kept beside the reply; see [LastAskedStore]. */
+    lateinit var lastAsked: LastAskedStore
+        private set
+
     override fun onCreate() {
         super.onCreate()
         // First, so a crash anywhere below is recorded too.
@@ -67,12 +72,16 @@ class MetroApplication : Application(), Configuration.Provider {
             WhatsAppIndex.shared(this).invalidate()
         })
         assistantReply = AssistantReplyStore(this, appScope)
+        lastAsked = LastAskedStore(this, appScope, legacy = settings::takeLegacyLastAsked)
         NotificationAccess.rebindIfNeeded(this)
         // The saved reply goes when its reasons go: another assistant chosen, previews off, or no notification access.
         if (!NotificationAccess.isGranted(this)) assistantReply.clear()
         appScope.launch {
             // drop(1): the first value is the stored choice, not a change; a reply of another package is ignored anyway.
-            settings.settings.map { it.assistant }.distinctUntilChanged().drop(1).collect { assistantReply.clear() }
+            settings.settings.map { it.assistant }.distinctUntilChanged().drop(1).collect {
+                assistantReply.clear()
+                lastAsked.clear()
+            }
         }
         appScope.launch {
             settings.settings.map { it.showNotificationContent }.distinctUntilChanged().collect { if (!it) assistantReply.clear() }

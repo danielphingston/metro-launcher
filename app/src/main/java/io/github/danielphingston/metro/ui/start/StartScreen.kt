@@ -298,6 +298,7 @@ fun StartScreen(
     val defaults by viewModel.defaults.collectAsStateWithLifecycle()
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
     val savedReply by viewModel.assistantReply.collectAsStateWithLifecycle()
+    val lastAsked by viewModel.lastAsked.collectAsStateWithLifecycle()
     val calendarGranted by viewModel.calendarGranted.collectAsStateWithLifecycle()
     val quickUnlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
     val tiles = loadedTiles.orEmpty()
@@ -327,13 +328,16 @@ fun StartScreen(
     // tiles it concerns, not the whole screen.
     val liveFor: (ResolvedTile) -> LiveContent? = { tile ->
         val key = tile.spec.appKey
-        if (tile.spec.content == TileContent.Assistant) {
+        if (tile.spec.content == TileContent.Assistant && !quickUnlocked) {
+            // After a refund the tile shows nothing of the assistant's replies or questions.
+            LiveContent.Assistant(AssistantModel(tile.label, 0, null, "", null))
+        } else if (tile.spec.content == TileContent.Assistant) {
             LiveContent.Assistant(
                 AssistantModel.of(
                     tile.label,
                     tile.app?.let { notifications[it.key.notificationKey] },
                     settings.showNotificationContent,
-                    settings.lastAsked,
+                    lastAsked,
                     savedReply,
                     tile.app?.key?.packageName,
                 ),

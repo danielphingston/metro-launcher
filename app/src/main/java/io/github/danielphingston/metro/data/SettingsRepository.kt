@@ -138,8 +138,6 @@ data class LauncherSettings(
     val swingPages: Boolean = true,
     /** The assistant app: null while the user never chose, [AssistantChoice.OFF] for off, else a package; see [AssistantChoice.resolve]. */
     val assistant: String? = null,
-    /** The last question sent to an assistant from the search row. */
-    val lastAsked: LastAsked? = null,
     /** The smart search features that are switched on; they only act while Metro Plus is unlocked. */
     val smartFeatures: Set<SmartFeature> = SmartFeature.defaults,
     /** The built-in apps "search in apps" offers; it only acts while that smart feature is on. */
@@ -351,8 +349,6 @@ class SettingsRepository(private val context: Context) {
                 ?: defaults.searchHistorySize,
             swingPages = this[Keys.swingPages] ?: defaults.swingPages,
             assistant = this[Keys.assistant],
-            lastAsked = this[Keys.lastQuestion]?.takeIf { it.isNotBlank() }
-                ?.let { LastAsked(it, this[Keys.lastAskedAt] ?: 0L) },
             smartFeatures = SmartFeature.entries.filterTo(LinkedHashSet()) { this[Keys.smart(it)] ?: it.defaultOn },
             searchInApps = SearchInApp.entries.filterTo(LinkedHashSet()) { this[Keys.searchInApp(it)] ?: it.defaultOn },
             searchInOtherApps = this[Keys.searchInOtherApps].orEmpty(),
@@ -458,9 +454,18 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAssistant(packageName: String?) =
         context.metroDataStore.edit { it[Keys.assistant] = packageName ?: AssistantChoice.OFF }
 
-    suspend fun setLastAsked(question: String, at: Long) = context.metroDataStore.edit {
-        it[Keys.lastQuestion] = AssistantIntents.storable(question)
-        it[Keys.lastAskedAt] = at
+    /**
+     * The question older versions kept here (in the backed-up store), removed as it is read: it now
+     * lives in [LastAskedStore]. Null when there is none.
+     */
+    suspend fun takeLegacyLastAsked(): LastAsked? {
+        var found: LastAsked? = null
+        context.metroDataStore.edit {
+            found = it[Keys.lastQuestion]?.takeIf { q -> q.isNotBlank() }?.let { q -> LastAsked(q, it[Keys.lastAskedAt] ?: 0L) }
+            it.remove(Keys.lastQuestion)
+            it.remove(Keys.lastAskedAt)
+        }
+        return found
     }
 
     suspend fun setSmartFeature(feature: SmartFeature, enabled: Boolean) =

@@ -86,7 +86,7 @@ Contacts and calendar are only read while you search with their switch on and th
 
 **Ask an assistant** (Metro Plus, no APIs)
 - Pick the assistant in the metro plus page, "assistant": off, one of the installed known apps (Claude, ChatGPT, Gemini, Perplexity, Copilot) or "other app" (any launchable app that accepts shared text). Until you choose, Claude is used if installed, else the first installed known assistant, else it stays off. The row has its own switch under smart search.
-- Typing a query adds an "ask <app>" row after the web row. Tapping it sends the question with a plain `ACTION_SEND` text/plain intent to that app; if the app can't take shared text, the question is copied to the clipboard, the app opens and a toast says "question copied". The last question is kept on the phone for the assistant tile.
+- Typing a query adds an "ask <app>" row after the web row. Tapping it sends the question with a plain `ACTION_SEND` text/plain intent to that app; if the app can't take shared text, the question is copied to the clipboard, the app opens and a toast says "question copied". The last question is kept on the phone (in no-backup storage, like the last reply, and cleared when the assistant changes) for the assistant tile.
 
 **Backgrounds and personalisation**
 - Theme: dark, light or follow system. The 20 Windows Phone accent colours.
