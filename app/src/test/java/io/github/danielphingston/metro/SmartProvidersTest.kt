@@ -341,6 +341,8 @@ class SmartProvidersTest {
         assertEquals(Triple(7, 30, null), a("alarm 730"))
         assertEquals(Triple(18, 30, null), a("alarm 1830"))
         assertEquals(Triple(7, 30, "gym"), a("alarm 7:30 gym"))
+        assertEquals(Triple(7, 30, null), a("alarm 7 30"))
+        assertEquals(Triple(18, 15, "gym"), a("alarm 6 15 pm gym"))
         assertEquals(Triple(7, 30, "gym"), a("set alarm for 7:30 for gym"))
         assertNull(a("alarm 25:00"))
         assertNull(a("alarm 7:75"))

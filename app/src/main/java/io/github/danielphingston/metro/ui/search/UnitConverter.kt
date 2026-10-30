@@ -5,12 +5,12 @@ import java.util.Locale
 
 /**
  * Offline unit conversion for "5 km in miles", "70 f in c", "2.5 kg to lb": length, mass,
- * temperature, volume, speed, area, time and data. Units are matched by their usual symbols and
+ * temperature, volume, speed, area, time, data and connection speed. Units are matched by their usual symbols and
  * names (case and accents ignored); a conversion between two different kinds of unit, or with an
  * unknown unit, is no answer. Currency is out of scope: it needs the network.
  */
 object UnitConverter {
-    private enum class Kind { LENGTH, MASS, TEMPERATURE, VOLUME, SPEED, AREA, TIME, DATA }
+    private enum class Kind { LENGTH, MASS, TEMPERATURE, VOLUME, SPEED, AREA, TIME, DATA, DATA_RATE }
 
     /** [toBase] / [fromBase] turn the unit into and out of the kind's base unit (metre, kilogram, celsius, litre...). */
     private class Unit(
@@ -95,6 +95,7 @@ object UnitConverter {
         scaled(Kind.TIME, "h", 3600.0, "hr", "hrs", "hour", "hours")
         scaled(Kind.TIME, "d", 86_400.0, "day", "days")
         scaled(Kind.TIME, "wk", 604_800.0, "week", "weeks")
+        scaled(Kind.TIME, "mo", 2_629_800.0, "month", "months") // a twelfth of the year below
         scaled(Kind.TIME, "yr", 31_557_600.0, "year", "years", "yrs") // Julian year, 365.25 days
 
         scaled(Kind.DATA, "bit", 0.125, "bits")
@@ -102,9 +103,9 @@ object UnitConverter {
         scaled(Kind.DATA, "kbit", 125.0, "kilobit", "kilobits")
         scaled(Kind.DATA, "Mbit", 125_000.0, "megabit", "megabits")
         scaled(Kind.DATA, "Gbit", 125_000_000.0, "gigabit", "gigabits")
-        // Bits are a lower-case b by convention; the byte symbols are listed below.
+        // Bits are a lower-case b after a capital prefix ("Mb"); the byte symbols are listed below. All lower case
+        // ("kb", "mb") is how people type bytes on a phone, so it stays bytes.
         exact["Kb"] = table.getValue(key("kbit"))
-        exact["kb"] = table.getValue(key("kbit"))
         exact["Mb"] = table.getValue(key("Mbit"))
         exact["Gb"] = table.getValue(key("Gbit"))
         scaled(Kind.DATA, "KB", 1e3, "kilobyte", "kilobytes")
@@ -116,6 +117,23 @@ object UnitConverter {
         scaled(Kind.DATA, "MiB", 1024.0 * 1024, "mebibyte", "mebibytes")
         scaled(Kind.DATA, "GiB", 1024.0 * 1024 * 1024, "gibibyte", "gibibytes")
         scaled(Kind.DATA, "TiB", 1024.0 * 1024 * 1024 * 1024, "tebibyte", "tebibytes")
+
+        // Connection speeds, in bytes per second. "Mbps" is megabits as everyone writes it; "MB/s" and "MBps" are bytes.
+        scaled(Kind.DATA_RATE, "bps", 0.125, "bit/s", "bits per second")
+        scaled(Kind.DATA_RATE, "kbps", 125.0, "kbit/s", "kilobits per second")
+        scaled(Kind.DATA_RATE, "Mbps", 125_000.0, "Mbit/s", "megabits per second")
+        scaled(Kind.DATA_RATE, "Gbps", 125_000_000.0, "Gbit/s", "gigabits per second")
+        scaled(Kind.DATA_RATE, "B/s", 1.0, "bytes per second")
+        scaled(Kind.DATA_RATE, "KB/s", 1e3, "kilobytes per second")
+        scaled(Kind.DATA_RATE, "MB/s", 1e6, "megabytes per second")
+        scaled(Kind.DATA_RATE, "GB/s", 1e9, "gigabytes per second")
+        // As with sizes, a capital before a lower-case b is bits ("Mb/s"); all lower case ("mb/s") is bytes.
+        exact["Kb/s"] = table.getValue(key("kbps"))
+        exact["Mb/s"] = table.getValue(key("Mbps"))
+        exact["Gb/s"] = table.getValue(key("Gbps"))
+        exact["KBps"] = table.getValue(key("KB/s"))
+        exact["MBps"] = table.getValue(key("MB/s"))
+        exact["GBps"] = table.getValue(key("GB/s"))
     }
 
     /** `<number> <unit> in|to|as|into|-> <unit>`; the first unit may hold spaces ("sq ft"). */

@@ -43,6 +43,13 @@ internal object KeywordRows {
         is KeywordTarget.Website -> globe
     }
 
+    /**
+     * Whether a row built for [built] may stay on screen while [now] is active: the same keyword
+     * with the typing still going on after it. Another keyword (or none) drops it at once.
+     */
+    fun stillFits(built: KeywordMatch, now: KeywordMatch?): Boolean =
+        now != null && built.entry == now.entry && (built.rest == now.rest || now.rest.isNotBlank())
+
     /** What the chip says: the target's name ("Amazon"; the assistant's own name for the assistant). */
     fun chipLabel(target: KeywordTarget, apps: List<AppInfo>, assistantSetting: String?): String = when (target) {
         KeywordTarget.Web -> "web"

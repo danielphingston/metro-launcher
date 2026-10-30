@@ -30,7 +30,7 @@ internal object QuickActionParser {
     private val callLead = Regex("""^(?:call|phone|dial|ring)\s+(.+)$""", RegexOption.IGNORE_CASE)
     private val messageLead = Regex("""^(?:message|text|sms|msg)\s+(.+)$""", RegexOption.IGNORE_CASE)
 
-    private val clock = Regex("""^(\d{1,2})(?:[:.h](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?(?![\p{L}\d])\s*(.*)$""", RegexOption.IGNORE_CASE)
+    private val clock = Regex("""^(\d{1,2})(?:(?:[:.h]|\s)(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?(?![\p{L}\d])\s*(.*)$""", RegexOption.IGNORE_CASE)
     private val compactClock = Regex("""^(\d{3,4})\s*(am|pm|a\.m\.|p\.m\.)?(?![\p{L}\d])\s*(.*)$""", RegexOption.IGNORE_CASE)
     private val durationPart = Regex("""(\d+(?:[.,]\d+)?)\s*([a-z]*)""", RegexOption.IGNORE_CASE)
     private val colonDuration = Regex("""^(\d{1,2}):(\d{2})(?::(\d{2}))?$""")

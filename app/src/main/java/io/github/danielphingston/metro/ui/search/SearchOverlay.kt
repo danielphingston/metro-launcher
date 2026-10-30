@@ -316,15 +316,16 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     val suggestions = remember(apps, history, suggestionsOn) {
         if (suggestionsOn) Suggestions(HistoryRules.mostUsed(apps, history), history.searches) else null
     }
-    // Building the row asks the package manager and telephony, so it happens off the main thread. A row built
-    // for an earlier keyword or text is ignored, like the shortcut hits above.
+    // Building the row asks the package manager and telephony, so it happens off the main thread. While the same
+    // keyword stays active the previous row stays until the new one arrives, so typing after the chip doesn't make
+    // the row vanish and the list jump; a row for another keyword is never shown.
     val builtKeyword by produceState<Pair<KeywordMatch, KeywordRow?>?>(null, keywordMatch, searchContext) {
         val match = keywordMatch
         value = if (match == null) null else withContext(Dispatchers.Default) {
             match to KeywordRows.build(match, searchContext, RealSearchInPhone(context))
         }
     }
-    val keywordRow = builtKeyword?.takeIf { it.first == keywordMatch }?.second
+    val keywordRow = builtKeyword?.takeIf { KeywordRows.stillFits(it.first, keywordMatch) }?.second
     val rows = remember(apps, query, shortcuts, settings.searchEngine, provided, suggestions, keywordRow) {
         searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), provided, suggestions, keywordRow)
     }
@@ -381,7 +382,12 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
                 WebSearch.open(context, row.url, screenBounds, options, inBrowser = true)
             }
             is SearchRow.Item -> { perform(row.item.action, bounds, onStarted); return }
-            is SearchRow.Keyword -> { perform(row.item.action, bounds, onStarted); return }
+            is SearchRow.Keyword -> {
+                // The row on screen may still carry the text before the last keystroke; run the current one.
+                val current = keywordMatch?.let { KeywordRows.build(it, searchContext, RealSearchInPhone(context)) }
+                perform((current?.item ?: row.item).action, bounds, onStarted)
+                return
+            }
             is SearchRow.Caption, is SearchRow.RecentSearch, SearchRow.ClearHistory -> return
         }
         if (accepted) state.close()
