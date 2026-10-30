@@ -102,9 +102,9 @@ object UnitConverter {
         scaled(Kind.DATA, "kbit", 125.0, "kilobit", "kilobits")
         scaled(Kind.DATA, "Mbit", 125_000.0, "megabit", "megabits")
         scaled(Kind.DATA, "Gbit", 125_000_000.0, "gigabit", "gigabits")
-        // Bits are a lower-case b by convention; the byte symbols are listed below.
+        // Bits are a lower-case b after a capital prefix ("Mb"); the byte symbols are listed below. All lower case
+        // ("kb", "mb") is how people type bytes on a phone, so it stays bytes.
         exact["Kb"] = table.getValue(key("kbit"))
-        exact["kb"] = table.getValue(key("kbit"))
         exact["Mb"] = table.getValue(key("Mbit"))
         exact["Gb"] = table.getValue(key("Gbit"))
         scaled(Kind.DATA, "KB", 1e3, "kilobyte", "kilobytes")

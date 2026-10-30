@@ -175,6 +175,7 @@ class CalculatorTest {
         assertEquals("1 MB", unit("8 Mbit in MB"))
         assertEquals("8 kbit", unit("1 KB in Kb"))
         assertEquals("1000 MB", unit("1 gb in mb")) // lower case stays bytes
+        assertEquals("0.01 MB", unit("10kb to mb"))
     }
 
     @Test
