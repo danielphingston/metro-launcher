@@ -44,10 +44,16 @@ internal object NumberText {
         return normalized.toBigDecimalOrNull()
     }
 
-    /** [text] without its [mark] when every group after the first has three digits, else null. */
+    /**
+     * [text] without its [mark] when it is grouped in thousands ("1,000,000") or the Indian way, in
+     * lakhs and crores ("1,00,00,000": twos, then the last three), else null.
+     */
     private fun groups(text: String, mark: Char): String? {
         val parts = text.split(mark)
-        if (parts.first().length !in 1..3 || parts.drop(1).any { it.length != 3 }) return null
+        val middle = parts.subList(1, parts.size - 1)
+        val thousands = parts.first().length in 1..3 && middle.all { it.length == 3 }
+        val indian = parts.first().length in 1..2 && middle.all { it.length == 2 }
+        if (parts.last().length != 3 || !(thousands || indian)) return null
         return parts.joinToString("")
     }
 
@@ -69,7 +75,7 @@ internal object NumberText {
 }
 
 /**
- * A small offline calculator: + - * / ^ and % with parentheses, "15% of 2400", decimals with a
+ * A small offline calculator: + - * (or x) / ^ and % with parentheses, "15% of 2400", decimals with a
  * point or a comma. [evaluate] answers only inputs that really are a calculation (at least one
  * operator; a lone percentage such as "50%" is not one), so a bare number, a word or a half-typed sum shows nothing. Division by zero and
  * results too large to show are no answer.
@@ -77,6 +83,7 @@ internal object NumberText {
 object Calculator {
     private val percentOf = Regex("""^(.+?)\s*%\s*of\s+(.+)$""", RegexOption.IGNORE_CASE)
     private val math = MathContext(20)
+    private val times = Regex("""([\d)])\s*[xX]\s*(?=[\d(.,])""")
 
     fun evaluate(input: String, locale: Locale = Locale.getDefault()): Answer? {
         val shown = input.trim()
@@ -84,6 +91,8 @@ object Calculator {
         val text = shown.trimEnd('=', ' ')
             .replace('×', '*').replace('·', '*').replace('÷', '/').replace('−', '-').replace('–', '-')
             .replace("**", "^")
+            // "5x3" and "5 x 3": the x people type for times, only between two operands.
+            .replace(times, "$1*")
         return try {
             val value = percentOf.matchEntire(text)?.let { match ->
                 val rate = Parser(match.groupValues[1], locale).parseAll()

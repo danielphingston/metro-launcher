@@ -179,6 +179,29 @@ class CalculatorTest {
     }
 
     @Test
+    fun connectionSpeedsAndMonths() {
+        assertEquals("12.5 MB/s", unit("100 mbps to MB/s"))
+        assertEquals("12.5 MB/s", unit("100 Mb/s in mb/s"))
+        assertEquals("800 Mbps", unit("100 MBps to Mbps"))
+        assertEquals("8 kbps", unit("1 kb/s in kbps"))
+        assertEquals("12 mo", unit("1 year in months"))
+        assertNull(unit("100 mbps to mb")) // a speed is not a size
+    }
+
+    @Test
+    fun indianGroupingAndTypedTimes() {
+        assertEquals("200000", calc("1,00,000 * 2"))
+        assertEquals("20000000", calc("2 x 1,00,00,000"))
+        assertEquals("15", calc("5x3"))
+        assertEquals("15", calc("5 X 3"))
+        assertEquals("14", calc("2(3x2)+2"))
+        assertEquals("100 km", unit("1,00,000 m to km"))
+        assertNull(calc("1,00,0000 + 1"))
+        assertNull(calc("5x"))
+        assertNull(calc("x3"))
+    }
+
+    @Test
     fun longPastesAreNotConversions() {
         assertNull(unit("5 " + "km ".repeat(100) + "in m"))
     }
