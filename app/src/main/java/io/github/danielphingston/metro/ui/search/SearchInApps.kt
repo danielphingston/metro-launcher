@@ -110,7 +110,7 @@ internal object SearchInApps {
     }
 
     /** The title of a row: "search YouTube for 'cats'". */
-    fun title(label: String, query: String) = "search $label for '$query'"
+    fun title(label: String, query: String) = "search $label for “$query”"
 }
 
 /** Feature 10: rows that hand the typed text to another app's own search. */

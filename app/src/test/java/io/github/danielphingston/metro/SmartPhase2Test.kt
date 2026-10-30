@@ -146,7 +146,7 @@ class SmartPhase2Test {
         assertEquals(emptySet<String>(), LauncherSettings().searchInOtherApps)
         val rows = searchRows(LauncherSettings(), FakePhone { true })
         assertEquals(listOf("youtube", "play_store"), rows.map { it.key })
-        assertEquals("search YouTube for 'cats'", rows[0].title)
+        assertEquals("search YouTube for “cats”", rows[0].title)
     }
 
     @Test
