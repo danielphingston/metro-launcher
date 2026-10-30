@@ -46,7 +46,9 @@ class SearchRowsTest {
             is SearchRow.Shortcut -> "shortcut ${it.hit.shortLabel}"
             is SearchRow.OpenUrl -> "open ${it.url}"
             is SearchRow.Web -> "web ${it.query}"
-            is SearchRow.Assistant -> "ask ${it.query}"
+            is SearchRow.Item -> "item ${it.item.title}"
+            is SearchRow.RecentSearch -> "recent ${it.text}"
+            SearchRow.ClearHistory -> "clear history"
         }
     }
 

@@ -58,7 +58,7 @@ object UnitConverter {
         scaled(Kind.VOLUME, "ml", 0.001, "milliliter", "milliliters", "millilitre", "millilitres")
         scaled(Kind.VOLUME, "cl", 0.01, "centiliter", "centiliters", "centilitre", "centilitres")
         scaled(Kind.VOLUME, "dl", 0.1, "deciliter", "deciliters", "decilitre", "decilitres")
-        scaled(Kind.VOLUME, "l", 1.0, "liter", "liters", "litre", "litres")
+        scaled(Kind.VOLUME, "L", 1.0, "l", "liter", "liters", "litre", "litres")
         scaled(Kind.VOLUME, "m³", 1000.0, "m3", "cubic meter", "cubic meters", "cubic metre", "cubic metres")
         scaled(Kind.VOLUME, "tsp", 0.00492892159375, "teaspoon", "teaspoons")
         scaled(Kind.VOLUME, "tbsp", 0.01478676478125, "tablespoon", "tablespoons")

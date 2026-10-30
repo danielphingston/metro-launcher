@@ -8,6 +8,7 @@ import io.github.danielphingston.metro.data.CacheTrim
 import io.github.danielphingston.metro.data.CrashLog
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.Purchases
+import io.github.danielphingston.metro.data.SearchHistory
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.live.NotificationAccess
@@ -37,6 +38,10 @@ class MetroApplication : Application(), Configuration.Provider {
         private set
     lateinit var purchases: Purchases
         private set
+    /** Recent searches and launch counts for the empty search; local only, see [SearchHistory]. */
+    lateinit var searchHistory: SearchHistory
+        private set
+
     /** The assistant tile's saved last reply; see [AssistantReplyStore]. */
     lateinit var assistantReply: AssistantReplyStore
         private set
@@ -46,6 +51,7 @@ class MetroApplication : Application(), Configuration.Provider {
         // First, so a crash anywhere below is recorded too.
         CrashLog.install(this)
         settings = SettingsRepository(this)
+        searchHistory = SearchHistory(this)
         purchases = Purchases(this, appScope)
         tiles = TileRepository(this, appScope, settings.settings.map { it.columns }.distinctUntilChanged())
         icons = IconCache(this)

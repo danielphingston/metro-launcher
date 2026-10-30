@@ -20,7 +20,9 @@ import io.github.danielphingston.metro.data.DefaultLayout
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.PhotoAccess
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.HistoryData
 import io.github.danielphingston.metro.data.Purchases
+import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.data.TileSize
@@ -210,7 +212,24 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Asks Play again whether the quick settings tiles are owned; see [Purchases.recheck]. */
     fun recheckPurchases() = metro.purchases.recheck()
 
-    fun launch(app: AppInfo, bounds: Rect?, options: Bundle?): Boolean = metro.apps.launch(app, bounds, options)
+    /** Whether the suggestions feature (Metro Plus) is on, i.e. whether history is kept and shown. */
+    private val suggestionsOn: Boolean
+        get() = quickTilesUnlocked.value && settings.value.smartOn(SmartFeature.SUGGESTIONS)
+
+    /** Recent searches and launch counts for the empty search. */
+    val searchHistory: StateFlow<HistoryData> = metro.searchHistory.data
+
+    fun recordSearch(query: String) {
+        if (suggestionsOn) metro.searchHistory.recordSearch(query)
+    }
+
+    fun clearSearchHistory() = metro.searchHistory.clear()
+
+    fun launch(app: AppInfo, bounds: Rect?, options: Bundle?): Boolean {
+        val started = metro.apps.launch(app, bounds, options)
+        if (started && suggestionsOn) metro.searchHistory.recordLaunch(app)
+        return started
+    }
     fun openAppInfo(app: AppInfo) = metro.apps.openAppInfo(app)
     fun uninstall(app: AppInfo) = metro.apps.uninstall(app)
 

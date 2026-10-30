@@ -88,6 +88,22 @@
         <package android:name="com.google.android.apps.bard" />
         <package android:name="ai.perplexity.app.android" />
         <package android:name="com.microsoft.copilot" />
+        <!-- Smart search (Metro Plus): phone settings shortcuts resolve against the system settings app,
+             quick actions against the clock app, "wallpaper" against the wallpaper picker. Notes use the
+             SEND text/plain entry above. -->
+        <package android:name="com.android.settings" />
+        <intent>
+            <action android:name="android.settings.SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_WALLPAPER" />
+        </intent>
         <!-- Apps that provide widgets, so the widget picker can see and label them. -->
         <intent>
             <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

@@ -68,7 +68,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
+import io.github.danielphingston.metro.data.HistoryRules
 import io.github.danielphingston.metro.data.IconCache
+import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.data.SearchEngine
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.ui.AppLauncher
@@ -119,6 +121,16 @@ internal sealed interface SearchRow {
         override val key get() = "web"
     }
 
+    /** A search from the history; tapping it types it again. */
+    data class RecentSearch(val text: String) : SearchRow {
+        override val key get() = "q:$text"
+    }
+
+    /** Wipes the recent searches and launch counts. */
+    data object ClearHistory : SearchRow {
+        override val key get() = "clear-history"
+    }
+
     /** A row made by a [SearchProvider]; [provider] is its id. */
     data class Item(val provider: String, val item: SearchItem, val placement: Placement) : SearchRow {
         override val key get() = "p:$provider:${item.key}"
@@ -126,6 +138,11 @@ internal sealed interface SearchRow {
 }
 
 private const val MAX_APPS = 8
+
+/** What the empty search offers (feature 5): the most used apps and the recent searches. */
+internal data class Suggestions(val apps: List<AppInfo>, val searches: List<String>) {
+    val isEmpty: Boolean get() = apps.isEmpty() && searches.isEmpty()
+}
 
 /**
  * The results for [query], top to bottom: the [Placement.TOP] rows of [provided] (calculator,
@@ -140,8 +157,22 @@ internal fun searchRows(
     engine: SearchEngine,
     now: Long,
     provided: List<ProvidedItems> = emptyList(),
+    suggestions: Suggestions? = null,
 ): List<SearchRow> {
     val q = query.trim()
+    if (q.isEmpty() && suggestions != null && !suggestions.isEmpty) {
+        return buildList {
+            if (suggestions.apps.isNotEmpty()) {
+                add(SearchRow.Caption("most used"))
+                suggestions.apps.forEach { add(SearchRow.App(it, SearchRanking.CONTAINS)) }
+            }
+            if (suggestions.searches.isNotEmpty()) {
+                add(SearchRow.Caption("recent searches"))
+                suggestions.searches.forEach { add(SearchRow.RecentSearch(it)) }
+                add(SearchRow.ClearHistory)
+            }
+        }
+    }
     if (q.isEmpty()) {
         val recent = AppGroups.recentlyAdded(apps, now)
         return if (recent.isEmpty()) emptyList() else listOf(SearchRow.Caption("recently added")) +
@@ -226,8 +257,13 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     val providers = remember(settings.smartFeatures, unlocked) { SearchProviders.active(settings, unlocked) }
     val searchContext = remember(context, apps, settings) { SearchContext(context, apps, settings) }
     val provided = rememberProviderResults(providers, query, searchContext)
-    val rows = remember(apps, query, shortcuts, settings.searchEngine, provided) {
-        searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), provided)
+    val history by viewModel.searchHistory.collectAsStateWithLifecycle()
+    val suggestionsOn = unlocked && settings.smartOn(SmartFeature.SUGGESTIONS)
+    val suggestions = remember(apps, history, suggestionsOn) {
+        if (suggestionsOn) Suggestions(HistoryRules.mostUsed(apps, history), history.searches) else null
+    }
+    val rows = remember(apps, query, shortcuts, settings.searchEngine, provided, suggestions) {
+        searchRows(apps, query, shortcuts, settings.searchEngine, System.currentTimeMillis(), provided, suggestions)
     }
 
     val focusRequester = remember { FocusRequester() }
@@ -255,6 +291,11 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
     }
 
     fun activate(row: SearchRow, bounds: Rect?) {
+        // The history rows stay in the panel: one types the search again, the other wipes the history.
+        if (row is SearchRow.RecentSearch) { state.query = row.text; return }
+        if (row is SearchRow.ClearHistory) { viewModel.clearSearchHistory(); return }
+        // What was typed is worth remembering once it led somewhere.
+        if (row !is SearchRow.Caption) viewModel.recordSearch(query)
         state.close()
         when (row) {
             is SearchRow.App -> launcher.launch(row.app, bounds)
@@ -269,7 +310,7 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
                 WebSearch.open(context, row.url, screenBounds, options, inBrowser = true)
             }
             is SearchRow.Item -> perform(row.item.action, bounds)
-            is SearchRow.Caption -> Unit
+            is SearchRow.Caption, is SearchRow.RecentSearch, SearchRow.ClearHistory -> Unit
         }
     }
 
@@ -385,6 +426,21 @@ internal fun SearchContent(
                             subtitle = row.engine.label,
                             onClick = { onActivate(row, it) },
                         ) { Glyph { drawMagnifier(colors.foreground) } }
+                        is SearchRow.RecentSearch -> ResultRow(
+                            title = row.text,
+                            subtitle = null,
+                            onClick = { onActivate(row, it) },
+                        ) { Glyph { SearchGlyphs.history.draw(this, colors.foreground) } }
+                        SearchRow.ClearHistory -> MetroText(
+                            "clear history",
+                            MetroType.body,
+                            color = colors.accent,
+                            modifier = Modifier
+                                .padding(top = 8.dp)
+                                .metroTilt()
+                                .clickable(role = Role.Button) { onActivate(row, null) }
+                                .padding(vertical = 8.dp),
+                        )
                         is SearchRow.Item -> ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, onButton)
                     }
                 }
