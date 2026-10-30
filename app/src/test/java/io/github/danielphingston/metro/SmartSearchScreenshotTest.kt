@@ -37,8 +37,10 @@ import io.github.danielphingston.metro.ui.search.SearchIcon
 import io.github.danielphingston.metro.ui.search.SearchItem
 import io.github.danielphingston.metro.ui.search.SearchProvider
 import io.github.danielphingston.metro.ui.search.SettingsShortcutsProvider
+import io.github.danielphingston.metro.ui.search.SearchHelp
 import io.github.danielphingston.metro.ui.search.Suggestions
 import io.github.danielphingston.metro.ui.search.searchRows
+import io.github.danielphingston.metro.ui.settings.SearchHelpPage
 import io.github.danielphingston.metro.ui.settings.SettingsPage
 import io.github.danielphingston.metro.ui.settings.SettingsPageFrame
 import io.github.danielphingston.metro.ui.settings.SmartSearchSection
@@ -101,6 +103,33 @@ class SmartSearchScreenshotTest {
         Suggestions(listOf(apps[0], apps[8], apps[1], apps[6]), listOf("pizza near me", "5 km in miles", "wifi", "timer 10 min")),
     )
 
+    /** The phrases to try lead the empty search, above the suggestions. */
+    @Test
+    fun suggestionsWithExamples() = capture(
+        "smart_suggestions_examples", "", emptyList(),
+        Suggestions(listOf(apps[0], apps[8], apps[1]), listOf("pizza near me", "wifi")),
+        SearchHelp.examples({ true }, day = 0),
+    )
+
+    @Test
+    fun helpPageLocked() = captureHelp("settings_search_help_locked", unlocked = false)
+
+    @Test
+    fun helpPageUnlocked() = captureHelp("settings_search_help_unlocked", unlocked = true)
+
+    private fun captureHelp(name: String, unlocked: Boolean) {
+        val settings = LauncherSettings()
+        captureRoboImage("src/test/screenshots/$name.png", roborazziOptions = ScreenshotOptions) {
+            MetroTheme(settings) {
+                Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
+                    SettingsPageFrame(SettingsPage.SEARCH_HELP, rememberScrollState()) {
+                        SearchHelpPage(settings, unlocked, onUnlock = {})
+                    }
+                }
+            }
+        }
+    }
+
     /** A row with round action buttons, the shape the contacts feature will use. */
     @Test
     fun rowWithButtons() {
@@ -142,12 +171,18 @@ class SmartSearchScreenshotTest {
         }
     }
 
-    private fun capture(name: String, query: String, provided: List<ProvidedItems>, suggestions: Suggestions? = null) {
+    private fun capture(
+        name: String,
+        query: String,
+        provided: List<ProvidedItems>,
+        suggestions: Suggestions? = null,
+        examples: List<SearchHelp.Example> = emptyList(),
+    ) {
         val icons = IconCache(RuntimeEnvironment.getApplication())
         apps.forEach { icons.load(it, 28 * 3, true); icons.load(it, 44 * 3, false) }
         captureRoboImage("src/test/screenshots/$name.png", roborazziOptions = ScreenshotOptions) {
             MetroTheme(LauncherSettings()) {
-                val rows = remember { searchRows(apps, query, emptyList(), SearchEngine.GOOGLE, 0L, provided, suggestions) }
+                val rows = remember { searchRows(apps, query, emptyList(), SearchEngine.GOOGLE, 0L, provided, suggestions, examples = examples) }
                 val focus = remember { FocusRequester() }
                 LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {

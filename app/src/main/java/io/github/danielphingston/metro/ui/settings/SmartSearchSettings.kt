@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.IconCache
@@ -53,7 +54,7 @@ import kotlinx.coroutines.launch
  * apps" lists the apps it can search under its own switch; [otherSearchApps] are the installed
  * apps beyond the built-in ones that accept a search. "Search keywords" lists the keywords under
  * its own switch; a tap on one (or on "add keyword") goes to [onEditKeyword], with [apps] and
- * [icons] for the target icons.
+ * [icons] for the target icons. "What can I type?" goes to [onOpenHelp], locked or not.
  */
 @Composable
 internal fun SmartSearchSection(
@@ -64,6 +65,7 @@ internal fun SmartSearchSection(
     assistantReady: Boolean = true,
     onOpenSearchInApps: () -> Unit = {},
     onOpenKeywords: () -> Unit = {},
+    onOpenHelp: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -76,7 +78,7 @@ internal fun SmartSearchSection(
             MetroType.caption,
             color = Metro.colors.subtle,
         )
-        Spacer(Modifier.height(8.dp))
+        SummaryRow("what can I type?", onOpenHelp, indent = 0.dp)
         SmartFeature.entries.forEach { LockedFeatureRow(it.title, it.description) }
         LockedFeatureRow("smarter app matching", "initials such as yt, small typos, matches inside words", free = true)
         Spacer(Modifier.height(12.dp))
@@ -89,7 +91,7 @@ internal fun SmartSearchSection(
         MetroType.caption,
         color = Metro.colors.subtle,
     )
-    Spacer(Modifier.height(4.dp))
+    SummaryRow("what can I type?", onOpenHelp, indent = 0.dp)
     SmartFeature.entries.forEach { feature ->
         val on = settings.smartOn(feature)
         val save: suspend (Boolean) -> Unit = { repository.setSmartFeature(feature, it) }
@@ -140,10 +142,10 @@ internal fun keywordsSummary(settings: LauncherSettings) =
 
 /** A row under a feature's switch that opens the page with its long list: the text and a chevron. */
 @Composable
-internal fun SummaryRow(text: String, onClick: () -> Unit) {
+internal fun SummaryRow(text: String, onClick: () -> Unit, indent: Dp = 20.dp) {
     Row(
         Modifier
-            .padding(start = 20.dp)
+            .padding(start = indent)
             .fillMaxWidth()
             .metroTilt()
             .defaultMinSize(minHeight = 48.dp)
