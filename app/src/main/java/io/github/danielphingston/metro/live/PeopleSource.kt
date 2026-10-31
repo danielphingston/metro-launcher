@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.ContactsContract
 import android.util.LruCache
 import io.github.danielphingston.metro.data.trimTo
@@ -18,6 +19,14 @@ object PeopleSource {
     const val MAX_CONTACTS = 36
 
     private const val CACHE_BYTES = 4 * 1024 * 1024
+
+    /** How long a contact tile's photo is kept before the contacts are asked again. */
+    private const val CONTACT_RECHECK_MILLIS = 15_000L
+
+    /** When each contact tile's photo was last looked up, by the same key as its cached photo. */
+    private val contactChecked = LruCache<String, ContactCheck>(64)
+
+    private class ContactCheck(val at: Long, val hadPhoto: Boolean)
 
     private val cache = object : LruCache<String, Bitmap>(CACHE_BYTES) {
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
@@ -79,6 +88,13 @@ object PeopleSource {
     suspend fun contactPhoto(context: Context, contactUri: String, px: Int): Bitmap? {
         val key = "contact:$contactUri#$px"
         if (!hasPermission(context)) return null.also { cache.remove(key) }
+        // Looked up moments ago (a tile scrolled out and back): keep that answer, photo or none.
+        // A photo dropped from memory since is read again.
+        val checked = contactChecked.get(key)
+        if (checked != null && SystemClock.elapsedRealtime() - checked.at < CONTACT_RECHECK_MILLIS) {
+            val kept = cache.get(key)
+            if (kept != null || !checked.hadPhoto) return kept
+        }
         val photo = withContext(Dispatchers.IO) {
             runCatching {
                 context.contentResolver.query(Uri.parse(contactUri), arrayOf(ContactsContract.Contacts.PHOTO_URI), null, null, null)
@@ -87,6 +103,7 @@ object PeopleSource {
         }
         val bitmap = photo?.let { thumbnail(context, it, px) }
         if (bitmap != null) cache.put(key, bitmap) else cache.remove(key)
+        contactChecked.put(key, ContactCheck(SystemClock.elapsedRealtime(), bitmap != null))
         return bitmap
     }
 
