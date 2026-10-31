@@ -77,13 +77,19 @@ object PeopleSource {
      * for a [px] square; null without permission, without a photo, or once the contact is gone.
      */
     suspend fun contactPhoto(context: Context, contactUri: String, px: Int): Bitmap? {
-        if (!hasPermission(context)) return null
+        val key = "contact:$contactUri#$px"
+        if (!hasPermission(context)) return null.also { cache.remove(key) }
         val photo = withContext(Dispatchers.IO) {
             runCatching {
                 context.contentResolver.query(Uri.parse(contactUri), arrayOf(ContactsContract.Contacts.PHOTO_URI), null, null, null)
                     ?.use { if (it.moveToFirst()) it.getString(0) else null }
             }.getOrNull()
-        } ?: return null
-        return thumbnail(context, photo, px)
+        }
+        val bitmap = photo?.let { thumbnail(context, it, px) }
+        if (bitmap != null) cache.put(key, bitmap) else cache.remove(key)
+        return bitmap
     }
+
+    /** The photo [contactPhoto] last gave for this contact and size, so a tile coming back into view doesn't flash the drawing first. */
+    fun lastContactPhoto(contactUri: String, px: Int): Bitmap? = cache.get("contact:$contactUri#$px")
 }

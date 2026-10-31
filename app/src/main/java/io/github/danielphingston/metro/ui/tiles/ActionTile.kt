@@ -90,7 +90,7 @@ fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
 private fun rememberContactPhoto(contact: ActionIcon.Contact, side: Dp): ImageBitmap? {
     val context = LocalContext.current
     val px = with(LocalDensity.current) { side.roundToPx() }
-    return produceState<ImageBitmap?>(null, contact, px) {
+    return produceState(PeopleSource.lastContactPhoto(contact.uri, px)?.asImageBitmap(), contact, px) {
         value = PeopleSource.contactPhoto(context, contact.uri, px)?.asImageBitmap()
     }.value
 }
