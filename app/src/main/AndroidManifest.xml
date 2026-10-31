@@ -15,16 +15,10 @@
          from apps without it. Granted at install, no prompt. -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Quick settings tiles: auto-rotate and brightness (granted in system settings), do not
-         disturb and silent (policy access, granted in system settings), wi-fi and data state. -->
+         disturb and silent (policy access, granted in system settings). -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <!-- Optional: wi-fi tile network name (android hides it from apps without precise location) and
-         bluetooth tile device names. Requested only from the quick tiles settings, never at startup. -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <!-- Package visibility: only launchable apps and the default apps we pin on first run.
          Deliberately avoids QUERY_ALL_PACKAGES. -->

@@ -6,8 +6,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PermissionLogicTest {
-    private val fine = "android.permission.ACCESS_FINE_LOCATION"
-    private val coarse = "android.permission.ACCESS_COARSE_LOCATION"
+    private val contacts = "android.permission.READ_CONTACTS"
+    private val calendar = "android.permission.READ_CALENDAR"
 
     @Test
     fun grantedJustSaves() {
@@ -29,9 +29,9 @@ class PermissionLogicTest {
     }
 
     @Test
-    fun onlyPreciseLocationCountsAsGranted() {
-        assertEquals(true, PermissionLogic.satisfied(mapOf(coarse to true, fine to true), fine))
-        assertEquals(false, PermissionLogic.satisfied(mapOf(coarse to true, fine to false), fine))
-        assertEquals(false, PermissionLogic.satisfied(emptyMap(), fine))
+    fun onlyTheRequiredPermissionCountsAsGranted() {
+        assertEquals(true, PermissionLogic.satisfied(mapOf(calendar to true, contacts to true), contacts))
+        assertEquals(false, PermissionLogic.satisfied(mapOf(calendar to true, contacts to false), contacts))
+        assertEquals(false, PermissionLogic.satisfied(emptyMap(), contacts))
     }
 }

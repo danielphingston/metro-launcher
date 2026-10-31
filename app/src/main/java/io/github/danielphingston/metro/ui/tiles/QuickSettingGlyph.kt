@@ -39,12 +39,6 @@ internal fun QuickSettingGlyph(kind: QuickSettingKind, state: QuickState, size: 
                 if (state.level == AudioManager.RINGER_MODE_VIBRATE) vibrate(s, color, line) else bell(s, color, line, silent = state.level == AudioManager.RINGER_MODE_SILENT)
             QuickSettingKind.AUTO_ROTATE -> rotate(s, color, line)
             QuickSettingKind.BRIGHTNESS -> sun(s, color, line)
-            QuickSettingKind.WIFI -> wifi(s, color, line)
-            QuickSettingKind.MOBILE_DATA -> signalBars(s, color)
-            QuickSettingKind.BLUETOOTH -> bluetooth(s, color, line)
-            QuickSettingKind.AIRPLANE -> airplane(s, color)
-            QuickSettingKind.LOCATION -> pin(s, color, line)
-            QuickSettingKind.HOTSPOT -> hotspot(s, color, line)
             QuickSettingKind.BATTERY -> battery(s, color, line, state.level)
         }
     }
@@ -118,67 +112,6 @@ private fun DrawScope.sun(s: Float, color: Color, line: Stroke) {
             line.width,
             StrokeCap.Round,
         )
-    }
-}
-
-private fun DrawScope.wifi(s: Float, color: Color, line: Stroke) {
-    val c = Offset(s * 0.5f, s * 0.82f)
-    drawCircle(color, s * 0.055f, c)
-    for (r in listOf(s * 0.22f, s * 0.42f, s * 0.62f)) {
-        drawArc(color, 225f, 90f, false, Offset(c.x - r, c.y - r), Size(r * 2, r * 2), style = line)
-    }
-}
-
-private fun DrawScope.signalBars(s: Float, color: Color) {
-    val width = s * 0.12f
-    for (i in 0 until 4) {
-        val height = s * (0.2f + 0.2f * i)
-        drawRect(color, Offset(s * 0.17f + i * s * 0.18f, s * 0.88f - height), Size(width, height))
-    }
-}
-
-private fun DrawScope.bluetooth(s: Float, color: Color, line: Stroke) {
-    val rune = Path().apply {
-        moveTo(s * 0.3f, s * 0.3f)
-        lineTo(s * 0.7f, s * 0.7f)
-        lineTo(s * 0.5f, s * 0.9f)
-        lineTo(s * 0.5f, s * 0.1f)
-        lineTo(s * 0.7f, s * 0.3f)
-        lineTo(s * 0.3f, s * 0.7f)
-    }
-    drawPath(rune, color, style = line)
-}
-
-private fun DrawScope.airplane(s: Float, color: Color) {
-    val points = listOf(
-        0.5f to 0.06f, 0.58f to 0.34f, 0.94f to 0.6f, 0.94f to 0.7f, 0.58f to 0.58f, 0.56f to 0.8f, 0.7f to 0.88f,
-        0.7f to 0.94f, 0.5f to 0.9f, 0.3f to 0.94f, 0.3f to 0.88f, 0.44f to 0.8f, 0.42f to 0.58f, 0.06f to 0.7f,
-        0.06f to 0.6f, 0.42f to 0.34f,
-    )
-    val plane = Path().apply {
-        points.forEachIndexed { i, (x, y) -> if (i == 0) moveTo(s * x, s * y) else lineTo(s * x, s * y) }
-        close()
-    }
-    drawPath(plane, color)
-}
-
-private fun DrawScope.pin(s: Float, color: Color, line: Stroke) {
-    val r = s * 0.28f
-    val c = Offset(s * 0.5f, s * 0.38f)
-    drawCircle(color, r, c, style = line)
-    drawCircle(color, s * 0.09f, c)
-    drawLine(color, Offset(c.x - r * 0.9f, c.y + r * 0.45f), Offset(s * 0.5f, s * 0.92f), line.width, StrokeCap.Round)
-    drawLine(color, Offset(c.x + r * 0.9f, c.y + r * 0.45f), Offset(s * 0.5f, s * 0.92f), line.width, StrokeCap.Round)
-}
-
-/** A dot with signal arcs to both sides. */
-private fun DrawScope.hotspot(s: Float, color: Color, line: Stroke) {
-    val c = Offset(s * 0.5f, s * 0.5f)
-    drawCircle(color, s * 0.07f, c)
-    for (r in listOf(s * 0.22f, s * 0.4f)) {
-        val topLeft = Offset(c.x - r, c.y - r)
-        drawArc(color, 135f, 90f, false, topLeft, Size(r * 2, r * 2), style = line)
-        drawArc(color, -45f, 90f, false, topLeft, Size(r * 2, r * 2), style = line)
     }
 }
 

@@ -36,8 +36,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.QuickSettingKind
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
-import io.github.danielphingston.metro.MetroApplication
-import io.github.danielphingston.metro.live.QuickOptions
 import io.github.danielphingston.metro.live.QuickSettingLogic
 import io.github.danielphingston.metro.live.QuickState
 import io.github.danielphingston.metro.live.QuickSettings
@@ -49,11 +47,7 @@ import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.tileSurface
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.map
 
 /** What tapping a quick-setting tile does. */
 object QuickSettingTiles {
@@ -109,13 +103,6 @@ object QuickSettingTiles {
                     Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS, level)
                 }
             }
-            // Apps can't switch these any more; their panels and settings pages do it in one more tap.
-            QuickSettingKind.WIFI -> listOf(Intent(Settings.Panel.ACTION_WIFI))
-            QuickSettingKind.MOBILE_DATA -> listOf(Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY))
-            QuickSettingKind.BLUETOOTH -> listOf(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-            QuickSettingKind.AIRPLANE -> listOf(Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS))
-            QuickSettingKind.LOCATION -> listOf(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-            QuickSettingKind.HOTSPOT -> listOf(Intent(TETHER_SETTINGS), Intent(Settings.ACTION_WIRELESS_SETTINGS))
             QuickSettingKind.BATTERY -> batteryIntents()
         }
     }
@@ -144,7 +131,6 @@ object QuickSettingTiles {
         when (QuickSettingLogic.launchStyle(kind)) {
             QuickSettingLogic.LaunchStyle.TURNSTILE ->
                 launcher.open(bounds) { screenBounds, options -> start(context, intents, screenBounds, options) }
-            QuickSettingLogic.LaunchStyle.OVER_START -> start(context, intents, null, null)
             QuickSettingLogic.LaunchStyle.NO_ANIMATION ->
                 start(context, intents, null, ActivityOptions.makeCustomAnimation(context, 0, 0).toBundle())
         }
@@ -155,9 +141,6 @@ object QuickSettingTiles {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).sourceBounds = bounds
         runCatching { context.startActivity(intent, options) }.isSuccess
     }
-
-    // Hidden from the SDK, but the settings app has answered it for years; the wireless page is the fallback.
-    private const val TETHER_SETTINGS = "android.settings.TETHER_SETTINGS"
 
     private fun policyAccess() = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
 
@@ -182,23 +165,15 @@ fun QuickSettingTile(tile: ResolvedTile, cellSize: Dp) {
     QuickSettingFace(kind, tile.spec.size, tile.label, cellSize)
 }
 
-/** The extras the user switched on in settings, as they change. */
-private fun optionsFlow(context: Context): Flow<QuickOptions> =
-    (context.applicationContext as? MetroApplication)?.settings?.settings
-        ?.map { QuickOptions(it.showWifiName, it.showBluetoothDevices) }?.distinctUntilChanged()
-        ?: emptyFlow()
-
 /** The face of [kind], following the live state of the setting while composed. */
 @Composable
 fun QuickSettingFace(kind: QuickSettingKind, size: TileSize, label: String, cellSize: Dp, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    // The extras are the user's choice in settings; without the application (a preview) there are none.
-    val options by remember { optionsFlow(context) }.collectAsStateWithLifecycle(QuickOptions())
     // The flow registers its receivers when collected (STARTED) and drops them when the tile leaves the screen.
     // A source the device can't provide must not take the tile (and the launcher) down: it falls back to a static face.
-    val state by remember(kind, options) {
-        QuickSettings.states(context, kind, options).catch { emit(QuickState(false, "unavailable")) }
-    }.collectAsStateWithLifecycle(remember(kind, options) { QuickSettings.read(context, kind, options) })
+    val state by remember(kind) {
+        QuickSettings.states(context, kind).catch { emit(QuickState(false, "unavailable")) }
+    }.collectAsStateWithLifecycle(remember(kind) { QuickSettings.read(context, kind) })
     val m = rememberTileMetrics(cellSize)
     val white = Metro.colors.onAccent
     // The dimming is not enough for a screen reader: say what the tile is, what it does and its state.

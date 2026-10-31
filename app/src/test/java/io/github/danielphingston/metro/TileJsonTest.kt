@@ -69,6 +69,18 @@ class TileJsonTest {
     }
 
     @Test
+    fun aSavedTileOfARemovedQuickKindLoadsWithoutIt() {
+        val saved = """[
+            {"id":1,"type":"quick","kind":"wifi","size":"SMALL"},
+            {"id":2,"type":"quick","kind":"battery","size":"SMALL"}
+        ]"""
+        assertEquals(
+            listOf(TileSpec(2, TileSize.SMALL, TileContent.QuickSetting(QuickSettingKind.BATTERY))),
+            TileJson.decode(JSONArray(saved)),
+        )
+    }
+
+    @Test
     fun readsVersionOneLayouts() {
         val legacy = """[{"id":1,"app":"com.example/com.example.Main#0","size":"WIDE"}]"""
         assertEquals(
