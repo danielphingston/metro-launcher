@@ -305,6 +305,17 @@ class SmartPhase2Test {
     }
 
     @Test
+    fun aPinnedContactKeepsItsLookupUriForThePhoto() {
+        val provider = ContactsProvider(book, hasPermission = { true }, photo = { _, _ -> null })
+        val pin = runBlocking { provider.results("anna", ctx()) }.single().pin as io.github.danielphingston.metro.data.TileContent.Action
+        assertEquals("Anna Brandt", pin.label)
+        val icon = pin.icon as io.github.danielphingston.metro.data.ActionIcon.Contact
+        // The same contact the tile opens, by its lookup URI, so the photo follows the contact.
+        assertEquals((pin.target as io.github.danielphingston.metro.data.LaunchTarget.Activity).intent.data.toString(), icon.uri)
+        assertTrue(icon.uri.contains("/lookup/"))
+    }
+
+    @Test
     fun personActionsFeedCallAndMessagePhrases() {
         val actions = ContactsPersonActions(book, hasPermission = { true }, photo = { _, _ -> null })
         val on = LauncherSettings(smartFeatures = SmartFeature.defaults + SmartFeature.CONTACTS)

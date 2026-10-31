@@ -9,7 +9,10 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.ContactsContract
 import androidx.compose.ui.graphics.asImageBitmap
+import io.github.danielphingston.metro.data.ActionIcon
+import io.github.danielphingston.metro.data.LaunchTarget
 import io.github.danielphingston.metro.data.SmartFeature
+import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.live.PeopleSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -62,8 +65,12 @@ internal object ContactIntents {
 
     fun message(number: String): Intent = Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", number, null))
 
-    fun open(id: Long, lookupKey: String?): Intent =
-        Intent(Intent.ACTION_VIEW, ContactsContract.Contacts.getLookupUri(id, lookupKey ?: ""))
+    fun open(id: Long, lookupKey: String?): Intent = Intent(Intent.ACTION_VIEW, uri(id, lookupKey))
+
+    /** The contact's lookup URI, which still finds it after a sync renumbers it; its plain URI without a lookup key. */
+    fun uri(id: Long, lookupKey: String?): Uri =
+        if (lookupKey != null) ContactsContract.Contacts.getLookupUri(id, lookupKey)
+        else ContentUris.withAppendedId(ContactsContract.Contacts.CONTENT_URI, id)
 
     /** The chat through the contact's own WhatsApp data row. */
     fun whatsAppRow(row: WhatsAppRow): Intent =
@@ -214,8 +221,11 @@ internal class ContactsProvider(
                 subtitle = number,
                 icon = contact.photoUri?.let { photo(context, it) }?.let { SearchIcon.Image(it) } ?: SearchGlyphs.person,
                 action = SearchActions.start(ContactIntents.open(contact.id, contact.lookupKey)),
-                // The photo isn't kept on the tile: it shows the person drawing.
-                pin = SearchActions.pin(contact.name, SearchGlyphs.person, ContactIntents.open(contact.id, contact.lookupKey)),
+                pin = TileContent.Action(
+                    contact.name,
+                    ActionIcon.Contact(ContactIntents.uri(contact.id, contact.lookupKey).toString()),
+                    LaunchTarget.Activity(ContactIntents.open(contact.id, contact.lookupKey)),
+                ),
                 buttons = buttonsFor(number, details.whatsapp, details.whatsapp?.let { WhatsAppApps.icon(ctx.apps, WhatsAppApps.packageForMime(it.mimeType)) } ?: SearchGlyphs.chat),
             )
         }
