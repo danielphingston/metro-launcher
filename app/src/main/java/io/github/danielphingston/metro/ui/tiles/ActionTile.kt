@@ -1,19 +1,30 @@
 package io.github.danielphingston.metro.ui.tiles
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.live.PeopleSource
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.search.SearchGlyphs
 import io.github.danielphingston.metro.ui.start.AppIcon
@@ -24,14 +35,28 @@ import io.github.danielphingston.metro.ui.theme.tileSurface
 /** The search glyphs are drawn for this box; a tile scales the box up so the strokes keep their proportions. */
 private val GlyphBox = 18.dp
 
+/** Darkens the foot of a contact's photo so the white label stays readable on a light picture. */
+private val PhotoScrim = Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.45f))
+
 /**
  * A tile pinned from the search results: its picture (the app's icon, or the row's glyph in white)
- * over its label, like a shortcut tile. With neither picture it is the plain labelled tile.
+ * over its label, like a shortcut tile; a contact fills the tile with their photo. With no picture
+ * it is the plain labelled tile.
  */
 @Composable
 fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: Boolean) {
     val action = tile.spec.content as? TileContent.Action ?: return PlaceholderTile(tile, cellSize)
-    val glyph = (action.icon as? ActionIcon.Glyph)?.let { SearchGlyphs.byId(it.id) }
+    val contact = action.icon as? ActionIcon.Contact
+    if (contact != null) {
+        val photo = rememberContactPhoto(contact, cellSize * maxOf(tile.spec.width, tile.spec.height))
+        if (photo != null) return PhotoTile(tile, cellSize, photo)
+    }
+    val glyph = when (val icon = action.icon) {
+        is ActionIcon.Glyph -> SearchGlyphs.byId(icon.id)
+        // Without a photo (none set, or no contacts permission) a contact is the person drawing.
+        is ActionIcon.Contact -> SearchGlyphs.person
+        else -> null
+    }
     val app = tile.app?.takeIf { action.icon is ActionIcon.App }
     if (glyph == null && app == null) return PlaceholderTile(tile, cellSize)
     val m = rememberTileMetrics(cellSize)
@@ -57,5 +82,27 @@ fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
             )
         }
         if (size != TileSize.SMALL) TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
+    }
+}
+
+/** The contact's photo for a tile [side] across, or null while loading and when there is none. */
+@Composable
+private fun rememberContactPhoto(contact: ActionIcon.Contact, side: Dp): ImageBitmap? {
+    val context = LocalContext.current
+    val px = with(LocalDensity.current) { side.roundToPx() }
+    return produceState<ImageBitmap?>(null, contact, px) {
+        value = PeopleSource.contactPhoto(context, contact.uri, px)?.asImageBitmap()
+    }.value
+}
+
+@Composable
+private fun PhotoTile(tile: ResolvedTile, cellSize: Dp, photo: ImageBitmap) {
+    val m = rememberTileMetrics(cellSize)
+    Box(Modifier.fillMaxSize().tileSurface()) {
+        Image(photo, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        if (tile.spec.size != TileSize.SMALL) {
+            Box(Modifier.fillMaxSize().background(PhotoScrim))
+            TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
+        }
     }
 }

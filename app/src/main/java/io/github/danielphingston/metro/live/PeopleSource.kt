@@ -64,10 +64,26 @@ object PeopleSource {
 
     /** A thumbnail sized for a [px] square, from the cache when possible. Null if it can't be read. */
     suspend fun thumbnail(context: Context, uri: String, px: Int): Bitmap? {
-        cache.get(uri)?.let { return it }
+        val key = "$uri#$px"
+        cache.get(key)?.let { return it }
         return withContext(Dispatchers.IO) {
             runCatching { ImageDecode.decode(context, Uri.parse(uri), px, px) }.getOrNull()
-                ?.also { cache.put(uri, it) }
+                ?.also { cache.put(key, it) }
         }
+    }
+
+    /**
+     * The photo of the contact at [contactUri] (a lookup URI, which survives a contacts sync) sized
+     * for a [px] square; null without permission, without a photo, or once the contact is gone.
+     */
+    suspend fun contactPhoto(context: Context, contactUri: String, px: Int): Bitmap? {
+        if (!hasPermission(context)) return null
+        val photo = withContext(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.query(Uri.parse(contactUri), arrayOf(ContactsContract.Contacts.PHOTO_URI), null, null, null)
+                    ?.use { if (it.moveToFirst()) it.getString(0) else null }
+            }.getOrNull()
+        } ?: return null
+        return thumbnail(context, photo, px)
     }
 }

@@ -49,6 +49,7 @@ class TileJsonTest {
             TileSpec(1, TileSize.MEDIUM, TileContent.Action("timer 5 minutes", ActionIcon.Glyph("timer"), LaunchTarget.Activity(timer))),
             TileSpec(2, TileSize.SMALL, TileContent.Action("cats", ActionIcon.App(app), LaunchTarget.Web("https://example.com/?q=cats"))),
             TileSpec(3, TileSize.MEDIUM, TileContent.Action("example.com", null, LaunchTarget.Web("https://example.com", inBrowser = false))),
+            TileSpec(4, TileSize.WIDE, TileContent.Action("Anna", ActionIcon.Contact("content://com.android.contacts/contacts/lookup/k1/1"), LaunchTarget.Web("https://example.com"))),
         )
         val decoded = TileJson.decode(JSONArray(TileJson.encode(tiles).toString()))
         assertEquals(tiles, decoded)

@@ -61,9 +61,15 @@ sealed interface LaunchTarget {
     }
 }
 
-/** The picture on an action tile, saved as a reference: a search glyph by its id, or an installed app's icon. */
+/**
+ * The picture on an action tile, saved as a reference: a search glyph by its id, an installed
+ * app's icon, or a contact's photo by the contact's URI.
+ */
 sealed interface ActionIcon {
     data class Glyph(val id: String) : ActionIcon
 
     data class App(val app: AppKey) : ActionIcon
+
+    /** Read from the contacts each time it is drawn, so a new photo shows up; the person drawing without one. */
+    data class Contact(val uri: String) : ActionIcon
 }

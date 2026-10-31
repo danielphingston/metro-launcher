@@ -456,6 +456,7 @@ internal object TileJson {
                 when (val icon = c.icon) {
                     is ActionIcon.Glyph -> put("glyph", icon.id)
                     is ActionIcon.App -> put("iconApp", icon.app.serialize())
+                    is ActionIcon.Contact -> put("contact", icon.uri)
                     null -> Unit
                 }
             }
@@ -486,6 +487,7 @@ internal object TileJson {
                 when {
                     obj.has("glyph") -> ActionIcon.Glyph(obj.getString("glyph"))
                     obj.has("iconApp") -> AppKey.parse(obj.getString("iconApp"))?.let { ActionIcon.App(it) }
+                    obj.has("contact") -> ActionIcon.Contact(obj.getString("contact"))
                     else -> null
                 },
                 LaunchTarget.fromJson(obj.getJSONObject("target")) ?: return null,
