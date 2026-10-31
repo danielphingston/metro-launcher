@@ -57,7 +57,7 @@ class TileStoreTest {
             {"id":2,"type":"quick","kind":"teleporter","size":"SMALL","x":2,"y":0},
             {"id":3,"type":"folder","name":"f","size":"MEDIUM","children":[
                 {"id":4,"type":"hologram","size":"SMALL"},
-                {"id":5,"type":"quick","kind":"wifi","size":"SMALL"}
+                {"id":5,"type":"quick","kind":"battery","size":"SMALL"}
             ]}
         ]"""
         val read = TileJson.read(saved)!!

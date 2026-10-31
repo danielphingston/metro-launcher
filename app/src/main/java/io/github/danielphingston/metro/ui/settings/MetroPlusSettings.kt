@@ -1,6 +1,5 @@
 package io.github.danielphingston.metro.ui.settings
 
-import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -32,7 +31,7 @@ import io.github.danielphingston.metro.ui.theme.MetroType
 
 /**
  * The Metro Plus page: the one-time purchase (unlocked, a buy button with Play's price, or not on
- * sale yet) and its three sections, "quick settings tiles", "assistant" and "smart search".
+ * sale yet) and its two sections, "assistant" and "smart search".
  * [onOpenSearchSettings] goes to the search page, where each smart search feature has its switch.
  */
 @Composable
@@ -47,7 +46,7 @@ fun MetroPlusSettingsSection(
     val price by purchases.quickTilesPrice.collectAsState()
 
     MetroText(
-        "Metro Plus: quick settings tiles that toggle Wi-Fi, Bluetooth, flashlight and more, an " +
+        "Metro Plus: quick settings tiles that toggle the flashlight, ringer and more, an " +
             "assistant tile and smart search. A one-time purchase, no subscription.",
         MetroType.caption,
         color = Metro.colors.subtle,
@@ -60,25 +59,6 @@ fun MetroPlusSettingsSection(
             MetroButton("buy for $price", onClick = { purchases.buyQuickTiles(activity) })
         else -> MetroText("Not available yet", MetroType.body, color = Metro.colors.subtle)
     }
-
-    Section("quick settings tiles")
-    PermissionToggle(
-        "Show Wi-Fi network name",
-        // Android 12 and up ignore a request for precise location alone: it has to come with coarse.
-        arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION),
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        settings.showWifiName,
-        { repository.setShowWifiName(it) },
-        "android only shares the network name with apps allowed precise location",
-    )
-    PermissionToggle(
-        "Show Bluetooth devices",
-        arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
-        Manifest.permission.BLUETOOTH_CONNECT,
-        settings.showBluetoothDevices,
-        { repository.setShowBluetoothDevices(it) },
-        "android only shares device names with apps allowed nearby devices",
-    )
 
     Section("assistant")
     MetroText(

@@ -61,7 +61,7 @@ sealed interface TileContent {
     data object Photos : TileContent
     data object People : TileContent
 
-    /** A system toggle or shortcut (flashlight, Wi-Fi, battery...) with its live state; one tile per [kind]. */
+    /** A system toggle or shortcut (flashlight, ringer, battery...) with its live state; one tile per [kind]. */
     data class QuickSetting(val kind: QuickSettingKind) : TileContent
 
     /** The assistant tile (Metro Plus): follows the shared assistant setting; shows its latest reply and the last question asked. */
@@ -78,16 +78,10 @@ enum class QuickSettingKind(val id: String, val label: String) {
     RINGER("ringer", "ringer"),
     AUTO_ROTATE("rotate", "auto-rotate"),
     BRIGHTNESS("brightness", "brightness"),
-    WIFI("wifi", "wi-fi"),
-    MOBILE_DATA("data", "mobile data"),
-    BLUETOOTH("bluetooth", "bluetooth"),
-    AIRPLANE("airplane", "airplane mode"),
-    LOCATION("location", "location"),
-    HOTSPOT("hotspot", "hotspot"),
     BATTERY("battery", "battery");
 
     companion object {
-        /** Null for a kind this version doesn't know, e.g. one saved by a newer build. */
+        /** Null for a kind this version doesn't know, e.g. one saved by a newer build or since removed. */
         fun fromId(id: String?): QuickSettingKind? = entries.firstOrNull { it.id == id }
     }
 }

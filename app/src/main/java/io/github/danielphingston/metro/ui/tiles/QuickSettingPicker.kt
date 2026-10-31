@@ -51,7 +51,7 @@ private fun QuickSettingKind.action(): String = when (this) {
     QuickSettingKind.FLASHLIGHT, QuickSettingKind.DO_NOT_DISTURB, QuickSettingKind.AUTO_ROTATE -> "tap to switch on or off"
     QuickSettingKind.RINGER -> "tap to cycle ring, vibrate and silent"
     QuickSettingKind.BRIGHTNESS -> "tap to step through auto, 25%, 50% and 100%"
-    else -> "tap to open the settings"
+    QuickSettingKind.BATTERY -> "tap to open the battery settings"
 }
 
 /** Flyout panel listing the Metro Plus tiles with live previews. While locked, choosing one offers the purchase instead. */

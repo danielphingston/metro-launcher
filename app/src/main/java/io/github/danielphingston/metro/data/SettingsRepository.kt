@@ -103,7 +103,6 @@ data class LauncherSettings(
     val searchEngine: SearchEngine = SearchEngine.GOOGLE,
     /** How far (dp) the start screen must be pulled down, then released, to open search. */
     val pullDistance: Int = DEFAULT_PULL_DISTANCE,
-    /** The wi-fi quick tile names the network; needs the precise location permission. */
     /** The gap (dp) between the status bar and the first row of tiles on the start screen. */
     val startTopPadding: Int = DEFAULT_START_TOP_PADDING,
     /** The gap (dp) between the last row of buttons and the navigation bar. */
@@ -113,9 +112,6 @@ data class LauncherSettings(
     val startRightPadding: Int = DEFAULT_START_RIGHT_PADDING,
     /** The round buttons under the tiles take the accent colour instead of the quiet foreground. */
     val accentArrows: Boolean = false,
-    val showWifiName: Boolean = false,
-    /** The bluetooth quick tile lists connected devices; needs the nearby devices permission. */
-    val showBluetoothDevices: Boolean = false,
     /** The animation that plays when an app is launched. */
     val launchStyle: LaunchStyle = LaunchStyle.TURNSTILE,
     /** Percent of normal speed for the launcher's own animations: 100 is as designed, 200 twice as fast. */
@@ -272,8 +268,6 @@ class SettingsRepository(private val context: Context) {
         val startLeftPadding = intPreferencesKey("start_left_padding")
         val startRightPadding = intPreferencesKey("start_right_padding")
         val accentArrows = booleanPreferencesKey("accent_arrows")
-        val showWifiName = booleanPreferencesKey("show_wifi_name")
-        val showBluetoothDevices = booleanPreferencesKey("show_bluetooth_devices")
         val launchStyle = stringPreferencesKey("launch_style")
         val animationSpeed = intPreferencesKey("animation_speed")
         val animateReturn = booleanPreferencesKey("animate_return")
@@ -339,8 +333,6 @@ class SettingsRepository(private val context: Context) {
             startRightPadding = this[Keys.startRightPadding]?.let(LauncherSettings::clampStartSidePadding)
                 ?: defaults.startRightPadding,
             accentArrows = this[Keys.accentArrows] ?: defaults.accentArrows,
-            showWifiName = this[Keys.showWifiName] ?: defaults.showWifiName,
-            showBluetoothDevices = this[Keys.showBluetoothDevices] ?: defaults.showBluetoothDevices,
             launchStyle = this[Keys.launchStyle]?.let { runCatching { LaunchStyle.valueOf(it) }.getOrNull() }
                 ?: defaults.launchStyle,
             animationSpeed = this[Keys.animationSpeed]?.let(LauncherSettings::clampAnimationSpeed)
@@ -426,11 +418,6 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setAccentArrows(enabled: Boolean) = context.metroDataStore.edit { it[Keys.accentArrows] = enabled }
-
-    suspend fun setShowWifiName(enabled: Boolean) = context.metroDataStore.edit { it[Keys.showWifiName] = enabled }
-
-    suspend fun setShowBluetoothDevices(enabled: Boolean) =
-        context.metroDataStore.edit { it[Keys.showBluetoothDevices] = enabled }
 
     suspend fun setLaunchStyle(style: LaunchStyle) = context.metroDataStore.edit { it[Keys.launchStyle] = style.name }
 

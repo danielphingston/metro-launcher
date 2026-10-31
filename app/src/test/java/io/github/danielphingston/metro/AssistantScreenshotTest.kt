@@ -215,7 +215,7 @@ class AssistantScreenshotTest {
                         unlocked = true, price = null, assistantApp = claude, icons = icons, monochrome = true,
                         onBuy = {}, onAdd = { _, _ -> }, modifier = Modifier.align(Alignment.BottomCenter),
                         // The end of the quick settings section and the assistant section below it.
-                        listState = rememberLazyListState(initialFirstVisibleItemIndex = 11),
+                        listState = rememberLazyListState(initialFirstVisibleItemIndex = 5),
                     )
                 }
             }

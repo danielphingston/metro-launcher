@@ -27,7 +27,7 @@ internal object PermissionLogic {
 
     /**
      * Whether a request's [results] satisfy the feature. A request may ask for several permissions
-     * (coarse and fine location go together on Android 12 and up), but only [required] counts.
+     * (a group such as coarse and fine location can be asked together), but only [required] counts.
      */
     fun satisfied(results: Map<String, Boolean>, required: String): Boolean = results[required] == true
 }
