@@ -76,6 +76,13 @@ class AppRepository(
 
     private val reloadRequests = Channel<Unit>(Channel.CONFLATED)
 
+    /**
+     * Packages updated since the last reload. Their icons are dropped only once the reload has
+     * published the new AppInfo: dropping them earlier let visible tiles redraw from the old
+     * AppInfo, whose APK is gone, and cache a blank or default icon until the next restart.
+     */
+    private val changedPackages: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     private val callback = object : LauncherApps.Callback() {
         override fun onPackageRemoved(packageName: String, user: UserHandle) {
             onPackageRemoved(packageName, serialOf(user))
@@ -85,12 +92,14 @@ class AppRepository(
         override fun onPackageAdded(packageName: String, user: UserHandle) = requestReload()
 
         override fun onPackageChanged(packageName: String, user: UserHandle) {
-            onPackageChanged(packageName)
+            changedPackages.add(packageName)
             requestReload()
         }
 
-        override fun onPackagesAvailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) =
+        override fun onPackagesAvailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) {
+            changedPackages.addAll(packageNames)
             requestReload()
+        }
 
         override fun onPackagesUnavailable(packageNames: Array<out String>, user: UserHandle, replacing: Boolean) =
             requestReload()
@@ -131,6 +140,8 @@ class AppRepository(
             DefaultApps.EMPTY
         }
         _apps.value = result
+        val changed = changedPackages.toList().also { changedPackages.removeAll(it.toSet()) }
+        if (changed.isNotEmpty()) withContext(Dispatchers.Main) { changed.forEach(onPackageChanged) }
     }
 
     fun serialOf(user: UserHandle): Long = userManager.getSerialNumberForUser(user)

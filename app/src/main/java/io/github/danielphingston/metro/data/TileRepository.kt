@@ -104,6 +104,21 @@ data class TileSpan(val width: Int, val height: Int) {
  * cells); [UNPLACED] means "not placed yet", and [TilePlacement] puts such a tile at the bottom
  * of the layout. Folder children have no position: they stay list-ordered inside the folder.
  */
+/** How an app tile draws itself. The [needsImage] styles show [TileSpec.image]. */
+enum class TileStyle(val id: String, val label: String, val needsImage: Boolean = false) {
+    ICON("icon", "icon and name"),
+    ICON_ONLY("iconOnly", "icon only"),
+    NAME_ONLY("name", "name only"),
+    CUSTOM_ICON("customIcon", "custom icon", needsImage = true),
+    FULL_IMAGE("image", "full tile image", needsImage = true),
+    IMAGE_ICON("imageIcon", "image behind icon", needsImage = true),
+    ;
+
+    companion object {
+        fun fromId(id: String?): TileStyle = entries.firstOrNull { it.id == id } ?: ICON
+    }
+}
+
 data class TileSpec(
     val id: Long,
     val size: TileSize,
@@ -112,6 +127,10 @@ data class TileSpec(
     val y: Int = UNPLACED,
     /** When set, replaces [size] with any footprint (width 1..columns, height 1..[TileSpan.MAX_HEIGHT]). */
     val span: TileSpan? = null,
+    /** How an app tile draws itself; other tiles ignore it. */
+    val style: TileStyle = TileStyle.ICON,
+    /** The picked photo (a content URI with a persisted read grant) for styles that [TileStyle.needsImage]. */
+    val image: String? = null,
 ) {
     /** The app key for app tiles, else null. */
     val appKey: AppKey? get() = (content as? TileContent.App)?.app
@@ -311,6 +330,11 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
     fun setSpan(id: Long, width: Int, height: Int) =
         _tiles.update { list -> list?.let { TilePlacement.setSpan(it, id, width, height, columnCount) } }
 
+    /** Sets how tile [id] (top level or in a folder) draws itself; [image] is kept only for styles that need one. */
+    fun setStyle(id: Long, style: TileStyle, image: String?) = _tiles.update { list ->
+        list?.let { TileStyles.set(it, id, style, image) }
+    }
+
     /** Drops tile [id] with its top-left corner on cell [x], [y]; see [TilePlacement.moveTo]. */
     fun moveTo(id: Long, x: Int, y: Int) =
         _tiles.update { list -> list?.let { TilePlacement.moveTo(it, id, GridPos(x, y), columnCount) } }
@@ -365,6 +389,16 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
 }
 
 /** When a stored widget tile can safely be dropped; see [TileRepository]. */
+internal object TileStyles {
+    fun set(tiles: List<TileSpec>, id: Long, style: TileStyle, image: String?): List<TileSpec> = tiles.map { tile ->
+        when {
+            tile.id == id -> tile.copy(style = style, image = image.takeIf { style.needsImage })
+            tile.content is TileContent.Folder -> tile.copy(content = tile.content.copy(children = set(tile.content.children, id, style, image)))
+            else -> tile
+        }
+    }
+}
+
 internal object WidgetPruning {
     /**
      * Dead means the system gave no info for the id although the provider is installed and the
@@ -441,6 +475,8 @@ internal object TileJson {
         val obj = JSONObject().put("id", tile.id).put("size", tile.size.name)
         if (tile.isPlaced) obj.put("x", tile.x).put("y", tile.y)
         tile.span?.let { obj.put("spanWidth", it.width).put("spanHeight", it.height) }
+        if (tile.style != TileStyle.ICON) obj.put("style", tile.style.id)
+        tile.image?.let { obj.put("image", it) }
         when (val c = tile.content) {
             is TileContent.App -> obj.put("type", "app").put("app", c.app.serialize())
             is TileContent.Shortcut -> obj.put("type", "shortcut").put("package", c.packageName)
@@ -514,6 +550,8 @@ internal object TileJson {
             x = if (placed) x.coerceAtMost(MAX_X) else TileSpec.UNPLACED,
             y = if (placed) y.coerceAtMost(MAX_Y) else TileSpec.UNPLACED,
             span = span,
+            style = TileStyle.fromId(obj.optString("style").ifEmpty { null }),
+            image = obj.optString("image").ifEmpty { null },
         )
     }
 }
