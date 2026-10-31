@@ -5,6 +5,7 @@ import android.content.pm.LauncherApps
 import android.content.pm.ShortcutInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.util.LruCache
 import androidx.compose.ui.graphics.asImageBitmap
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.SmartFeature
@@ -139,8 +140,22 @@ internal class WhatsAppIndex(
         return ChatHit(info.`package`, info.id, serial, label, info.longLabel?.toString()?.trim()?.takeIf { it.isNotEmpty() })
     }
 
-    /** The shortcut's own picture (the contact or group photo), or null. Blocking. */
-    fun icon(hit: ChatHit, sizePx: Int): Bitmap? = try {
+    /** The last picture [icon] read for each chat, so a row can show it at once while it is read again. */
+    private val lastIcons = object : LruCache<String, Bitmap>(1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
+
+    private fun iconKey(hit: ChatHit, sizePx: Int) = "${WhatsAppMatcher.shortcutKey(hit.packageName, hit.id, hit.userSerial)}@$sizePx"
+
+    /** What [icon] last returned for [hit], without asking the system; null if never read or dropped. */
+    fun lastIcon(hit: ChatHit, sizePx: Int): Bitmap? = lastIcons.get(iconKey(hit, sizePx))
+
+    /** The shortcut's own picture (the contact or group photo), or null. Blocking; always read fresh. */
+    fun icon(hit: ChatHit, sizePx: Int): Bitmap? = readIcon(hit, sizePx).also { bitmap ->
+        if (bitmap != null) lastIcons.put(iconKey(hit, sizePx), bitmap) else lastIcons.remove(iconKey(hit, sizePx))
+    }
+
+    private fun readIcon(hit: ChatHit, sizePx: Int): Bitmap? = try {
         val launcherApps = context.getSystemService(LauncherApps::class.java)
         val user = ShortcutTiles.userFor(context, hit.userSerial) ?: return null
         val query = LauncherApps.ShortcutQuery()
@@ -163,6 +178,9 @@ internal class WhatsAppIndex(
     }
 
     companion object {
+        /** The size chat pictures are read at, shared by the chat rows and the shortcut rows. */
+        const val ICON_PX = 96
+
         @Volatile
         private var instance: WhatsAppIndex? = null
 
@@ -185,7 +203,7 @@ internal class WhatsAppProvider(
     private val chats: (Context) -> suspend (String, Int) -> List<ChatHit> = { context ->
         { query, limit -> WhatsAppIndex.shared(context).search(query, limit) }
     },
-    private val iconOf: (Context, ChatHit) -> Bitmap? = { context, hit -> WhatsAppIndex.shared(context).icon(hit, 96) },
+    private val iconOf: (Context, ChatHit) -> Bitmap? = { context, hit -> WhatsAppIndex.shared(context).icon(hit, WhatsAppIndex.ICON_PX) },
 ) : SearchProvider {
     override val id = "whatsapp"
     override val feature = SmartFeature.WHATSAPP
