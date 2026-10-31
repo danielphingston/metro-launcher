@@ -1,5 +1,6 @@
 package io.github.danielphingston.metro.ui.search
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -464,12 +465,21 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
                 }
             },
             onLongClick = { row, _ ->
-                // A row that is already pinned has nothing left to offer, unless it is an app (app info).
-                val offers = row is SearchRow.App || row.pin?.let { !viewModel.isPinned(it) } == true
-                if (!offers) return@SearchContent
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                focus.clearFocus()
-                state.menu = row
+                // An app row also offers app info, so it opens the menu; any other row pins on the hold itself.
+                if (row is SearchRow.App) {
+                    focus.clearFocus()
+                    state.menu = row
+                    return@SearchContent
+                }
+                val pin = row.pin ?: return@SearchContent
+                val message = if (viewModel.isPinned(pin)) {
+                    "already on start"
+                } else {
+                    viewModel.pin(pin)
+                    "pinned to start"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             },
             onDismiss = { state.close() },
         )
@@ -579,7 +589,7 @@ private fun ResultRowFor(
     onButton: (ItemAction) -> Unit,
 ) {
     val colors = Metro.colors
-    // Any row that can be pinned (or the app rows, for app info) opens the menu on a long press.
+    // A long press pins any row that can be pinned; on an app row it opens the menu (pin, app info).
     val hold: ((Rect) -> Unit)? = if (row is SearchRow.App || row.pin != null) { bounds -> onLongClick(row, bounds) } else null
     when (row) {
         is SearchRow.Caption -> MetroText(
