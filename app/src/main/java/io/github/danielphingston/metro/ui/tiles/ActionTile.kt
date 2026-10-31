@@ -29,13 +29,12 @@ import io.github.danielphingston.metro.live.PeopleSource
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.search.SearchGlyphs
 import io.github.danielphingston.metro.ui.start.AppIcon
+import io.github.danielphingston.metro.ui.start.CustomTileIcon
+import io.github.danielphingston.metro.ui.start.GlyphPicture
 import io.github.danielphingston.metro.ui.start.StyledTileFace
 import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.tileSurface
-
-/** The search glyphs are drawn for this box; a tile scales the box up so the strokes keep their proportions. */
-private val GlyphBox = 18.dp
 
 /** Darkens the foot of a contact's photo so the white label stays readable on a light picture. */
 private val PhotoScrim = Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.45f))
@@ -51,7 +50,7 @@ fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
     val style = tile.spec.style
     val contact = action.icon as? ActionIcon.Contact
     // A contact's photo is its default face; any other style replaces it.
-    if (contact != null && style == TileStyle.ICON) {
+    if (contact != null && style == TileStyle.ICON && tile.spec.icon == null) {
         val photo = rememberContactPhoto(contact, cellSize * maxOf(tile.spec.width, tile.spec.height))
         if (photo != null) return PhotoTile(tile, cellSize, photo)
     }
@@ -61,27 +60,24 @@ fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
         is ActionIcon.Contact -> SearchGlyphs.person
         else -> null
     }
+    val custom0 = tile.spec.icon
     val app = tile.app?.takeIf { action.icon is ActionIcon.App }
-    if (glyph == null && app == null && style == TileStyle.ICON) return PlaceholderTile(tile, cellSize)
+    if (glyph == null && app == null && custom0 == null && style == TileStyle.ICON) return PlaceholderTile(tile, cellSize)
     val m = rememberTileMetrics(cellSize)
     val size = tile.spec.size
     val white = Metro.colors.onAccent
+    val custom = tile.spec.icon
     val picture: @Composable (Dp, Modifier) -> Unit = { iconSize, modifier ->
-        if (app != null) {
+        if (custom != null) {
+            CustomTileIcon(custom, iconSize, icons, modifier)
+        } else if (app != null) {
             AppIcon(app, icons, iconSize, monochrome, modifier)
         } else if (glyph != null) {
-            // The glyphs' hairline is thin for a tile: draw at 18dp and scale, so it thickens with the picture.
-            val scale = iconSize / GlyphBox * 0.7f
-            Box(
-                modifier
-                    .size(GlyphBox)
-                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                    .drawBehind { glyph.draw(this, white) },
-            )
+            GlyphPicture(glyph, iconSize, white, modifier)
         }
     }
     Box(Modifier.fillMaxSize().tileSurface()) {
-        if (style != TileStyle.ICON) {
+        if (style != TileStyle.ICON || custom != null) {
             StyledTileFace(tile.label, size, 0, m, style, tile.spec.image, appIcon = picture)
             return@Box
         }

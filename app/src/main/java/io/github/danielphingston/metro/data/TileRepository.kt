@@ -131,6 +131,8 @@ data class TileSpec(
     val style: TileStyle = TileStyle.ICON,
     /** The picked photo (a content URI with a persisted read grant) for styles that [TileStyle.needsImage]. */
     val image: String? = null,
+    /** A picked icon replacing the tile's own: "pack:<package>:<drawable>" or "glyph:<id>". */
+    val icon: String? = null,
 ) {
     /** The app key for app tiles, else null. */
     val appKey: AppKey? get() = (content as? TileContent.App)?.app
@@ -335,6 +337,11 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
         list?.let { TileStyles.set(it, id, style, image) }
     }
 
+    /** Sets the picked icon of tile [id] (top level or in a folder); null restores its own icon. */
+    fun setIcon(id: Long, icon: String?) = _tiles.update { list ->
+        list?.let { TileStyles.setIcon(it, id, icon) }
+    }
+
     /** Drops tile [id] with its top-left corner on cell [x], [y]; see [TilePlacement.moveTo]. */
     fun moveTo(id: Long, x: Int, y: Int) =
         _tiles.update { list -> list?.let { TilePlacement.moveTo(it, id, GridPos(x, y), columnCount) } }
@@ -398,6 +405,14 @@ internal object TileStyles {
         when {
             tile.id == id -> tile.copy(style = style, image = image.takeIf { style.needsImage })
             tile.content is TileContent.Folder -> tile.copy(content = tile.content.copy(children = set(tile.content.children, id, style, image)))
+            else -> tile
+        }
+    }
+
+    fun setIcon(tiles: List<TileSpec>, id: Long, icon: String?): List<TileSpec> = tiles.map { tile ->
+        when {
+            tile.id == id -> tile.copy(icon = icon)
+            tile.content is TileContent.Folder -> tile.copy(content = tile.content.copy(children = setIcon(tile.content.children, id, icon)))
             else -> tile
         }
     }
@@ -481,6 +496,7 @@ internal object TileJson {
         tile.span?.let { obj.put("spanWidth", it.width).put("spanHeight", it.height) }
         if (tile.style != TileStyle.ICON) obj.put("style", tile.style.id)
         tile.image?.let { obj.put("image", it) }
+        tile.icon?.let { obj.put("icon", it) }
         when (val c = tile.content) {
             is TileContent.App -> obj.put("type", "app").put("app", c.app.serialize())
             is TileContent.Shortcut -> obj.put("type", "shortcut").put("package", c.packageName)
@@ -556,6 +572,7 @@ internal object TileJson {
             span = span,
             style = TileStyle.fromId(obj.optString("style").ifEmpty { null }),
             image = obj.optString("image").ifEmpty { null },
+            icon = obj.optString("icon").ifEmpty { null },
         )
     }
 }

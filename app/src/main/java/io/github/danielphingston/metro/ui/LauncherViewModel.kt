@@ -275,6 +275,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun resize(id: Long) = metro.tiles.resize(id)
     fun setSpan(id: Long, width: Int, height: Int) = metro.tiles.setSpan(id, width, height)
 
+    /** Sets the picked icon of tile [id]; null restores its own. */
+    fun setIcon(id: Long, icon: String?) = metro.tiles.setIcon(id, icon)
+
     /** Sets how tile [id] draws itself; see [io.github.danielphingston.metro.data.TileRepository.setStyle]. */
     fun setStyle(id: Long, style: io.github.danielphingston.metro.data.TileStyle, image: String?) = metro.tiles.setStyle(id, style, image)
 

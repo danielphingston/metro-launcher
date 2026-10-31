@@ -27,6 +27,9 @@ internal object SearchGlyphs {
     /** The glyph saved as [id], or null for one this version doesn't draw. */
     fun byId(id: String): SearchIcon.Glyph? = byIdMap[id]
 
+    /** Every glyph with its id, in a stable (alphabetical) order. */
+    fun all(): List<Pair<String, SearchIcon.Glyph>> = byIdMap.toList().sortedBy { it.first }
+
     private val DrawScope.stroke get() = 1.5.dp.toPx()
 
     /** Two bars: an answer. */

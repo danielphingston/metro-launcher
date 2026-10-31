@@ -60,6 +60,43 @@ class IconPacks(private val context: Context) {
         null
     }
 
+    /** Distinct sorted drawable names of [pack] (appfilter, plus drawable.xml items). Blocking. */
+    fun iconNames(pack: String): List<String> {
+        val names = HashSet<String>()
+        try {
+            val filter = filters[pack] ?: loadFilter(pack)?.also { filters[pack] = it }
+            filter?.values?.let { names.addAll(it) }
+        } catch (_: Exception) {
+        }
+        try {
+            val resources = resourcesOf(pack)
+            val id = resources.getIdentifier("drawable", "xml", pack)
+            if (id != 0) {
+                resources.getXml(id).use { p ->
+                    var event = p.eventType
+                    while (event != XmlPullParser.END_DOCUMENT) {
+                        if (event == XmlPullParser.START_TAG && p.name == "item") {
+                            p.getAttributeValue(null, "drawable")?.trim()?.takeIf { it.isNotEmpty() }?.let { names.add(it) }
+                        }
+                        event = p.next()
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return names.sorted()
+    }
+
+    /** The pack's drawable called [name] (drawable, then mipmap), or null. Blocking. */
+    fun drawableByName(pack: String, name: String, density: Int): Drawable? = try {
+        val resources = resourcesOf(pack)
+        val id = resources.getIdentifier(name, "drawable", pack).takeIf { it != 0 }
+            ?: resources.getIdentifier(name, "mipmap", pack)
+        if (id == 0) null else resources.getDrawableForDensity(id, density, null)
+    } catch (_: Exception) {
+        null
+    }
+
     /** Forgets the parsed filter and resources of [packageName], e.g. after the pack was updated. */
     fun invalidate(packageName: String) {
         filters.remove(packageName)

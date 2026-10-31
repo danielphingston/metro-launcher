@@ -72,6 +72,32 @@ class IconCache(private val context: Context) {
         return icon
     }
 
+    fun installedPacks(): List<IconPackInfo> = iconPacks.installed()
+
+    /** Drawable names of icon pack [pack]. Blocking. */
+    fun packIconNames(pack: String): List<String> = iconPacks.iconNames(pack)
+
+    /** A picked "pack:<package>:<drawable>" icon at [sizePx], or null. Blocking: call off the main thread. */
+    fun loadCustom(icon: String, sizePx: Int): ImageBitmap? {
+        val rest = icon.removePrefix("pack:").takeIf { it != icon } ?: return null
+        val split = rest.indexOf(':')
+        if (split <= 0) return null
+        val pack = rest.substring(0, split)
+        val name = rest.substring(split + 1)
+        val key = "custom/$icon@$sizePx"
+        cache.get(key)?.let { return it.bitmap }
+        val bitmap = try {
+            val density = context.resources.displayMetrics.densityDpi
+            iconPacks.drawableByName(pack, name, density)?.toBitmap(sizePx, sizePx)?.asImageBitmap()
+        } catch (_: RuntimeException) {
+            null
+        } catch (_: OutOfMemoryError) {
+            null
+        }
+        bitmap?.let { cache.put(key, TileIcon(it, isMonochrome = false)) }
+        return bitmap
+    }
+
     /** Gives memory back, keeping the [keep] (0..1) share of the cache used last; see [CacheTrim]. */
     fun trimMemory(keep: Float) = cache.trimTo(keep)
 
@@ -88,6 +114,8 @@ class IconCache(private val context: Context) {
     /** Drops what is known about icon pack [packageName]; called when that package changed. */
     fun invalidatePack(packageName: String) {
         iconPacks.invalidate(packageName)
+        cache.snapshot().keys.filter { it.startsWith("custom/pack:$packageName:") }.forEach { cache.remove(it) }
+        generation++
         if (iconPack == packageName) {
             cache.evictAll()
             generation++

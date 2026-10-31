@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.isSpecified
@@ -102,12 +103,13 @@ fun TileFace(
     cellSize: Dp,
     style: TileStyle = TileStyle.ICON,
     image: String? = null,
+    icon: String? = null,
 ) {
     val density = LocalDensity.current
     val metrics = remember(cellSize, density) { TileMetrics(cellSize, density) }
     FlipCard(
         showBack = flipped && live?.hasBack(size) == true,
-        front = { Front(app, size, live, monochromeIcons, icons, metrics, style, image) },
+        front = { Front(app, size, live, monochromeIcons, icons, metrics, style, image, icon) },
         // The back face stays on screen while the card flips back, which can outlast the content
         // (a dismissed notification): the live content is null by then.
         back = { live?.let { Back(app, size, it, monochromeIcons, icons, metrics) } },
@@ -160,12 +162,13 @@ private fun Front(
     m: TileMetrics,
     style: TileStyle,
     image: String?,
+    icon: String?,
 ) {
     when (live) {
         is LiveContent.Clock -> ClockFront(app, size, live, m)
         is LiveContent.Calendar -> CalendarFront(app, size, live, m)
         is LiveContent.NowPlaying -> NowPlayingFront(app, size, live.info, m)
-        else -> IconFront(app, size, (live as? LiveContent.Notifications)?.data?.count ?: 0, monochromeIcons, icons, m, style, image)
+        else -> IconFront(app, size, (live as? LiveContent.Notifications)?.data?.count ?: 0, monochromeIcons, icons, m, style, image, icon)
     }
 }
 
@@ -243,10 +246,43 @@ private fun IconFront(
     m: TileMetrics,
     style: TileStyle = TileStyle.ICON,
     image: String? = null,
+    icon: String? = null,
 ) {
     StyledTileFace(app.label, size, count, m, style, image) { iconSize, modifier ->
-        AppIcon(app, icons, iconSize, monochrome, modifier)
+        if (icon != null) CustomTileIcon(icon, iconSize, icons, modifier) else AppIcon(app, icons, iconSize, monochrome, modifier)
     }
+}
+
+/** The search glyphs are drawn for this box; a tile scales the box up so the strokes keep their proportions. */
+private val GlyphBox = 18.dp
+
+/** A search [glyph] in [color] filling about 70% of [iconSize]. */
+@Composable
+internal fun GlyphPicture(glyph: io.github.danielphingston.metro.ui.search.SearchIcon.Glyph, iconSize: Dp, color: Color, modifier: Modifier = Modifier) {
+    // The glyphs' hairline is thin for a tile: draw at 18dp and scale, so it thickens with the picture.
+    val scale = iconSize / GlyphBox * 0.7f
+    Box(
+        modifier
+            .size(GlyphBox)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .drawBehind { glyph.draw(this, color) },
+    )
+}
+
+/** A picked tile icon: "pack:<package>:<drawable>" from an icon pack, or "glyph:<id>" drawn in white. */
+@Composable
+fun CustomTileIcon(icon: String, size: Dp, icons: IconCache, modifier: Modifier = Modifier) {
+    if (icon.startsWith("glyph:")) {
+        val glyph = io.github.danielphingston.metro.ui.search.SearchGlyphs.byId(icon.removePrefix("glyph:")) ?: return
+        GlyphPicture(glyph, size, Metro.colors.onAccent, modifier)
+        return
+    }
+    val px = with(LocalDensity.current) { size.roundToPx() }
+    val generation = icons.generation
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, icon, px, generation) {
+        value = withContext(Dispatchers.IO) { icons.loadCustom(icon, px) }
+    }
+    bitmap?.let { Image(it, contentDescription = null, modifier = modifier.size(size)) }
 }
 
 /**
