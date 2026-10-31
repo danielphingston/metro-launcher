@@ -204,6 +204,9 @@ class StartState(val scroll: ScrollState) {
 
     /** The tile whose style menu is open, or null. */
     var stylingId by mutableStateOf<Long?>(null)
+
+    /** The tile whose icon picker is open, or null. */
+    var iconPickerId by mutableStateOf<Long?>(null)
     var widgetPickerOpen by mutableStateOf(false)
     var quickPickerOpen by mutableStateOf(false)
 
@@ -257,13 +260,14 @@ class StartState(val scroll: ScrollState) {
     }
 
     /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || stylingId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || grouping
+    val flyoutOpen: Boolean get() = addMenuOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || grouping
 
     /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
         val any = flyoutOpen
         addMenuOpen = false
         stylingId = null
+        iconPickerId = null
         widgetPickerOpen = false
         quickPickerOpen = false
         renamingFolderId = null
@@ -728,8 +732,28 @@ fun StartScreen(
                     spec = spec,
                     onPick = { style, image -> viewModel.setStyle(id, style, image) },
                     onDismiss = { state.stylingId = null },
+                    onChooseIcon = {
+                        state.stylingId = null
+                        state.iconPickerId = id
+                    },
+                    onDefaultIcon = { viewModel.setIcon(id, null) },
                 )
             }
+        }
+        state.iconPickerId?.let { id ->
+            IconPicker(
+                icons = viewModel.icons,
+                hasIcon = (tiles.map { it.spec } + openChildren.map { it.spec }).firstOrNull { it.id == id }?.icon != null,
+                onReset = {
+                    viewModel.setIcon(id, null)
+                    state.iconPickerId = null
+                },
+                onPick = { icon ->
+                    viewModel.setIcon(id, icon)
+                    state.iconPickerId = null
+                },
+                onDismiss = { state.iconPickerId = null },
+            )
         }
         if (state.addMenuOpen) {
             AddTileMenu(
@@ -1137,7 +1161,7 @@ private fun TileBody(
     onWidgetLongPress: () -> Unit,
 ) {
     when (tile.spec.content) {
-        is TileContent.App -> tile.app?.let { TileFace(it, tile.spec.size, live, flipped, monochromeIcons, icons, cell, tile.spec.style, tile.spec.image) }
+        is TileContent.App -> tile.app?.let { TileFace(it, tile.spec.size, live, flipped, monochromeIcons, icons, cell, tile.spec.style, tile.spec.image, tile.spec.icon) }
         is TileContent.Shortcut -> ShortcutTile(tile, cell, icons, monochromeIcons)
         is TileContent.Widget -> WidgetTile(tile, cell, editing, onWidgetLongPress)
         TileContent.Weather -> WeatherTile(tile, cell, flipped)
@@ -1188,7 +1212,13 @@ private fun activateTile(
  * read access to just the picked photo.
  */
 @Composable
-private fun TileStyleMenu(spec: TileSpec, onPick: (TileStyle, String?) -> Unit, onDismiss: () -> Unit) {
+private fun TileStyleMenu(
+    spec: TileSpec,
+    onPick: (TileStyle, String?) -> Unit,
+    onDismiss: () -> Unit,
+    onChooseIcon: () -> Unit,
+    onDefaultIcon: () -> Unit,
+) {
     val context = LocalContext.current
     var pending by remember { mutableStateOf<TileStyle?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -1222,6 +1252,8 @@ private fun TileStyleMenu(spec: TileSpec, onPick: (TileStyle, String?) -> Unit, 
         (if (style == spec.style) "• ${style.label}" else style.label) to { choose(style) }
     } + listOfNotNull(
         if (spec.style.needsImage) "choose another photo" to { choose(spec.style, newPhoto = true) } else null,
+        "choose icon" to onChooseIcon,
+        if (spec.icon != null) "reset to default" to { onDefaultIcon(); onDismiss() } else null,
     )
     MetroFlyout(onDismiss) {
         MetroMenu(

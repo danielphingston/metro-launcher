@@ -184,4 +184,29 @@ class TileJsonTest {
         // Once migrated and saved, the positions are read back as they are.
         assertEquals(migrated, TileJson.decode(JSONArray(TileJson.encode(migrated).toString())))
     }
+
+    @Test
+    fun pickedIconRoundTripsAndSurvivesStyleChange() {
+        val app = TileContent.App(AppKey("a.b", "a.b.Main", 0))
+        val tiles = listOf(
+            TileSpec(1, TileSize.MEDIUM, app, 0, 0, icon = "pack:com.pack:ic_one"),
+            TileSpec(2, TileSize.SMALL, app, 2, 0, icon = "glyph:gear"),
+            TileSpec(3, TileSize.SMALL, app, 3, 0),
+        )
+        val json = TileJson.encode(tiles)
+        assertEquals(false, json.getJSONObject(2).has("icon"))
+        assertEquals(tiles, TileJson.decode(JSONArray(json.toString())))
+        val restyled = TileStyles.set(tiles, 1, TileStyle.ICON_ONLY, null).first()
+        assertEquals("pack:com.pack:ic_one", restyled.icon)
+    }
+
+    @Test
+    fun setIconReachesTilesInsideFolders() {
+        val app = TileContent.App(AppKey("a.b", "a.b.Main", 0))
+        val folder = TileSpec(1, TileSize.MEDIUM, TileContent.Folder("games", listOf(TileSpec(2, TileSize.SMALL, app))), x = 0, y = 0)
+        val set = TileStyles.setIcon(listOf(folder), 2, "glyph:gear")
+        assertEquals("glyph:gear", (set.single().content as TileContent.Folder).children.single().icon)
+        val cleared = TileStyles.setIcon(set, 2, null)
+        assertEquals(null, (cleared.single().content as TileContent.Folder).children.single().icon)
+    }
 }

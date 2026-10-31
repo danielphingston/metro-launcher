@@ -48,6 +48,7 @@ import io.github.danielphingston.metro.data.trimTo
 import io.github.danielphingston.metro.live.UserSerials
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.start.AppIcon
+import io.github.danielphingston.metro.ui.start.CustomTileIcon
 import io.github.danielphingston.metro.ui.start.StyledTileFace
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.tileSurface
@@ -300,7 +301,7 @@ fun ShortcutTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome:
     // A style that doesn't show the shortcut's own icon draws even when that icon can't be loaded.
     val ownIconNeeded = style == TileStyle.ICON || style == TileStyle.ICON_ONLY ||
         (style.needsImage && tile.spec.image == null) || style == TileStyle.IMAGE_ICON
-    if (bitmap == null && icon.settled && ownIconNeeded) {
+    if (bitmap == null && icon.settled && ownIconNeeded && tile.spec.icon == null) {
         PlaceholderTile(tile, cellSize)
         return
     }
@@ -321,7 +322,12 @@ fun ShortcutTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome:
                 }
             },
         ) { size, modifier ->
-            bitmap?.let { Image(it, contentDescription = null, modifier = modifier.size(size)) }
+            val custom = tile.spec.icon
+            if (custom != null) {
+                CustomTileIcon(custom, size, icons, modifier)
+            } else {
+                bitmap?.let { Image(it, contentDescription = null, modifier = modifier.size(size)) }
+            }
         }
     }
 }
