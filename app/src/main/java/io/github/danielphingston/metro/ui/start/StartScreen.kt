@@ -108,6 +108,7 @@ import io.github.danielphingston.metro.ui.tiles.PeopleTiles
 import io.github.danielphingston.metro.ui.tiles.PhotosTile
 import io.github.danielphingston.metro.ui.tiles.PhotosTiles
 import io.github.danielphingston.metro.ui.tiles.QuickSettingPicker
+import io.github.danielphingston.metro.ui.tiles.ActionTile
 import io.github.danielphingston.metro.ui.tiles.AssistantTile
 import io.github.danielphingston.metro.data.AssistantModel
 import io.github.danielphingston.metro.ui.settings.SettingsActivity
@@ -1103,6 +1104,7 @@ private fun TileBody(
         TileContent.Photos -> PhotosTile(tile, cell, flipped)
         TileContent.People -> PeopleTile(tile, cell, flipped)
         is TileContent.QuickSetting -> QuickSettingTile(tile, cell)
+        is TileContent.Action -> ActionTile(tile, cell, icons, monochromeIcons)
         TileContent.Assistant -> AssistantTile(tile, live as? LiveContent.Assistant, flipped, monochromeIcons, icons, cell)
         is TileContent.Folder -> FolderTile(tile, cell, icons, monochromeIcons, folderOpen)
     }
@@ -1130,6 +1132,7 @@ private fun activateTile(
         is TileContent.QuickSetting -> QuickSettingTiles.activate(context, content.kind, quickUnlocked)
             .takeIf { it.isNotEmpty() }
             ?.let { intents -> QuickSettingTiles.open(context, content.kind, intents, bounds, launcher) }
+        is TileContent.Action -> launcher.open(bounds) { screenBounds, options -> content.target.open(context, screenBounds, options) }
         TileContent.Assistant -> when {
             !quickUnlocked -> android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
             tile.app != null -> launcher.launch(tile.app, bounds)

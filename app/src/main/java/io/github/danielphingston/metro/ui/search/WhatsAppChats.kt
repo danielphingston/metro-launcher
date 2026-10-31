@@ -209,6 +209,7 @@ internal class WhatsAppProvider(
                     )
                 },
                 shortcutKey = WhatsAppMatcher.shortcutKey(hit.packageName, hit.id, hit.userSerial),
+                pin = TileContent.Shortcut(hit.packageName, hit.id, hit.userSerial, hit.label),
             )
         }
     }

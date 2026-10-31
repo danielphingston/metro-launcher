@@ -214,6 +214,8 @@ internal class ContactsProvider(
                 subtitle = number,
                 icon = contact.photoUri?.let { photo(context, it) }?.let { SearchIcon.Image(it) } ?: SearchGlyphs.person,
                 action = SearchActions.start(ContactIntents.open(contact.id, contact.lookupKey)),
+                // The photo isn't kept on the tile: it shows the person drawing.
+                pin = SearchActions.pin(contact.name, SearchGlyphs.person, ContactIntents.open(contact.id, contact.lookupKey)),
                 buttons = buttonsFor(number, details.whatsapp, details.whatsapp?.let { WhatsAppApps.icon(ctx.apps, WhatsAppApps.packageForMime(it.mimeType)) } ?: SearchGlyphs.chat),
             )
         }

@@ -97,8 +97,15 @@ internal class LauncherActionsProvider(
         LauncherActions.Cmd.EDIT_TILES ->
             SearchItem(cmd.name, cmd.title, "rearrange, resize and unpin the start screen", SearchGlyphs.tiles, ItemAction.Run { it.commands.editStart() })
         LauncherActions.Cmd.METRO_SETTINGS ->
-            SearchItem(cmd.name, cmd.title, "open the launcher's settings", SearchGlyphs.gear, SearchActions.start(SettingsActivity.intent(context)))
+            SearchItem(
+                cmd.name, cmd.title, "open the launcher's settings", SearchGlyphs.gear, SearchActions.start(SettingsActivity.intent(context)),
+                pin = SearchActions.pin(cmd.title, SearchGlyphs.gear, SettingsActivity.intent(context)),
+            )
         LauncherActions.Cmd.SMART_SEARCH_SETTINGS ->
-            SearchItem(cmd.name, cmd.title, "choose what search can do", SearchGlyphs.gear, SearchActions.start(SettingsActivity.intent(context, SettingsPage.SEARCH)))
+            SearchItem(
+                cmd.name, cmd.title, "choose what search can do", SearchGlyphs.gear,
+                SearchActions.start(SettingsActivity.intent(context, SettingsPage.SEARCH)),
+                pin = SearchActions.pin(cmd.title, SearchGlyphs.gear, SettingsActivity.intent(context, SettingsPage.SEARCH)),
+            )
     }
 }

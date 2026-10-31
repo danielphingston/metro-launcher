@@ -3,6 +3,7 @@ package io.github.danielphingston.metro.ui.search
 import android.content.Context
 import android.content.Intent
 import android.provider.AlarmClock
+import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.SmartFeature
 import java.util.Locale
 
@@ -176,7 +177,10 @@ internal class QuickActionsProvider(
                     .putExtra(AlarmClock.EXTRA_LENGTH, action.seconds)
                     .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
                 if (!resolves(context, intent)) return emptyList()
-                listOf(item("timer", "start a timer for ${QuickActionParser.describe(action.seconds)}", "clock app", SearchGlyphs.timer, intent))
+                val length = QuickActionParser.describe(action.seconds)
+                // A timer preset is worth a tile; an alarm or a note is a one-off, so those don't offer one.
+                val pin = SearchActions.pin("timer $length", SearchGlyphs.timer, Intent(intent))
+                listOf(item("timer", "start a timer for $length", "clock app", SearchGlyphs.timer, intent, pin))
             }
             is QuickAction.Alarm -> {
                 val intent = Intent(AlarmClock.ACTION_SET_ALARM)
@@ -197,6 +201,6 @@ internal class QuickActionsProvider(
         }
     }
 
-    private fun item(key: String, title: String, subtitle: String, icon: SearchIcon, intent: Intent) =
-        SearchItem(key, title, subtitle, icon, SearchActions.start(intent), prominent = true)
+    private fun item(key: String, title: String, subtitle: String, icon: SearchIcon, intent: Intent, pin: TileContent? = null) =
+        SearchItem(key, title, subtitle, icon, SearchActions.start(intent), prominent = true, pin = pin)
 }

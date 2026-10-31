@@ -25,10 +25,12 @@ import io.github.danielphingston.metro.data.HistoryData
 import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.data.TileSpec
+import io.github.danielphingston.metro.ui.tiles.acquireTileResources
 import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarSource
@@ -157,6 +159,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             TileContent.Photos -> ResolvedTile(spec, null, "photos")
             TileContent.People -> ResolvedTile(spec, null, "people")
             is TileContent.QuickSetting -> ResolvedTile(spec, null, c.kind.label)
+            is TileContent.Action -> {
+                val icon = (c.icon as? ActionIcon.App)?.app
+                ResolvedTile(spec, icon?.let { byKey[it] ?: appFor(it.packageName, it.userSerial) }, c.label)
+            }
             TileContent.Assistant -> {
                 val pkg = AssistantChoice.resolve(assistantSetting, byPackage.keys.mapTo(HashSet()) { it.first })
                 val app = pkg?.let { appFor(it, 0L) ?: byPackage.entries.firstOrNull { e -> e.key.first == it }?.value?.first() }
@@ -242,7 +248,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun isPinned(app: AppInfo): Boolean = metro.tiles.isPinned(TileContent.App(app.key))
 
-    fun pin(app: AppInfo) = addTile(TileContent.App(app.key), TileSize.MEDIUM)
+    fun pin(app: AppInfo) = pin(TileContent.App(app.key))
+
+    fun isPinned(content: TileContent): Boolean = metro.tiles.isPinned(content)
+
+    /** Pins [content] at medium size once the system holds what it needs (a shortcut must be pinned with it first). */
+    fun pin(content: TileContent) {
+        viewModelScope.launch {
+            acquireTileResources(getApplication(), content)
+            addTile(content, TileSize.MEDIUM)
+        }
+    }
 
     /** Pins any kind of tile and scrolls the start screen to it. */
     fun addTile(content: TileContent, size: TileSize, span: TileSpan? = null) {

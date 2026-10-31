@@ -20,6 +20,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
+ * Asks the system to hold what [content] needs before its tile is added: an app shortcut must be
+ * pinned with it, or it may vanish when its app changes its shortcuts. Binder work, run off the
+ * calling thread.
+ */
+suspend fun acquireTileResources(context: Context, content: TileContent) {
+    if (content is TileContent.Shortcut) withContext(Dispatchers.Default) { ShortcutTiles.pin(context, content) }
+}
+
+/**
  * Frees what the system holds for [specs] once their tiles are gone: widget ids and pinned
  * shortcuts, including those of folder children. Shortcut calls are binder work and run off
  * the calling thread.
