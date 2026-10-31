@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.core.net.toUri
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.data.TileStyle
+import io.github.danielphingston.metro.data.TileStyles
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
@@ -671,7 +672,7 @@ fun StartScreen(
                         onResize = if (isWidget) null else ({ viewModel.resize(tiles[selectedIndex].spec.id) }),
                         onGroup = if (TileFolders.canGroup(selectedTile.spec)) ({ state.startGrouping(selectedTile.spec.id) }) else null,
                         groupLabel = if (selectedTile.spec.content is TileContent.Folder) "add to folder" else "group into folder",
-                        onStyle = if (selectedTile.spec.content is TileContent.App) ({ state.stylingId = selectedTile.spec.id }) else null,
+                        onStyle = if (TileStyles.canStyle(selectedTile.spec)) ({ state.stylingId = selectedTile.spec.id }) else null,
                     )
                     WidgetEditBadges(
                         tile = tiles[selectedIndex],
@@ -693,7 +694,7 @@ fun StartScreen(
                             state.exitEdit()
                         },
                         onResize = { viewModel.resize(openChildren[selectedChild].spec.id) },
-                        onStyle = if (openChildren[selectedChild].spec.content is TileContent.App) ({ state.stylingId = openChildren[selectedChild].spec.id }) else null,
+                        onStyle = if (TileStyles.canStyle(openChildren[selectedChild].spec)) ({ state.stylingId = openChildren[selectedChild].spec.id }) else null,
                     )
                 }
             }

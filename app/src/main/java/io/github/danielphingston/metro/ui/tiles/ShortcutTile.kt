@@ -43,11 +43,12 @@ import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.data.TileStyle
 import io.github.danielphingston.metro.data.trimTo
 import io.github.danielphingston.metro.live.UserSerials
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.start.AppIcon
-import io.github.danielphingston.metro.ui.start.TileLabel
+import io.github.danielphingston.metro.ui.start.StyledTileFace
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.Dispatchers
@@ -295,21 +296,32 @@ fun ShortcutTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome:
         }
     }
     val bitmap = icon.bitmap
-    if (bitmap == null && icon.settled) {
+    val style = tile.spec.style
+    // A style that doesn't show the shortcut's own icon draws even when that icon can't be loaded.
+    val ownIconNeeded = style == TileStyle.ICON || style == TileStyle.ICON_ONLY ||
+        (style.needsImage && tile.spec.image == null) || style == TileStyle.IMAGE_ICON
+    if (bitmap == null && icon.settled && ownIconNeeded) {
         PlaceholderTile(tile, cellSize)
         return
     }
     Box(Modifier.fillMaxSize().tileSurface()) {
-        bitmap?.let {
-            Image(it, contentDescription = null, modifier = Modifier.align(Alignment.Center).size(iconSize))
-        }
-        if (size == TileSize.SMALL) return@Box
-        TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
-        tile.app?.let {
-            AppIcon(
-                it, icons, m.dp(20f), monochrome,
-                Modifier.align(Alignment.BottomEnd).padding(end = m.dp(7f), bottom = m.dp(5f)),
-            )
+        StyledTileFace(
+            label = tile.label,
+            size = size,
+            count = 0,
+            m = m,
+            style = style,
+            image = tile.spec.image,
+            corner = tile.app?.let { app ->
+                {
+                    AppIcon(
+                        app, icons, m.dp(20f), monochrome,
+                        Modifier.align(Alignment.BottomEnd).padding(end = m.dp(7f), bottom = m.dp(5f)),
+                    )
+                }
+            },
+        ) { size, modifier ->
+            bitmap?.let { Image(it, contentDescription = null, modifier = modifier.size(size)) }
         }
     }
 }

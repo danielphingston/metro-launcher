@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -243,6 +244,27 @@ private fun IconFront(
     style: TileStyle = TileStyle.ICON,
     image: String? = null,
 ) {
+    StyledTileFace(app.label, size, count, m, style, image) { iconSize, modifier ->
+        AppIcon(app, icons, iconSize, monochrome, modifier)
+    }
+}
+
+/**
+ * The face of a tile that shows an icon and a name, drawn in [style]: the shared layout of app and
+ * shortcut tiles. [icon] draws the tile's own icon at a size; [corner] adds extras on medium and
+ * larger tiles (a shortcut's app badge).
+ */
+@Composable
+internal fun StyledTileFace(
+    label: String,
+    size: TileSize,
+    count: Int,
+    m: TileMetrics,
+    style: TileStyle,
+    image: String?,
+    corner: (@Composable BoxScope.() -> Unit)? = null,
+    appIcon: @Composable (Dp, Modifier) -> Unit,
+) {
     val white = Metro.colors.onAccent
     // A style whose photo is missing draws as the plain icon tile.
     val shown = if (style.needsImage && image == null) TileStyle.ICON else style
@@ -251,7 +273,7 @@ private fun IconFront(
         if (shown == TileStyle.CUSTOM_ICON && image != null) {
             TileImage(image, modifier.size(iconSize))
         } else {
-            AppIcon(app, icons, iconSize, monochrome, modifier)
+            appIcon(iconSize, modifier)
         }
     }
     Box(Modifier.fillMaxSize()) {
@@ -269,7 +291,7 @@ private fun IconFront(
             when {
                 showIcon -> icon(m.dp(40f), Modifier.align(Alignment.Center))
                 shown == TileStyle.NAME_ONLY -> MetroText(
-                    app.label,
+                    label,
                     MetroType.style(m.text(11f), FontWeight.SemiBold),
                     color = white,
                     maxLines = 2,
@@ -289,7 +311,7 @@ private fun IconFront(
         val large = size == TileSize.LARGE
         if (shown == TileStyle.NAME_ONLY) {
             MetroText(
-                app.label,
+                label,
                 MetroType.style(m.text(if (large) 32f else 22f), FontWeight.Light),
                 color = white,
                 maxLines = 2,
@@ -308,7 +330,8 @@ private fun IconFront(
                 }
             }
         }
-        if (shown != TileStyle.ICON_ONLY && shown != TileStyle.NAME_ONLY) TileLabel(app.label, m, Modifier.align(Alignment.BottomStart))
+        if (shown != TileStyle.ICON_ONLY && shown != TileStyle.NAME_ONLY) TileLabel(label, m, Modifier.align(Alignment.BottomStart))
+        if (shown != TileStyle.NAME_ONLY) corner?.invoke(this)
     }
 }
 
