@@ -391,7 +391,8 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
 /** When a stored widget tile can safely be dropped; see [TileRepository]. */
 internal object TileStyles {
     /** App and shortcut tiles: the ones with an icon and a name to arrange. */
-    fun canStyle(tile: TileSpec): Boolean = tile.content is TileContent.App || tile.content is TileContent.Shortcut
+    fun canStyle(tile: TileSpec): Boolean = tile.content is TileContent.App || tile.content is TileContent.Shortcut ||
+        tile.content is TileContent.Action
 
     fun set(tiles: List<TileSpec>, id: Long, style: TileStyle, image: String?): List<TileSpec> = tiles.map { tile ->
         when {

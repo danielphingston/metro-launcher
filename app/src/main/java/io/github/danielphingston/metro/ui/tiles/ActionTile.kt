@@ -24,10 +24,12 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.data.TileStyle
 import io.github.danielphingston.metro.live.PeopleSource
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.search.SearchGlyphs
 import io.github.danielphingston.metro.ui.start.AppIcon
+import io.github.danielphingston.metro.ui.start.StyledTileFace
 import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.tileSurface
@@ -46,8 +48,10 @@ private val PhotoScrim = Brush.verticalGradient(0.6f to Color.Transparent, 1f to
 @Composable
 fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: Boolean) {
     val action = tile.spec.content as? TileContent.Action ?: return PlaceholderTile(tile, cellSize)
+    val style = tile.spec.style
     val contact = action.icon as? ActionIcon.Contact
-    if (contact != null) {
+    // A contact's photo is its default face; any other style replaces it.
+    if (contact != null && style == TileStyle.ICON) {
         val photo = rememberContactPhoto(contact, cellSize * maxOf(tile.spec.width, tile.spec.height))
         if (photo != null) return PhotoTile(tile, cellSize, photo)
     }
@@ -58,29 +62,35 @@ fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
         else -> null
     }
     val app = tile.app?.takeIf { action.icon is ActionIcon.App }
-    if (glyph == null && app == null) return PlaceholderTile(tile, cellSize)
+    if (glyph == null && app == null && style == TileStyle.ICON) return PlaceholderTile(tile, cellSize)
     val m = rememberTileMetrics(cellSize)
     val size = tile.spec.size
-    val iconSize = when (size) {
-        TileSize.SMALL -> m.dp(40f)
-        TileSize.LARGE -> m.dp(80f)
-        else -> m.dp(64f)
-    }
-    Box(Modifier.fillMaxSize().tileSurface()) {
-        val center = Modifier.align(Alignment.Center)
+    val white = Metro.colors.onAccent
+    val picture: @Composable (Dp, Modifier) -> Unit = { iconSize, modifier ->
         if (app != null) {
-            AppIcon(app, icons, iconSize, monochrome, center)
+            AppIcon(app, icons, iconSize, monochrome, modifier)
         } else if (glyph != null) {
-            val white = Metro.colors.onAccent
             // The glyphs' hairline is thin for a tile: draw at 18dp and scale, so it thickens with the picture.
             val scale = iconSize / GlyphBox * 0.7f
             Box(
-                center
+                modifier
                     .size(GlyphBox)
                     .graphicsLayer { scaleX = scale; scaleY = scale }
                     .drawBehind { glyph.draw(this, white) },
             )
         }
+    }
+    Box(Modifier.fillMaxSize().tileSurface()) {
+        if (style != TileStyle.ICON) {
+            StyledTileFace(tile.label, size, 0, m, style, tile.spec.image, appIcon = picture)
+            return@Box
+        }
+        val iconSize = when (size) {
+            TileSize.SMALL -> m.dp(40f)
+            TileSize.LARGE -> m.dp(80f)
+            else -> m.dp(64f)
+        }
+        picture(iconSize, Modifier.align(Alignment.Center))
         if (size != TileSize.SMALL) TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
     }
 }

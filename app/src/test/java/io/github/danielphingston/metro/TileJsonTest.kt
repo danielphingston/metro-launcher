@@ -51,9 +51,10 @@ class TileJsonTest {
     }
 
     @Test
-    fun onlyAppAndShortcutTilesTakeStyles() {
+    fun onlyAppShortcutAndSearchTilesTakeStyles() {
         assertEquals(true, TileStyles.canStyle(TileSpec(1, TileSize.SMALL, TileContent.App(AppKey("a.b", "a.b.Main", 0)))))
         assertEquals(true, TileStyles.canStyle(TileSpec(2, TileSize.SMALL, TileContent.Shortcut("a.b", "s1", 0, "chat"))))
+        assertEquals(true, TileStyles.canStyle(TileSpec(4, TileSize.SMALL, TileContent.Action("cats", null, LaunchTarget.Web("https://example.com")))))
         assertEquals(false, TileStyles.canStyle(TileSpec(3, TileSize.WIDE, TileContent.Weather)))
     }
 
