@@ -127,7 +127,7 @@ data class TileSpec(
     val y: Int = UNPLACED,
     /** When set, replaces [size] with any footprint (width 1..columns, height 1..[TileSpan.MAX_HEIGHT]). */
     val span: TileSpan? = null,
-    /** How an app tile draws itself; other tiles ignore it. */
+    /** How an app or shortcut tile draws itself (see [TileStyles.canStyle]); other tiles ignore it. */
     val style: TileStyle = TileStyle.ICON,
     /** The picked photo (a content URI with a persisted read grant) for styles that [TileStyle.needsImage]. */
     val image: String? = null,
@@ -390,6 +390,9 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
 
 /** When a stored widget tile can safely be dropped; see [TileRepository]. */
 internal object TileStyles {
+    /** App and shortcut tiles: the ones with an icon and a name to arrange. */
+    fun canStyle(tile: TileSpec): Boolean = tile.content is TileContent.App || tile.content is TileContent.Shortcut
+
     fun set(tiles: List<TileSpec>, id: Long, style: TileStyle, image: String?): List<TileSpec> = tiles.map { tile ->
         when {
             tile.id == id -> tile.copy(style = style, image = image.takeIf { style.needsImage })
