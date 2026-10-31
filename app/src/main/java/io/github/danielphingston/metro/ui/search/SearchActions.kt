@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Build
 import android.widget.Toast
+import io.github.danielphingston.metro.data.LaunchTarget
+import io.github.danielphingston.metro.data.TileContent
 
 /** Ready-made [ItemAction]s that more than one provider needs. */
 internal object SearchActions {
@@ -19,4 +21,8 @@ internal object SearchActions {
 
     /** [intent] started in its own task, as every launcher intent has to be. */
     fun start(intent: Intent): ItemAction = ItemAction.Start(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+
+    /** A start tile named [label] with [icon] that starts [intent], for [SearchItem.pin]. */
+    fun pin(label: String, icon: SearchIcon, intent: Intent): TileContent =
+        TileContent.Action(label, icon.actionIcon, LaunchTarget.Activity(intent))
 }

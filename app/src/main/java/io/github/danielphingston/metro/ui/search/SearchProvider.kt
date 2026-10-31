@@ -10,6 +10,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SmartFeature
+import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.ActionIcon
 import java.util.Locale
 
 /**
@@ -87,6 +89,12 @@ data class SearchItem(
      * horizontal list (search in apps). [action] and [icon] are then not used.
      */
     val chips: List<ItemChip> = emptyList(),
+    /**
+     * What "pin to start" puts on the start screen, or null when the row can't be pinned. Only
+     * rows that stay useful as a tile set it: not an alarm or a calendar entry, which a tile
+     * would show staler than their own apps, and not a one-off answer.
+     */
+    val pin: TileContent? = null,
 )
 
 /** One icon chip in a strip row. [id] identifies it for usage counts, [description] is what a screen reader says. */
@@ -95,16 +103,25 @@ data class ItemChip(val id: String, val label: String, val description: String, 
 /** The picture at the start of a row (or on a button). */
 sealed interface SearchIcon {
     /** An installed app's icon, drawn like in the app list. */
-    data class App(val app: AppInfo) : SearchIcon
+    data class App(val app: AppInfo) : SearchIcon {
+        override val actionIcon get() = ActionIcon.App(app.key)
+    }
 
     /** A hairline drawing in the foreground colour; two glyphs with the same [id] are the same glyph. */
     class Glyph(val id: String, val draw: DrawScope.(Color) -> Unit) : SearchIcon {
+        override val actionIcon get() = ActionIcon.Glyph(id)
+
         override fun equals(other: Any?) = other is Glyph && other.id == id
         override fun hashCode() = id.hashCode()
     }
 
     /** A picture such as a contact photo, cropped to the icon square. */
-    data class Image(val bitmap: ImageBitmap) : SearchIcon
+    data class Image(val bitmap: ImageBitmap) : SearchIcon {
+        override val actionIcon: ActionIcon? get() = null
+    }
+
+    /** How a pinned tile saves this picture; null when it can't be saved (a photo), so the tile has none. */
+    val actionIcon: ActionIcon?
 }
 
 /** A small round button on a row; [label] is its accessibility description. */

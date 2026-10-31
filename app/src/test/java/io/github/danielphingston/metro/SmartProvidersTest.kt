@@ -6,6 +6,9 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Process
 import android.provider.AlarmClock
 import android.provider.Settings
+import io.github.danielphingston.metro.data.LaunchTarget
+import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.AppKey
 import io.github.danielphingston.metro.data.HistoryData
@@ -409,6 +412,35 @@ class SmartProvidersTest {
         assertEquals(Intent.ACTION_SEND, inner.action)
         assertEquals("text/plain", inner.type)
         assertEquals("buy milk", inner.getStringExtra(Intent.EXTRA_TEXT))
+    }
+
+    @Test
+    fun onlyTimerPresetsCanBePinned() = runBlocking {
+        val provider = QuickActionsProvider(resolves = { _, _ -> true }, is24Hour = { true })
+        val pin = provider.results("timer 5 min", ctx()).single().pin as TileContent.Action
+        assertEquals("timer 5 minutes", pin.label)
+        assertEquals(ActionIcon.Glyph("timer"), pin.icon)
+        assertEquals(300, (pin.target as LaunchTarget.Activity).intent.getIntExtra(AlarmClock.EXTRA_LENGTH, 0))
+        // An alarm or a note is a one-off: a tile for it would only repeat the clock or the notes app.
+        assertNull(provider.results("alarm 6am gym", ctx()).single().pin)
+        assertNull(provider.results("note buy milk", ctx()).single().pin)
+    }
+
+    @Test
+    fun settingsShortcutsPinTheirPage() = runBlocking {
+        val provider = SettingsShortcutsProvider(resolves = { _, _ -> true }, developerOptionsOn = { false })
+        val pin = provider.results("wifi", ctx()).first().pin as TileContent.Action
+        assertEquals("wi-fi", pin.label)
+        assertEquals(ActionIcon.Glyph("gear"), pin.icon)
+        assertEquals(Settings.ACTION_WIFI_SETTINGS, (pin.target as LaunchTarget.Activity).intent.action)
+    }
+
+    @Test
+    fun everyPinnedGlyphCanBeDrawnAgainFromItsId() {
+        listOf(SearchGlyphs.timer, SearchGlyphs.gear, SearchGlyphs.person, SearchGlyphs.search, SearchGlyphs.globe).forEach {
+            assertEquals(it, SearchGlyphs.byId(it.id))
+        }
+        assertNull(SearchGlyphs.byId("no such glyph"))
     }
 
     @Test

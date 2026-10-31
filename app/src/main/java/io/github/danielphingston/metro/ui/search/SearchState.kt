@@ -25,7 +25,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.LauncherSettings
 import kotlin.math.abs
 
@@ -39,8 +38,8 @@ class SearchState {
     /** Where the cursor goes when [query] was replaced by a backspace on a keyword chip: right after the keyword. Null: the end. */
     var queryCursor by mutableStateOf<Int?>(null)
 
-    /** App whose long-press menu is open. */
-    var menu by mutableStateOf<AppInfo?>(null)
+    /** The row whose long-press menu is open. */
+    internal var menu by mutableStateOf<SearchRow?>(null)
 
     /** Opens the overlay with an empty field. */
     fun open() {

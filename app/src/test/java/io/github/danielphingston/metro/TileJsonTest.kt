@@ -1,6 +1,10 @@
 package io.github.danielphingston.metro
 
+import android.content.Intent
+import android.provider.AlarmClock
 import io.github.danielphingston.metro.data.AppKey
+import io.github.danielphingston.metro.data.LaunchTarget
+import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.QuickSettingKind
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileJson
@@ -35,6 +39,31 @@ class TileJsonTest {
             TileSpec(7, TileSize.MEDIUM, TileContent.Folder("games", listOf(TileSpec(8, TileSize.SMALL, TileContent.App(app))))),
         )
         assertEquals(tiles, TileJson.decode(JSONArray(TileJson.encode(tiles).toString())))
+    }
+
+    @Test
+    fun actionTilesRoundTripWithTheirTargetAndIcon() {
+        val app = AppKey("com.example", "com.example.Main", 0)
+        val timer = Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, 300).putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+        val tiles = listOf(
+            TileSpec(1, TileSize.MEDIUM, TileContent.Action("timer 5 minutes", ActionIcon.Glyph("timer"), LaunchTarget.Activity(timer))),
+            TileSpec(2, TileSize.SMALL, TileContent.Action("cats", ActionIcon.App(app), LaunchTarget.Web("https://example.com/?q=cats"))),
+            TileSpec(3, TileSize.MEDIUM, TileContent.Action("example.com", null, LaunchTarget.Web("https://example.com", inBrowser = false))),
+        )
+        val decoded = TileJson.decode(JSONArray(TileJson.encode(tiles).toString()))
+        assertEquals(tiles, decoded)
+        // The extras survive the intent: URI, so the timer still starts with its length.
+        val intent = ((decoded[0].content as TileContent.Action).target as LaunchTarget.Activity).intent
+        assertEquals(300, intent.getIntExtra(AlarmClock.EXTRA_LENGTH, 0))
+        assertEquals(false, intent.getBooleanExtra(AlarmClock.EXTRA_SKIP_UI, true))
+    }
+
+    @Test
+    fun actionTilesWithAnUnknownTargetAreKeptUnread() {
+        val saved = """[{"id":1,"type":"action","label":"x","size":"SMALL","target":{"kind":"teleport"}}]"""
+        val read = TileJson.read(saved)!!
+        assertEquals(emptyList<TileSpec>(), read.tiles)
+        assertEquals(1, read.unread.top.size)
     }
 
     @Test

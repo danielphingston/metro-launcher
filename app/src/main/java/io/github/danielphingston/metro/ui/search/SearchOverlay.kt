@@ -88,6 +88,7 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.SearchKeywords
 import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.data.SearchEngine
+import io.github.danielphingston.metro.data.LaunchTarget
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.ui.AppLauncher
 import io.github.danielphingston.metro.ui.LauncherViewModel
@@ -117,6 +118,9 @@ internal class KeywordChipState(val label: String, val icon: SearchIcon)
 internal sealed interface SearchRow {
     val key: String
 
+    /** What "pin to start" in the row's menu adds; null when the row can't be pinned. */
+    val pin: TileContent? get() = null
+
     /** A lowercase section caption: "apps", "shortcuts", "web". */
     data class Caption(val text: String) : SearchRow {
         override val key get() = "c:$text"
@@ -125,22 +129,26 @@ internal sealed interface SearchRow {
     /** An app; [rank] is how well it matched ([SearchRanking.EXACT] is best). */
     data class App(val app: AppInfo, val rank: Int) : SearchRow {
         override val key get() = "a:${app.key.serialize()}"
+        override val pin get() = TileContent.App(app.key)
     }
 
     /** An app shortcut; [app] is the app it belongs to, for the icon and the subtitle. */
     data class Shortcut(val hit: ShortcutHit, val app: AppInfo?) : SearchRow {
         override val key get() = "s:${hit.packageName}/${hit.id}#${hit.userSerial}"
+        override val pin get() = TileContent.Shortcut(hit.packageName, hit.id, hit.userSerial, hit.shortLabel)
     }
 
     /** The query read as an address; [shown] is what was typed. */
     data class OpenUrl(val url: String, val shown: String) : SearchRow {
         override val key get() = "url"
+        override val pin get() = TileContent.Action(shown, SearchGlyphs.globe.actionIcon, LaunchTarget.Web(url, inBrowser = false))
     }
 
     /** Search the web for [query]. */
     data class Web(val query: String, val engine: SearchEngine) : SearchRow {
         val url: String get() = engine.searchUrl(query)
         override val key get() = "web"
+        override val pin get() = TileContent.Action(query, SearchGlyphs.search.actionIcon, LaunchTarget.Web(url))
     }
 
     /** A search from the history; tapping it types it again. */
@@ -161,11 +169,13 @@ internal sealed interface SearchRow {
     /** The highlighted first row of a search keyword; Enter runs it. [replacesWeb] when it is the web search itself. */
     data class Keyword(val item: SearchItem, val replacesWeb: Boolean) : SearchRow {
         override val key get() = "keyword"
+        override val pin get() = item.pin
     }
 
     /** A row made by a [SearchProvider]; [provider] is its id. */
     data class Item(val provider: String, val item: SearchItem, val placement: Placement) : SearchRow {
         override val key get() = "p:$provider:${item.key}"
+        override val pin get() = item.pin
     }
 }
 
@@ -453,21 +463,25 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
                     viewModel.recordSearch(query)
                 }
             },
-            onLongClick = { app, _ ->
+            onLongClick = { row, _ ->
+                // A row that is already pinned has nothing left to offer, unless it is an app (app info).
+                val offers = row is SearchRow.App || row.pin?.let { !viewModel.isPinned(it) } == true
+                if (!offers) return@SearchContent
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 focus.clearFocus()
-                state.menu = app
+                state.menu = row
             },
             onDismiss = { state.close() },
         )
 
-        state.menu?.let { app ->
+        state.menu?.let { row ->
+            val items = buildList {
+                row.pin?.takeUnless(viewModel::isPinned)?.let { add("pin to start" to { state.close(); viewModel.pin(it) }) }
+                (row as? SearchRow.App)?.let { add("app info" to { state.close(); viewModel.openAppInfo(it.app) }) }
+            }
             MetroFlyout(onDismiss = { state.menu = null }) {
                 MetroMenu(
-                    items = buildList {
-                        if (!viewModel.isPinned(app)) add("pin to start" to { state.close(); viewModel.pin(app) })
-                        add("app info" to { state.close(); viewModel.openAppInfo(app) })
-                    },
+                    items = items,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
@@ -492,7 +506,7 @@ internal fun SearchContent(
     plainIcons: Boolean,
     focusRequester: FocusRequester,
     onActivate: (SearchRow, Rect?) -> Unit,
-    onLongClick: (AppInfo, Rect) -> Unit,
+    onLongClick: (SearchRow, Rect) -> Unit,
     onDismiss: () -> Unit,
     onButton: (ItemAction) -> Unit = {},
     onChip: (ItemChip, Rect?) -> Unit = { _, _ -> },
@@ -561,10 +575,12 @@ private fun ResultRowFor(
     monochrome: Boolean,
     plainIcons: Boolean,
     onActivate: (SearchRow, Rect?) -> Unit,
-    onLongClick: (AppInfo, Rect) -> Unit,
+    onLongClick: (SearchRow, Rect) -> Unit,
     onButton: (ItemAction) -> Unit,
 ) {
     val colors = Metro.colors
+    // Any row that can be pinned (or the app rows, for app info) opens the menu on a long press.
+    val hold: ((Rect) -> Unit)? = if (row is SearchRow.App || row.pin != null) { bounds -> onLongClick(row, bounds) } else null
     when (row) {
         is SearchRow.Caption -> MetroText(
             row.text,
@@ -583,22 +599,25 @@ private fun ResultRowFor(
             title = row.app.label,
             subtitle = null,
             onClick = { onActivate(row, it) },
-            onLongClick = { onLongClick(row.app, it) },
+            onLongClick = hold,
         ) { AppListIcon(row.app, icons, monochrome, plainIcons) }
         is SearchRow.Shortcut -> ResultRow(
             title = row.hit.shortLabel,
             subtitle = row.app?.label,
             onClick = { onActivate(row, it) },
+            onLongClick = hold,
         ) { row.app?.let { AppListIcon(it, icons, monochrome, plainIcons) } ?: Spacer(Modifier.size(IconBox)) }
         is SearchRow.OpenUrl -> ResultRow(
             title = "open ${row.shown}",
             subtitle = null,
             onClick = { onActivate(row, it) },
+            onLongClick = hold,
         ) { Glyph { drawArrow(colors.foreground) } }
         is SearchRow.Web -> ResultRow(
             title = "search the web for “${row.query}”",
             subtitle = row.engine.label,
             onClick = { onActivate(row, it) },
+            onLongClick = hold,
         ) { Glyph { drawMagnifier(colors.foreground) } }
         is SearchRow.RecentSearch -> ResultRow(
             title = row.text,
@@ -615,7 +634,7 @@ private fun ResultRowFor(
                 .clickable(role = Role.Button) { onActivate(row, null) }
                 .padding(vertical = 8.dp),
         )
-        is SearchRow.Item -> ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, onButton)
+        is SearchRow.Item -> ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, hold, onButton)
         is SearchRow.Keyword -> Box(
             Modifier
                 .fillMaxWidth()
@@ -623,7 +642,7 @@ private fun ResultRowFor(
                 .background(colors.accent.copy(alpha = 0.2f))
                 .drawBehind { drawRect(colors.accent, size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height)) }
                 .padding(start = 12.dp, end = 4.dp),
-        ) { ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, onButton) }
+        ) { ItemRow(row.item, icons, monochrome, plainIcons, { onActivate(row, it) }, hold, onButton) }
     }
 }
 
@@ -714,12 +733,14 @@ private fun ItemRow(
     monochrome: Boolean,
     plainIcons: Boolean,
     onClick: (Rect?) -> Unit,
+    onLongClick: ((Rect) -> Unit)?,
     onButton: (ItemAction) -> Unit,
 ) {
     ResultRow(
         title = item.title,
         subtitle = item.subtitle,
         onClick = onClick,
+        onLongClick = onLongClick,
         prominent = item.prominent,
         trailing = {
             item.buttons.forEach { button ->

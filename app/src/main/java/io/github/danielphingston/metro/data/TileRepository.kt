@@ -67,6 +67,12 @@ sealed interface TileContent {
     /** The assistant tile (Metro Plus): follows the shared assistant setting; shows its latest reply and the last question asked. */
     data object Assistant : TileContent
 
+    /**
+     * Something pinned from the search results that isn't an app or an app shortcut: a contact, a
+     * settings page, a timer, a web search. [target] says what it opens and [icon] what it shows.
+     */
+    data class Action(val label: String, val icon: ActionIcon?, val target: LaunchTarget) : TileContent
+
     /** Windows Phone 8.1 tile folder. Children are app or shortcut tiles. */
     data class Folder(val name: String, val children: List<TileSpec>) : TileContent
 }
@@ -446,6 +452,13 @@ internal object TileJson {
             TileContent.People -> obj.put("type", "people")
             is TileContent.QuickSetting -> obj.put("type", "quick").put("kind", c.kind.id)
             TileContent.Assistant -> obj.put("type", "assistant")
+            is TileContent.Action -> obj.put("type", "action").put("label", c.label).put("target", c.target.toJson()).apply {
+                when (val icon = c.icon) {
+                    is ActionIcon.Glyph -> put("glyph", icon.id)
+                    is ActionIcon.App -> put("iconApp", icon.app.serialize())
+                    null -> Unit
+                }
+            }
             is TileContent.Folder -> obj.put("type", "folder").put("name", c.name).put("children", encode(c.children).apply { unread.children[tile.id]?.forEach { put(it) } })
         }
         return obj
@@ -468,6 +481,15 @@ internal object TileJson {
             "people" -> TileContent.People
             "quick" -> TileContent.QuickSetting(QuickSettingKind.fromId(obj.optString("kind")) ?: return null)
             "assistant" -> TileContent.Assistant
+            "action" -> TileContent.Action(
+                obj.optString("label"),
+                when {
+                    obj.has("glyph") -> ActionIcon.Glyph(obj.getString("glyph"))
+                    obj.has("iconApp") -> AppKey.parse(obj.getString("iconApp"))?.let { ActionIcon.App(it) }
+                    else -> null
+                },
+                LaunchTarget.fromJson(obj.getJSONObject("target")) ?: return null,
+            )
             "folder" -> {
                 val unread = ArrayList<JSONObject>()
                 val kids = decodeAll(obj.getJSONArray("children"), unread, HashMap())

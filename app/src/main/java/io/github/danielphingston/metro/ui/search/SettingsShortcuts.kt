@@ -104,6 +104,7 @@ internal class SettingsShortcutsProvider(
                 subtitle = "open in the phone's settings",
                 icon = SearchGlyphs.gear,
                 action = ItemAction.Start(s.intent()),
+                pin = SearchActions.pin(s.title, SearchGlyphs.gear, s.intent()),
             )
         }
     }

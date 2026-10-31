@@ -19,7 +19,13 @@ import kotlin.math.sin
  * A new provider adds its glyph here (or builds a [SearchIcon.Glyph] next to its own code).
  */
 internal object SearchGlyphs {
-    private fun glyph(id: String, draw: DrawScope.(Color) -> Unit) = SearchIcon.Glyph(id, draw)
+    /** Every glyph by its id, so a pinned tile can save the id and draw the same picture after a restart. Declared first: [glyph] fills it. */
+    private val byIdMap = HashMap<String, SearchIcon.Glyph>()
+
+    private fun glyph(id: String, draw: DrawScope.(Color) -> Unit) = SearchIcon.Glyph(id, draw).also { byIdMap[id] = it }
+
+    /** The glyph saved as [id], or null for one this version doesn't draw. */
+    fun byId(id: String): SearchIcon.Glyph? = byIdMap[id]
 
     private val DrawScope.stroke get() = 1.5.dp.toPx()
 
@@ -171,5 +177,14 @@ internal object SearchGlyphs {
         drawLine(color, Offset(size.width * 0.3f, size.height * 0.05f), Offset(size.width * 0.3f, size.height * 0.28f), stroke, StrokeCap.Round)
         drawLine(color, Offset(size.width * 0.7f, size.height * 0.05f), Offset(size.width * 0.7f, size.height * 0.28f), stroke, StrokeCap.Round)
         drawCircle(color, stroke * 0.7f, Offset(size.width * 0.34f, size.height * 0.62f))
+    }
+
+    /** A globe for a website with no app icon of its own. */
+    val globe = glyph("globe") { color ->
+        val r = size.minDimension * 0.42f
+        val c = center
+        drawCircle(color, r, c, style = Stroke(stroke))
+        drawLine(color, Offset(c.x - r, c.y), Offset(c.x + r, c.y), stroke, StrokeCap.Round)
+        drawOval(color, Offset(c.x - r * 0.45f, c.y - r), Size(r * 0.9f, r * 2), style = Stroke(stroke))
     }
 }
