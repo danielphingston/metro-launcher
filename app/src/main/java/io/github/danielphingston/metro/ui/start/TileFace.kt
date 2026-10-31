@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.graphicsLayer
@@ -35,6 +36,7 @@ import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileIcon
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.data.TileStyle
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarEvent
 import io.github.danielphingston.metro.live.ClockState
@@ -97,12 +99,14 @@ fun TileFace(
     monochromeIcons: Boolean,
     icons: IconCache,
     cellSize: Dp,
+    style: TileStyle = TileStyle.ICON,
+    image: String? = null,
 ) {
     val density = LocalDensity.current
     val metrics = remember(cellSize, density) { TileMetrics(cellSize, density) }
     FlipCard(
         showBack = flipped && live?.hasBack(size) == true,
-        front = { Front(app, size, live, monochromeIcons, icons, metrics) },
+        front = { Front(app, size, live, monochromeIcons, icons, metrics, style, image) },
         // The back face stays on screen while the card flips back, which can outlast the content
         // (a dismissed notification): the live content is null by then.
         back = { live?.let { Back(app, size, it, monochromeIcons, icons, metrics) } },
@@ -153,12 +157,14 @@ private fun Front(
     monochromeIcons: Boolean,
     icons: IconCache,
     m: TileMetrics,
+    style: TileStyle,
+    image: String?,
 ) {
     when (live) {
         is LiveContent.Clock -> ClockFront(app, size, live, m)
         is LiveContent.Calendar -> CalendarFront(app, size, live, m)
         is LiveContent.NowPlaying -> NowPlayingFront(app, size, live.info, m)
-        else -> IconFront(app, size, (live as? LiveContent.Notifications)?.data?.count ?: 0, monochromeIcons, icons, m)
+        else -> IconFront(app, size, (live as? LiveContent.Notifications)?.data?.count ?: 0, monochromeIcons, icons, m, style, image)
     }
 }
 
@@ -191,19 +197,19 @@ internal fun rememberIcon(icons: IconCache, app: AppInfo, sizePx: Int, monochrom
     return loaded
 }
 
-/** How long to wait before the one retry of an icon that could not be drawn (see [loadWithRetry]). */
-private const val ICON_RETRY_MILLIS = 1_500L
+/** How long to wait before each retry of an icon that could not be drawn (see [loadWithRetry]). */
+private val ICON_RETRY_MILLIS = longArrayOf(1_500L, 5_000L, 15_000L)
 
 /**
  * Loads off the main thread. A null result is often transient (the app is being updated), and
- * nothing else would ask again, so it is retried once after a delay.
+ * nothing else would ask again, so it is retried a few times with growing delays.
  */
 private suspend fun loadWithRetry(icons: IconCache, app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
-    repeat(2) { attempt ->
+    for (wait in ICON_RETRY_MILLIS) {
         withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }?.let { return it }
-        if (attempt == 0) delay(ICON_RETRY_MILLIS)
+        delay(wait)
     }
-    return null
+    return withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }
 }
 
 @Composable
@@ -227,11 +233,49 @@ internal fun TileLabel(text: String, m: TileMetrics, modifier: Modifier = Modifi
 }
 
 @Composable
-private fun IconFront(app: AppInfo, size: TileSize, count: Int, monochrome: Boolean, icons: IconCache, m: TileMetrics) {
+private fun IconFront(
+    app: AppInfo,
+    size: TileSize,
+    count: Int,
+    monochrome: Boolean,
+    icons: IconCache,
+    m: TileMetrics,
+    style: TileStyle = TileStyle.ICON,
+    image: String? = null,
+) {
     val white = Metro.colors.onAccent
+    // A style whose photo is missing draws as the plain icon tile.
+    val shown = if (style.needsImage && image == null) TileStyle.ICON else style
+    val showIcon = shown != TileStyle.NAME_ONLY && shown != TileStyle.FULL_IMAGE
+    val icon: @Composable (Dp, Modifier) -> Unit = { iconSize, modifier ->
+        if (shown == TileStyle.CUSTOM_ICON && image != null) {
+            TileImage(image, modifier.size(iconSize))
+        } else {
+            AppIcon(app, icons, iconSize, monochrome, modifier)
+        }
+    }
     Box(Modifier.fillMaxSize()) {
+        if (image != null && (shown == TileStyle.FULL_IMAGE || shown == TileStyle.IMAGE_ICON)) {
+            TileImage(image, Modifier.fillMaxSize())
+            // Keeps the name readable on light photos.
+            if (size != TileSize.SMALL) {
+                Box(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(m.dp(28f))
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)))),
+                )
+            }
+        }
         if (size == TileSize.SMALL) {
-            AppIcon(app, icons, m.dp(40f), monochrome, Modifier.align(Alignment.Center))
+            when {
+                showIcon -> icon(m.dp(40f), Modifier.align(Alignment.Center))
+                shown == TileStyle.NAME_ONLY -> MetroText(
+                    app.label,
+                    MetroType.style(m.text(11f), FontWeight.SemiBold),
+                    color = white,
+                    maxLines = 2,
+                    modifier = Modifier.align(Alignment.Center).padding(horizontal = m.dp(4f)),
+                )
+            }
             if (count > 0) {
                 MetroText(
                     count.coerceAtMost(99).toString(),
@@ -242,19 +286,29 @@ private fun IconFront(app: AppInfo, size: TileSize, count: Int, monochrome: Bool
             }
             return@Box
         }
-        val iconSize = if (size == TileSize.LARGE) m.dp(80f) else m.dp(64f)
-        Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
-            AppIcon(app, icons, iconSize, monochrome)
-            if (count > 0) {
-                Spacer(Modifier.width(m.dp(8f)))
-                MetroText(
-                    count.coerceAtMost(99).toString(),
-                    MetroType.style(m.text(if (size == TileSize.LARGE) 48f else 36f), FontWeight.Light),
-                    color = white,
-                )
+        val large = size == TileSize.LARGE
+        if (shown == TileStyle.NAME_ONLY) {
+            MetroText(
+                app.label,
+                MetroType.style(m.text(if (large) 32f else 22f), FontWeight.Light),
+                color = white,
+                maxLines = 2,
+                modifier = Modifier.align(Alignment.BottomStart).padding(start = m.dp(8f), bottom = m.dp(6f), end = m.dp(8f)),
+            )
+        } else {
+            Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
+                if (showIcon) icon(if (large) m.dp(80f) else m.dp(64f), Modifier)
+                if (count > 0) {
+                    if (showIcon) Spacer(Modifier.width(m.dp(8f)))
+                    MetroText(
+                        count.coerceAtMost(99).toString(),
+                        MetroType.style(m.text(if (large) 48f else 36f), FontWeight.Light),
+                        color = white,
+                    )
+                }
             }
         }
-        TileLabel(app.label, m, Modifier.align(Alignment.BottomStart))
+        if (shown != TileStyle.ICON_ONLY && shown != TileStyle.NAME_ONLY) TileLabel(app.label, m, Modifier.align(Alignment.BottomStart))
     }
 }
 

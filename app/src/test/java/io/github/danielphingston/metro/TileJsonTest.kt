@@ -11,6 +11,8 @@ import io.github.danielphingston.metro.data.TileJson
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.data.TileSpec
+import io.github.danielphingston.metro.data.TileStyle
+import io.github.danielphingston.metro.data.TileStyles
 import io.github.danielphingston.metro.ui.start.Placement
 import io.github.danielphingston.metro.ui.start.TileGrid
 import io.github.danielphingston.metro.ui.start.TilePlacement
@@ -25,6 +27,29 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = android.app.Application::class)
 class TileJsonTest {
+    @Test
+    fun tileStyleAndPhotoRoundTrip() {
+        val app = TileContent.App(AppKey("a.b", "a.b.Main", 0))
+        val tiles = listOf(
+            TileSpec(1, TileSize.MEDIUM, app, 0, 0, style = TileStyle.FULL_IMAGE, image = "content://media/1"),
+            TileSpec(2, TileSize.SMALL, app, 2, 0, style = TileStyle.NAME_ONLY),
+            TileSpec(3, TileSize.SMALL, app, 3, 0),
+        )
+        assertEquals(tiles, TileJson.decode(JSONArray(TileJson.encode(tiles).toString())))
+        // An unknown style from a newer build reads as the plain icon tile.
+        val unknown = """[{"id":4,"size":"SMALL","type":"app","app":"a.b/a.b.Main#0","style":"sparkles"}]"""
+        assertEquals(TileStyle.ICON, TileJson.decode(JSONArray(unknown)).single().style)
+    }
+
+    @Test
+    fun settingAPlainStyleDropsThePhoto() {
+        val app = TileContent.App(AppKey("a.b", "a.b.Main", 0))
+        val tiles = listOf(TileSpec(1, TileSize.MEDIUM, app, 0, 0, style = TileStyle.FULL_IMAGE, image = "content://x"))
+        val plain = TileStyles.set(tiles, 1, TileStyle.ICON_ONLY, "content://x").single()
+        assertEquals(TileStyle.ICON_ONLY, plain.style)
+        assertEquals(null, plain.image)
+    }
+
     @Test
     fun everyTileKindRoundTrips() {
         val app = AppKey("com.example", "com.example.Main", 0)

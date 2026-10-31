@@ -1,5 +1,14 @@
 package io.github.danielphingston.metro.ui.start
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.core.net.toUri
+import io.github.danielphingston.metro.data.TileSpec
+import io.github.danielphingston.metro.data.TileStyle
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
@@ -191,6 +200,9 @@ class StartState(val scroll: ScrollState) {
 
     /** The "add a tile" menu and the widget and quick-settings pickers it can open. */
     var addMenuOpen by mutableStateOf(false)
+
+    /** The tile whose style menu is open, or null. */
+    var stylingId by mutableStateOf<Long?>(null)
     var widgetPickerOpen by mutableStateOf(false)
     var quickPickerOpen by mutableStateOf(false)
 
@@ -244,12 +256,13 @@ class StartState(val scroll: ScrollState) {
     }
 
     /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || grouping
+    val flyoutOpen: Boolean get() = addMenuOpen || stylingId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || grouping
 
     /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
         val any = flyoutOpen
         addMenuOpen = false
+        stylingId = null
         widgetPickerOpen = false
         quickPickerOpen = false
         renamingFolderId = null
@@ -658,6 +671,7 @@ fun StartScreen(
                         onResize = if (isWidget) null else ({ viewModel.resize(tiles[selectedIndex].spec.id) }),
                         onGroup = if (TileFolders.canGroup(selectedTile.spec)) ({ state.startGrouping(selectedTile.spec.id) }) else null,
                         groupLabel = if (selectedTile.spec.content is TileContent.Folder) "add to folder" else "group into folder",
+                        onStyle = if (selectedTile.spec.content is TileContent.App) ({ state.stylingId = selectedTile.spec.id }) else null,
                     )
                     WidgetEditBadges(
                         tile = tiles[selectedIndex],
@@ -679,6 +693,7 @@ fun StartScreen(
                             state.exitEdit()
                         },
                         onResize = { viewModel.resize(openChildren[selectedChild].spec.id) },
+                        onStyle = if (openChildren[selectedChild].spec.content is TileContent.App) ({ state.stylingId = openChildren[selectedChild].spec.id }) else null,
                     )
                 }
             }
@@ -703,6 +718,18 @@ fun StartScreen(
             it == StartBackground.PHOTO_FULL || it == StartBackground.SYSTEM_WALLPAPER
         })
 
+        state.stylingId?.let { id ->
+            val spec = (tiles.map { it.spec } + openChildren.map { it.spec }).firstOrNull { it.id == id }
+            if (spec == null) {
+                state.stylingId = null
+            } else {
+                TileStyleMenu(
+                    spec = spec,
+                    onPick = { style, image -> viewModel.setStyle(id, style, image) },
+                    onDismiss = { state.stylingId = null },
+                )
+            }
+        }
         if (state.addMenuOpen) {
             AddTileMenu(
                 onAdd = { content, size ->
@@ -1006,6 +1033,7 @@ internal fun EditBadges(
     onResize: (() -> Unit)?,
     onGroup: (() -> Unit)? = null,
     groupLabel: String = "group into folder",
+    onStyle: (() -> Unit)? = null,
 ) {
     val badgePx = with(LocalDensity.current) { EditBadgeSize.toPx() }
     val right = (placement.x + placement.width) * cellPx - gapPx
@@ -1027,6 +1055,17 @@ internal fun EditBadges(
         val inset = size.minDimension * 0.3f
         drawLine(color, Offset(inset, inset), Offset(size.width - inset, size.height - inset), stroke, StrokeCap.Round)
         drawLine(color, Offset(size.width - inset, inset), Offset(inset, size.height - inset), stroke, StrokeCap.Round)
+    }
+    // Style: bottom-left corner, a framed picture.
+    if (onStyle != null) EditBadge(
+        label = "tile style",
+        onClick = onStyle,
+        modifier = Modifier.offset { IntOffset((left - badgePx * 0.15f).roundToInt(), (bottom - badgePx * 0.7f).roundToInt()) },
+    ) { color, stroke ->
+        val inset = size.minDimension * 0.28f
+        drawRect(color, Offset(inset, inset), Size(size.width - inset * 2, size.height - inset * 2), style = Stroke(stroke))
+        drawLine(color, Offset(inset, size.height - inset * 1.6f), Offset(size.width * 0.45f, size.height * 0.5f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(size.width * 0.45f, size.height * 0.5f), Offset(size.width - inset, size.height - inset * 1.4f), stroke, StrokeCap.Round)
     }
     // Resize: bottom-right corner, arrow pointing to the next size.
     if (onResize != null) EditBadge(
@@ -1097,7 +1136,7 @@ private fun TileBody(
     onWidgetLongPress: () -> Unit,
 ) {
     when (tile.spec.content) {
-        is TileContent.App -> tile.app?.let { TileFace(it, tile.spec.size, live, flipped, monochromeIcons, icons, cell) }
+        is TileContent.App -> tile.app?.let { TileFace(it, tile.spec.size, live, flipped, monochromeIcons, icons, cell, tile.spec.style, tile.spec.image) }
         is TileContent.Shortcut -> ShortcutTile(tile, cell, icons, monochromeIcons)
         is TileContent.Widget -> WidgetTile(tile, cell, editing, onWidgetLongPress)
         TileContent.Weather -> WeatherTile(tile, cell, flipped)
@@ -1139,6 +1178,57 @@ private fun activateTile(
             else -> launcher.start(SettingsActivity.intent(context, SettingsPage.METRO_PLUS), bounds)
         }
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
+    }
+}
+
+/**
+ * How an app tile draws itself. The photo styles ask for a photo the first time (or on "choose
+ * another photo"); the system photo picker needs no storage permission, and the launcher keeps
+ * read access to just the picked photo.
+ */
+@Composable
+private fun TileStyleMenu(spec: TileSpec, onPick: (TileStyle, String?) -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var pending by remember { mutableStateOf<TileStyle?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val style = pending
+        pending = null
+        if (uri != null && style != null) {
+            val resolver = context.contentResolver
+            runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            spec.image?.takeIf { it != uri.toString() }?.let { old ->
+                runCatching { resolver.releasePersistableUriPermission(old.toUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+            }
+            onPick(style, uri.toString())
+            onDismiss()
+        }
+    }
+    fun choose(style: TileStyle, newPhoto: Boolean = false) {
+        if (style.needsImage && (newPhoto || spec.image == null)) {
+            pending = style
+            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        } else {
+            if (!style.needsImage) {
+                spec.image?.let { old ->
+                    runCatching { context.contentResolver.releasePersistableUriPermission(old.toUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+                }
+            }
+            onPick(style, spec.image)
+            onDismiss()
+        }
+    }
+    val items = TileStyle.entries.map { style ->
+        (if (style == spec.style) "• ${style.label}" else style.label) to { choose(style) }
+    } + listOfNotNull(
+        if (spec.style.needsImage) "choose another photo" to { choose(spec.style, newPhoto = true) } else null,
+    )
+    MetroFlyout(onDismiss) {
+        MetroMenu(
+            items = items,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+        )
     }
 }
 
