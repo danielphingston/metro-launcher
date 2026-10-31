@@ -64,6 +64,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -568,6 +570,18 @@ internal fun SearchContent(
     }
 }
 
+/** The chat's own picture for a WhatsApp shortcut row: the last one read at once, then read again. */
+@Composable
+private fun rememberChatPicture(hit: ShortcutHit): ImageBitmap? {
+    val context = LocalContext.current
+    val key = WhatsAppMatcher.shortcutKey(hit.packageName, hit.id, hit.userSerial)
+    val chat = remember(key) { ChatHit(hit.packageName, hit.id, hit.userSerial, hit.shortLabel, hit.longLabel) }
+    val index = WhatsAppIndex.shared(context)
+    return produceState(index.lastIcon(chat, WhatsAppIndex.ICON_PX)?.asImageBitmap(), key) {
+        value = withContext(Dispatchers.IO) { index.icon(chat, WhatsAppIndex.ICON_PX) }?.asImageBitmap()
+    }.value
+}
+
 @Composable
 private fun ResultRowFor(
     row: SearchRow,
@@ -606,7 +620,15 @@ private fun ResultRowFor(
             subtitle = row.app?.label,
             onClick = { onActivate(row, it) },
             onLongClick = hold,
-        ) { row.app?.let { AppListIcon(it, icons, monochrome, plainIcons) } ?: Spacer(Modifier.size(IconBox)) }
+        ) {
+            // A WhatsApp chat shows its contact or group picture, like the chat rows and its pinned tile.
+            val picture = if (WhatsAppApps.isWhatsApp(row.hit.packageName)) rememberChatPicture(row.hit) else null
+            when {
+                picture != null -> Image(picture, null, Modifier.size(IconBox), contentScale = ContentScale.Crop)
+                row.app != null -> AppListIcon(row.app, icons, monochrome, plainIcons)
+                else -> Spacer(Modifier.size(IconBox))
+            }
+        }
         is SearchRow.OpenUrl -> ResultRow(
             title = "open ${row.shown}",
             subtitle = null,
