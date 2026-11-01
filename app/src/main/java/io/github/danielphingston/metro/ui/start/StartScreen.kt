@@ -46,7 +46,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -454,7 +453,9 @@ fun StartScreen(
         val cellPx = with(density) { cell.toPx() }
         val gapPx = with(density) { TileGap.toPx() }
         val viewportPx = with(density) { maxHeight.toPx() }
-        val topInsetPx = statusPx + with(density) { padding.top.dp.toPx() }
+        // A negative top padding moves the tiles under the status bar, but never above the screen.
+        val topInsetPx = (statusPx + with(density) { padding.top.dp.toPx() }).coerceAtLeast(0f)
+        val topInset = with(density) { topInsetPx.toDp() }
         val rows = layout.rows
 
         // Tiles unpinned or uninstalled while grouping can't be grouped any more.
@@ -588,8 +589,7 @@ fun StartScreen(
                 .windowInsetsPadding(sideInsets),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
-            Spacer(Modifier.height(padding.top.dp))
+            Spacer(Modifier.height(topInset))
 
             if (loadedTiles != null && tiles.isEmpty()) {
                 MetroText(

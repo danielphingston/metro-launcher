@@ -59,6 +59,14 @@ object WeatherStore {
         return StoredWeather(place, this[fahrenheit] == true, this[forecast], this[fetchedAt] ?: 0)
     }
 
+    /** Names [place] [detail] without touching its forecast, if it is still the stored place. */
+    suspend fun setPlaceName(context: Context, place: WeatherPlace, detail: String) {
+        context.metroDataStore.edit {
+            if (it[latitude] != place.latitude || it[longitude] != place.longitude || it[name] != place.name) return@edit
+            it[this.detail] = detail
+        }
+    }
+
     /** Sets the location and drops the forecast, which belongs to the old one. */
     suspend fun setPlace(context: Context, place: WeatherPlace) {
         latest = latest?.copy(place = place, forecastJson = null, fetchedAt = 0)

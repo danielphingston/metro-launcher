@@ -101,7 +101,8 @@ fun WeatherSettingsSection() {
             if (fix == null) {
                 status = "Couldn't get your location. Check that location is turned on."
             } else {
-                choose(WeatherPlace(WeatherPlace.MY_LOCATION, "", fix.latitude, fix.longitude))
+                val town = DeviceLocation.placeName(context, fix.latitude, fix.longitude)
+                choose(WeatherPlace(WeatherPlace.MY_LOCATION, town, fix.latitude, fix.longitude))
             }
         }
     }

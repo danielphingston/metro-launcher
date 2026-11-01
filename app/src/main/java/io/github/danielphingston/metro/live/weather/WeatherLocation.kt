@@ -52,12 +52,20 @@ object WeatherLocation {
         } ?: return
         // The fix can take a while; the user may have picked another place meanwhile.
         val place = WeatherStore.read(context).place?.takeIf { it.isDeviceLocation } ?: return
-        if (!hasMoved(place, fix.latitude, fix.longitude)) return
+        if (!hasMoved(place, fix.latitude, fix.longitude)) {
+            // A place picked before towns were named, or while offline, gets its name now.
+            if (place.detail.isEmpty()) {
+                val town = DeviceLocation.placeName(context, place.latitude, place.longitude)
+                if (town.isNotEmpty()) withContext(NonCancellable) { WeatherStore.setPlaceName(context, place, town) }
+            }
+            return
+        }
+        val town = DeviceLocation.placeName(context, fix.latitude, fix.longitude)
         // Storing the place restarts the tile's refresh effect and so cancels this call. The two steps
         // are quick and local (the network fetch is queued with WorkManager), and finishing both keeps
         // the stored place and its forecast refresh together.
         withContext(NonCancellable) {
-            WeatherStore.setPlace(context, WeatherPlace(WeatherPlace.MY_LOCATION, "", fix.latitude, fix.longitude))
+            WeatherStore.setPlace(context, WeatherPlace(WeatherPlace.MY_LOCATION, town, fix.latitude, fix.longitude))
             WeatherRefresh.onSettingsChanged(context)
         }
     }
