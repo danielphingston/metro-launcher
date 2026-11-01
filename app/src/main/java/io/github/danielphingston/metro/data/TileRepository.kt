@@ -399,7 +399,19 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
 internal object TileStyles {
     /** App and shortcut tiles: the ones with an icon and a name to arrange. */
     fun canStyle(tile: TileSpec): Boolean = tile.content is TileContent.App || tile.content is TileContent.Shortcut ||
-        tile.content is TileContent.Action
+        tile.content is TileContent.Action || tile.content is TileContent.Folder
+
+    /** Styles [tile] offers. A folder keeps its grid of app icons, so it only drops its name or adds a photo behind. */
+    fun styles(tile: TileSpec): List<TileStyle> =
+        if (tile.content is TileContent.Folder) listOf(TileStyle.ICON, TileStyle.ICON_ONLY, TileStyle.IMAGE_ICON) else TileStyle.entries
+
+    /** How [style] reads in [tile]'s menu: a folder shows apps rather than an icon. */
+    fun label(tile: TileSpec, style: TileStyle): String = if (tile.content !is TileContent.Folder) style.label else when (style) {
+        TileStyle.ICON -> "apps and name"
+        TileStyle.ICON_ONLY -> "apps only"
+        TileStyle.IMAGE_ICON -> "photo behind apps"
+        else -> style.label
+    }
 
     fun set(tiles: List<TileSpec>, id: Long, style: TileStyle, image: String?): List<TileSpec> = tiles.map { tile ->
         when {
