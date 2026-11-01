@@ -1248,12 +1248,14 @@ private fun TileStyleMenu(
             onDismiss()
         }
     }
-    val items = TileStyle.entries.map { style ->
-        (if (style == spec.style) "• ${style.label}" else style.label) to { choose(style) }
+    val folder = spec.content is TileContent.Folder
+    val items = TileStyles.styles(spec).map { style ->
+        val label = TileStyles.label(spec, style)
+        (if (style == spec.style) "• $label" else label) to { choose(style) }
     } + listOfNotNull(
         if (spec.style.needsImage) "choose another photo" to { choose(spec.style, newPhoto = true) } else null,
-        "choose icon" to onChooseIcon,
-        if (spec.icon != null) "reset to default" to { onDefaultIcon(); onDismiss() } else null,
+        if (!folder) "choose icon" to onChooseIcon else null,
+        if (!folder && spec.icon != null) "reset to default" to { onDefaultIcon(); onDismiss() } else null,
     )
     MetroFlyout(onDismiss) {
         MetroMenu(
