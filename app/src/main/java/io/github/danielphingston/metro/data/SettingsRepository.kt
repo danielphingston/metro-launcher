@@ -182,7 +182,8 @@ data class LauncherSettings(
          */
         const val AUTO_COLUMNS = 0
 
-        const val MIN_START_TOP_PADDING = 0
+        // Below zero the tiles move up under the status bar, down to the top of the screen.
+        const val MIN_START_TOP_PADDING = -64
         const val MAX_START_TOP_PADDING = 96
         const val DEFAULT_START_TOP_PADDING = 28
 

@@ -28,13 +28,15 @@ data class StartPadding(val top: Float, val bottom: Float, val left: Float, val 
                 limit = availableWidthDp - columns * MIN_CELL_DP + tileGapDp,
                 floor = (LauncherSettings.DEFAULT_START_LEFT_PADDING + LauncherSettings.DEFAULT_START_RIGHT_PADDING).toFloat(),
             )
+            // A negative top pulls the tiles under the status bar; it takes no room, so only a positive one is fitted.
+            val top = LauncherSettings.clampStartTopPadding(settings.startTopPadding).toFloat()
             val vertical = fitPair(
-                LauncherSettings.clampStartTopPadding(settings.startTopPadding).toFloat(),
+                top.coerceAtLeast(0f),
                 LauncherSettings.clampStartBottomPadding(settings.startBottomPadding).toFloat(),
                 limit = availableHeightDp - MIN_VISIBLE_DP,
                 floor = (LauncherSettings.DEFAULT_START_TOP_PADDING + LauncherSettings.DEFAULT_START_BOTTOM_PADDING).toFloat(),
             )
-            return StartPadding(vertical.first, vertical.second, horizontal.first, horizontal.second)
+            return StartPadding(if (top < 0f) top else vertical.first, vertical.second, horizontal.first, horizontal.second)
         }
 
         private fun fitPair(a: Float, b: Float, limit: Float, floor: Float): Pair<Float, Float> {

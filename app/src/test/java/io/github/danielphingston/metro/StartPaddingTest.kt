@@ -34,7 +34,7 @@ class StartPaddingTest {
 
     @Test
     fun paddingsAreClampedOnWrite() = runBlocking {
-        repository.setStartTopPadding(-10)
+        repository.setStartTopPadding(-500)
         repository.setStartBottomPadding(500)
         repository.setStartLeftPadding(500)
         repository.setStartRightPadding(-1)

@@ -177,7 +177,7 @@ private fun WeatherFront(size: TileSize, place: WeatherPlace, forecast: Forecast
         }
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()) {
             MetroText(
-                place.name,
+                place.shownName,
                 MetroType.style(m.text(17f)),
                 color = white,
                 maxLines = 1,

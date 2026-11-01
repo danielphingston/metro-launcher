@@ -35,8 +35,11 @@ enum class WeatherCondition(val label: String) {
 
 /** A place the user can pick, from the geocoding search or the device location. */
 data class WeatherPlace(val name: String, val detail: String, val latitude: Double, val longitude: Double) {
-    /** The device location has no name; the tile shows [MY_LOCATION]. */
+    /** The device location is named [MY_LOCATION]; its [detail] holds the town, when the phone could name it. */
     val isDeviceLocation: Boolean get() = name == MY_LOCATION
+
+    /** What the tile shows: the town for the device location, else the place's name. */
+    val shownName: String get() = if (isDeviceLocation) detail.ifEmpty { name } else name
 
     companion object {
         const val MY_LOCATION = "my location"
