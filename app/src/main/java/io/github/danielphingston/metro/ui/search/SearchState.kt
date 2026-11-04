@@ -178,10 +178,11 @@ fun Modifier.pullToSearch(
 private val SwipeUpThreshold = 72.dp
 
 /**
- * Counts an upward drag that the content could not use and says when it is long enough to close
- * search. Per gesture: [begin] with whether the list was already at its end (only then does the
- * gesture count), [drag] with each movement, [end] when the finger is done. Dragging back down
- * restarts the count, so a closing swipe has to be one steady upward stroke.
+ * Counts an upward drag that the content could not use and says, when the finger lifts, whether it
+ * was long enough to close search. Per gesture: [begin] with whether the list was already at its
+ * end (only then does the gesture count), [drag] with each movement, [end] when the finger is done.
+ * Nothing closes mid-drag, so a swipe that turns into scrolling the list isn't cut short; dragging
+ * back down restarts the count, so a swipe can be taken back before letting go.
  */
 internal class SwipeUpToClose(private val threshold: Float) {
     /** Null between gestures; then whether this gesture may close. */
@@ -194,27 +195,24 @@ internal class SwipeUpToClose(private val threshold: Float) {
         travelled = 0f
     }
 
-    /** [dy] is the vertical movement (negative is up); returns true once, when the swipe is long enough. */
-    fun drag(dy: Float): Boolean {
-        if (armed != true) return false
-        if (dy >= 0f) {
-            travelled = 0f
-            return false
-        }
-        travelled -= dy
-        if (travelled < threshold) return false
-        armed = false
-        return true
+    /** [dy] is the vertical movement (negative is up). */
+    fun drag(dy: Float) {
+        if (armed != true) return
+        if (dy >= 0f) travelled = 0f else travelled -= dy
     }
 
-    fun end() {
+    /** Ends the gesture; true when it was an upward swipe long enough to close. */
+    fun end(): Boolean {
+        val close = armed == true && travelled >= threshold
         armed = null
         travelled = 0f
+        return close
     }
 }
 
 /**
- * Closes search on an upward touch drag past the end of [list] (or with nothing to scroll). Put it
+ * Closes search when the finger lifts after an upward drag past the end of [list] (or with nothing
+ * to scroll). Put it
  * (with `Modifier.nestedScroll`) on a parent of the list: it only sees what the list could not use
  * itself, so scrolling the results is never cut short, and it never consumes anything. A drag that
  * starts mid-list does not count, even if it scrolls to the end; the user has to swipe again.
@@ -235,12 +233,12 @@ internal fun rememberSwipeUpToClose(list: LazyListState, onClose: () -> Unit): N
             }
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && available.y < 0f && swipe.drag(available.y)) currentOnClose()
+                if (source == NestedScrollSource.UserInput && available.y < 0f) swipe.drag(available.y)
                 return Offset.Zero
             }
 
             override suspend fun onPreFling(available: Velocity): Velocity {
-                swipe.end()
+                if (swipe.end()) currentOnClose()
                 return Velocity.Zero
             }
         }
@@ -248,7 +246,8 @@ internal fun rememberSwipeUpToClose(list: LazyListState, onClose: () -> Unit): N
 }
 
 /**
- * Closes search on an upward touch drag that starts on this element (the search field). Only
+ * Closes search when the finger lifts after an upward drag that starts on this element (the search
+ * field). Only
  * watches: the field still gets its taps, cursor and selection drags.
  */
 @Composable
@@ -265,9 +264,9 @@ internal fun Modifier.swipeUpToClose(onClose: () -> Unit): Modifier {
                 val change = event.changes.firstOrNull() ?: break
                 val delta = change.positionChange()
                 // Mostly sideways movement is a cursor or selection drag, not a swipe.
-                if (abs(delta.y) > abs(delta.x) && swipe.drag(delta.y)) currentOnClose()
+                if (abs(delta.y) > abs(delta.x)) swipe.drag(delta.y)
             } while (event.changes.any { it.pressed })
-            swipe.end()
+            if (swipe.end()) currentOnClose()
         }
     }
 }

@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -98,6 +97,8 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.work.runtime)
     implementation(libs.androidx.billing)
+    // Overrides the outdated androidx.fragment (1.1.0) that Play Billing pulls in transitively.
+    implementation(libs.androidx.fragment)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.foundation)

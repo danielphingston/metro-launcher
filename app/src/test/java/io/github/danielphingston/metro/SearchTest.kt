@@ -180,33 +180,42 @@ class PullToOpenTest {
 
 class SwipeUpToCloseTest {
     @Test
-    fun closesOnceAfterAnUpwardSwipePastTheThreshold() {
+    fun closesOnlyWhenTheFingerLiftsAfterALongEnoughSwipe() {
         val swipe = SwipeUpToClose(100f)
         swipe.begin(atEnd = true)
-        assertFalse(swipe.drag(-60f))
-        assertTrue(swipe.drag(-50f))
-        assertFalse(swipe.drag(-200f))
+        swipe.drag(-60f)
+        swipe.drag(-50f)
+        assertTrue(swipe.end())
+        // The next gesture starts from nothing.
+        swipe.begin(atEnd = true)
+        swipe.drag(-60f)
+        assertFalse(swipe.end())
     }
 
     @Test
     fun ignoresGesturesThatStartMidList() {
         val swipe = SwipeUpToClose(100f)
         swipe.begin(atEnd = false)
-        assertFalse(swipe.drag(-500f))
-        // The next gesture counts again.
-        swipe.end()
+        swipe.drag(-500f)
+        assertFalse(swipe.end())
         swipe.begin(atEnd = true)
-        assertTrue(swipe.drag(-500f))
+        swipe.drag(-500f)
+        assertTrue(swipe.end())
     }
 
     @Test
-    fun draggingDownRestartsTheCount() {
+    fun draggingBackDownBeforeLettingGoCancels() {
         val swipe = SwipeUpToClose(100f)
         swipe.begin(atEnd = true)
-        assertFalse(swipe.drag(-80f))
-        assertFalse(swipe.drag(10f))
-        assertFalse(swipe.drag(-80f))
-        assertTrue(swipe.drag(-30f))
+        swipe.drag(-150f)
+        swipe.drag(10f)
+        assertFalse(swipe.end())
+        swipe.begin(atEnd = true)
+        swipe.drag(-80f)
+        swipe.drag(10f)
+        swipe.drag(-80f)
+        swipe.drag(-30f)
+        assertTrue(swipe.end())
     }
 
     @Test
@@ -214,7 +223,8 @@ class SwipeUpToCloseTest {
         val swipe = SwipeUpToClose(100f)
         swipe.begin(atEnd = false)
         swipe.begin(atEnd = true)
-        assertFalse(swipe.drag(-500f))
+        swipe.drag(-500f)
+        assertFalse(swipe.end())
     }
 }
 
