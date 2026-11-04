@@ -3,23 +3,12 @@
 A Windows Phone / Windows 10 Mobile style home screen for Android 12+ (Kotlin, Jetpack Compose).
 Live tiles, folders, photo backgrounds and turnstile animations, built to cost almost no battery.
 
-| Start | Photo through tiles | Full photo |
-|---|---|---|
-| <img src="docs/start_dark.png" width="240"> | <img src="docs/start_photo_tiles.png" width="240"> | <img src="docs/start_photo_full.png" width="240"> |
+| | | | |
+|---|---|---|---|
+| <img src="docs/store/01_home_screen.png" width="200"> | <img src="docs/store/02_make_it_yours.png" width="200"> | <img src="docs/store/03_folders.png" width="200"> | <img src="docs/store/04_search.png" width="200"> |
+| <img src="docs/store/05_app_list.png" width="200"> | <img src="docs/store/06_turnstile.png" width="200"> | <img src="docs/store/07_edit_mode.png" width="200"> | <img src="docs/store/08_battery.png" width="200"> |
 
-| Folder open | App list | Settings |
-|---|---|---|
-| <img src="docs/start_folder_open.png" width="240"> | <img src="docs/app_list.png" width="240"> | <img src="docs/settings_menu.png" width="240"> |
-
-| Turnstile launch | Alphabet scrubber | Search |
-|---|---|---|
-| <img src="docs/launch_turnstile.png" width="240"> | <img src="docs/scrubber_circle.png" width="240"> | <img src="docs/search_dark.png" width="240"> |
-
-| Animation settings |
-|---|
-| <img src="docs/settings_animations.png" width="240"> |
-
-*Rendered on the JVM by the `*ScreenshotTest` classes with placeholder icons; on a phone, tiles show each app's own icon.*
+*Rendered on the JVM by `StoreShowcaseTest` with generic app names, drawn icons, generated wallpapers and avatars (no real photos, people or brands); on a phone, tiles show each app's own icon. Regenerate with `./gradlew testDebugUnitTest --tests '*StoreShowcaseTest*' -PstoreShots=true` then `python3 -I tools/store/compose.py`.*
 
 ## Features
 
