@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.telephony.TelephonyManager
 import io.github.danielphingston.metro.data.AppInfo
+import io.github.danielphingston.metro.data.SearchEngine
 import io.github.danielphingston.metro.data.SearchInApp
 import io.github.danielphingston.metro.data.SearchInOrdering
 import io.github.danielphingston.metro.data.SearchInTarget
@@ -70,6 +71,20 @@ internal object SearchInIntents {
             if (app) setPackage(packageName)
         }
 
+    /**
+     * A browser's search: the results page of [url] opened in that browser. Chrome answers a
+     * WEB_SEARCH by opening its search box with the text in it, waiting for another tap, so
+     * browsers get the results page directly instead.
+     */
+    fun browser(packageName: String, url: String): Intent =
+        Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(packageName)
+
+    /** An address only browsers open: a link with no host matches no app's links. */
+    fun browserProbe(packageName: String? = null): Intent =
+        Intent(Intent.ACTION_VIEW, Uri.parse("https://")).addCategory(Intent.CATEGORY_BROWSABLE).apply {
+            if (packageName != null) setPackage(packageName)
+        }
+
     /** A search through any app that offers one; [web] picks ACTION_WEB_SEARCH over ACTION_SEARCH. */
     fun other(packageName: String, query: String, web: Boolean): Intent =
         Intent(if (web) Intent.ACTION_WEB_SEARCH else Intent.ACTION_SEARCH)
@@ -84,12 +99,17 @@ internal data class OtherSearchApp(val packageName: String, val label: String, v
 internal interface SearchInPhone {
     fun resolves(intent: Intent): Boolean
     fun amazonDomain(locale: Locale): String
+
+    /** Whether [packageName] is a web browser, which is searched through its results page. */
+    fun isBrowser(packageName: String): Boolean = false
 }
 
 internal class RealSearchInPhone(private val context: Context) : SearchInPhone {
     override fun resolves(intent: Intent) = context.packageManager.resolveActivity(intent, 0) != null
 
     override fun amazonDomain(locale: Locale) = AmazonDomain.forPhone(context, locale)
+
+    override fun isBrowser(packageName: String) = resolves(SearchInIntents.browserProbe(packageName))
 }
 
 /** The rows "search <app> for ..." and which apps they are for. */
@@ -114,7 +134,10 @@ internal object SearchInApps {
         SearchInApp.entries.map { SearchInTarget(SearchInOrdering.builtInId(it), it.label) } +
             others.map { SearchInTarget(SearchInOrdering.otherId(it.packageName), it.label) }
 
-    /** Apps that take an ACTION_SEARCH or ACTION_WEB_SEARCH aimed at their package, other than the built-in ones and Metro itself. */
+    /**
+     * Apps that take an ACTION_SEARCH or ACTION_WEB_SEARCH aimed at their package, and browsers,
+     * other than the built-in ones and Metro itself.
+     */
     fun otherApps(context: Context, apps: List<AppInfo>): List<OtherSearchApp> {
         val cache = otherCache
         if (cache != null && cache.apps === apps) return cache.found
@@ -139,6 +162,13 @@ internal object SearchInApps {
                 found[pkg] = OtherSearchApp(pkg, label, web)
             }
         }
+        // Browsers can be searched through their results page even when they take no search intent.
+        pm.queryIntentActivities(SearchInIntents.browserProbe(), 0).forEach { info ->
+            val pkg = info.activityInfo?.packageName ?: return@forEach
+            if (pkg in builtInPackages || pkg == context.packageName || pkg in found || pkg == "android") return@forEach
+            val label = apps.firstOrNull { it.key.packageName == pkg }?.label ?: info.loadLabel(pm).toString()
+            found[pkg] = OtherSearchApp(pkg, label, web = true)
+        }
         return found.values.sortedBy { it.label.lowercase(Locale.ROOT) }
     }
 
@@ -160,9 +190,16 @@ internal object SearchInApps {
         }
     }
 
-    /** The intent for an installed app that takes a search (ACTION_SEARCH, else ACTION_WEB_SEARCH), or null if it takes neither. */
-    fun intentForOther(packageName: String, query: String, phone: SearchInPhone): Intent? =
-        listOf(false, true).map { SearchInIntents.other(packageName, query, it) }.firstOrNull { phone.resolves(it) }
+    /**
+     * The intent that searches an installed app for [query]: a browser opens [engine]'s results
+     * page, any other app gets ACTION_SEARCH, else ACTION_WEB_SEARCH. Null if it takes none.
+     */
+    fun intentForOther(packageName: String, query: String, phone: SearchInPhone, engine: SearchEngine): Intent? =
+        if (phone.isBrowser(packageName)) {
+            SearchInIntents.browser(packageName, engine.searchUrl(query))
+        } else {
+            listOf(false, true).map { SearchInIntents.other(packageName, query, it) }.firstOrNull { phone.resolves(it) }
+        }
 
     /** The title of a row: "search YouTube for 'cats'". */
     fun title(label: String, query: String) = "search $label for “$query”"
@@ -199,8 +236,7 @@ internal class SearchInAppsProvider(
         val enabledOthers = ctx.settings.searchInOtherApps
         if (enabledOthers.isNotEmpty()) {
             others(ctx.context, ctx.apps).filter { it.packageName in enabledOthers }.forEach { other ->
-                val intent = SearchInIntents.other(other.packageName, query, other.web)
-                if (!phone.resolves(intent)) return@forEach
+                val intent = SearchInApps.intentForOther(other.packageName, query, phone, ctx.settings.searchEngine) ?: return@forEach
                 val icon = SearchInApps.installedApp(ctx.apps, listOf(other.packageName))?.let { SearchIcon.App(it) } ?: SearchGlyphs.search
                 add(SearchInOrdering.otherId(other.packageName), other.label, icon, intent)
             }

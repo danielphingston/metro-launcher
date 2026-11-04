@@ -29,6 +29,7 @@ import io.github.danielphingston.metro.ui.search.ProvidedItems
 import io.github.danielphingston.metro.ui.search.QuickAction
 import io.github.danielphingston.metro.ui.search.QuickActionsProvider
 import io.github.danielphingston.metro.ui.search.SearchContext
+import io.github.danielphingston.metro.ui.search.SearchInApps
 import io.github.danielphingston.metro.ui.search.SearchInIntents
 import io.github.danielphingston.metro.ui.search.SearchInAppsProvider
 import io.github.danielphingston.metro.ui.search.SearchInPhone
@@ -128,6 +129,20 @@ class SmartPhase2Test {
         assertEquals("com.example.notes", plain.`package`)
         assertEquals("milk", plain.getStringExtra(android.app.SearchManager.QUERY))
         assertEquals(Intent.ACTION_WEB_SEARCH, SearchInIntents.other("p", "q", web = true).action)
+    }
+
+    @Test
+    fun browsersAreSearchedThroughTheResultsPage() {
+        val phone = object : SearchInPhone {
+            override fun resolves(intent: Intent) = true
+            override fun amazonDomain(locale: Locale) = "amazon.com"
+            override fun isBrowser(packageName: String) = packageName == "com.android.chrome"
+        }
+        val chrome = SearchInApps.intentForOther("com.android.chrome", "red cats", phone, SearchEngine.BING)!!
+        assertEquals(Intent.ACTION_VIEW, chrome.action)
+        assertEquals("com.android.chrome", chrome.`package`)
+        assertEquals("https://www.bing.com/search?q=red+cats", chrome.dataString)
+        assertEquals(Intent.ACTION_SEARCH, SearchInApps.intentForOther("com.example.notes", "red cats", phone, SearchEngine.BING)!!.action)
     }
 
     // --- search in apps provider ---------------------------------------------------------------

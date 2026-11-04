@@ -42,7 +42,8 @@ internal fun folderPreviewGrid(size: TileSize): Pair<Int, Int> = when (size) {
  * A closed folder: a grid of its children's icons over the tile surface, the folder's name at
  * the bottom left and a chevron at the bottom right. While [open] the chevron points up and the
  * tile is lightened, so it reads as the one the children below belong to. Styled "icon only" it
- * drops the name; "image behind icon" puts the picked photo behind the grid.
+ * drops the name; "image behind icon" puts the picked photo behind the grid; "full tile image"
+ * shows only the photo and the chevron, with no app icons or name.
  */
 @Composable
 fun FolderTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: Boolean, open: Boolean) {
@@ -52,12 +53,15 @@ fun FolderTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
     val (columns, rows) = folderPreviewGrid(tileSize)
     val slot = m.dp(if (small) 36f else 48f)
     val iconSize = m.dp(if (small) 22f else 32f)
-    val image = tile.spec.image?.takeIf { tile.spec.style == TileStyle.IMAGE_ICON }
+    val style = tile.spec.style
+    val image = tile.spec.image?.takeIf { style == TileStyle.IMAGE_ICON || style == TileStyle.FULL_IMAGE }
+    // Photo only: without a photo picked yet, the grid stays so the tile isn't blank.
+    val photoOnly = style == TileStyle.FULL_IMAGE && image != null
     Box(Modifier.fillMaxSize().tileSurface()) {
         if (image != null) {
             TileImage(image, Modifier.fillMaxSize())
             // Keeps the name and chevron readable on light photos.
-            if (!small) {
+            if (!small && !photoOnly) {
                 Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(m.dp(28f))
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)))),
@@ -65,7 +69,7 @@ fun FolderTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
             }
         }
         if (open) Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.16f)))
-        Column(
+        if (!photoOnly) Column(
             Modifier.align(if (small) Alignment.Center else Alignment.TopCenter).padding(top = if (small) m.dp(0f) else m.dp(8f)),
         ) {
             tile.children.take(columns * rows).chunked(columns).forEach { row ->
@@ -79,7 +83,7 @@ fun FolderTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
             }
         }
         if (small) return@Box
-        if (tile.spec.style != TileStyle.ICON_ONLY) TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart).padding(end = m.dp(22f)))
+        if (style == TileStyle.ICON || style == TileStyle.IMAGE_ICON) TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart).padding(end = m.dp(22f)))
         val chevron = Metro.colors.onAccent
         Box(
             Modifier

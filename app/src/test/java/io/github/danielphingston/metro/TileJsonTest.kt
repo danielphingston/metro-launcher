@@ -62,7 +62,8 @@ class TileJsonTest {
     fun foldersTakeOnlyStylesThatKeepTheirAppGrid() {
         val folder = TileSpec(5, TileSize.MEDIUM, TileContent.Folder("games", emptyList()), style = TileStyle.IMAGE_ICON, image = "content://p/1")
         assertEquals(true, TileStyles.canStyle(folder))
-        assertEquals(listOf(TileStyle.ICON, TileStyle.ICON_ONLY, TileStyle.IMAGE_ICON), TileStyles.styles(folder))
+        assertEquals(listOf(TileStyle.ICON, TileStyle.ICON_ONLY, TileStyle.IMAGE_ICON, TileStyle.FULL_IMAGE), TileStyles.styles(folder))
+        assertEquals("photo only", TileStyles.label(folder, TileStyle.FULL_IMAGE))
         assertEquals(listOf(folder), TileJson.decode(JSONArray(TileJson.encode(listOf(folder)).toString())))
         assertEquals(TileStyle.entries, TileStyles.styles(TileSpec(1, TileSize.SMALL, TileContent.App(AppKey("a.b", "a.b.Main", 0)))))
     }

@@ -84,7 +84,7 @@ internal object KeywordRows {
                     subtitle = rest,
                 )
             }
-            is KeywordTarget.InstalledApp -> SearchInApps.intentForOther(target.packageName, rest, phone)
+            is KeywordTarget.InstalledApp -> SearchInApps.intentForOther(target.packageName, rest, phone, ctx.settings.searchEngine)
                 ?.let { row(SearchInApps.title(target.label, rest), SearchActions.start(it), pin = pin(it)) }
             is KeywordTarget.Website -> WebsiteTemplate.build(target.template, rest)?.let { url ->
                 val view = Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)
