@@ -401,15 +401,23 @@ internal object TileStyles {
     fun canStyle(tile: TileSpec): Boolean = tile.content is TileContent.App || tile.content is TileContent.Shortcut ||
         tile.content is TileContent.Action || tile.content is TileContent.Folder
 
-    /** Styles [tile] offers. A folder keeps its grid of app icons, so it only drops its name or adds a photo behind. */
+    /**
+     * Styles [tile] offers. A folder draws its grid of app icons as it always does; it can drop its
+     * name, add a photo behind the grid, or show only a photo (the apps appear when it opens).
+     */
     fun styles(tile: TileSpec): List<TileStyle> =
-        if (tile.content is TileContent.Folder) listOf(TileStyle.ICON, TileStyle.ICON_ONLY, TileStyle.IMAGE_ICON) else TileStyle.entries
+        if (tile.content is TileContent.Folder) {
+            listOf(TileStyle.ICON, TileStyle.ICON_ONLY, TileStyle.IMAGE_ICON, TileStyle.FULL_IMAGE)
+        } else {
+            TileStyle.entries
+        }
 
     /** How [style] reads in [tile]'s menu: a folder shows apps rather than an icon. */
     fun label(tile: TileSpec, style: TileStyle): String = if (tile.content !is TileContent.Folder) style.label else when (style) {
         TileStyle.ICON -> "apps and name"
         TileStyle.ICON_ONLY -> "apps only"
         TileStyle.IMAGE_ICON -> "photo behind apps"
+        TileStyle.FULL_IMAGE -> "photo only"
         else -> style.label
     }
 
