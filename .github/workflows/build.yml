@@ -1,7 +1,12 @@
 name: Build
 
-# Builds master, pull requests, v* tags and manual runs. Changes that only touch docs skip the
-# build (path filters don't apply to tag pushes, so tagged releases always build).
+# Builds pull requests, master and v* tags. Changes that only touch docs skip the build (path
+# filters don't apply to tag pushes, so tagged releases always build).
+#
+# Releasing: merge a PR labelled `release` (next patch, e.g. v0.7.18 -> v0.7.19) or
+# `release:minor` (v0.7.18 -> v0.8.0). That merge's build is tested, smoke-tested and published
+# as is: nothing is rebuilt. Fallback: run this workflow by hand on master to publish the build
+# of master's latest commit (it must have passed), e.g. when the label was forgotten.
 on:
   push:
     branches: [master]
@@ -18,27 +23,25 @@ on:
       - "app/src/main/assets/licenses/**"
       - "LICENSE*"
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Publish a release with this tag (e.g. v0.2.0); leave empty to only build"
-        required: false
-        default: ""
 
 permissions:
   contents: write
-  actions: read # to look up this commit's earlier builds
+  actions: read # to find and download earlier builds
+  pull-requests: read # to read the merged PR's labels
 
-# A newer push supersedes an older build of the same branch. Manual (release) runs and
-# tag builds have their own group and are never cancelled.
+# A newer PR push supersedes an older build of the same PR. Builds of master are never cancelled,
+# since any of them may be a release.
 concurrency:
   group: build-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') || github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.name }}
+      version: ${{ steps.plan.outputs.version }}
+      release: ${{ steps.plan.outputs.release }}
     env:
       KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
     steps:
@@ -51,32 +54,12 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # A manual release must name a new version: if the tag or a release for it already exists,
-      # stop rather than adding files to that release while its tag points at other code.
-      - name: Refuse to reuse an existing release tag
-        if: inputs.release_tag != ''
+      # Master builds carry the next version, so whichever one is released ships unchanged.
+      - name: Plan version and release
+        id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: |
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --silent 2>/dev/null ||
-             gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --silent 2>/dev/null; then
-            echo "::error::$RELEASE_TAG already exists. Pick a new version, or delete that tag and release first."
-            exit 1
-          fi
-
-      - name: Version from tag
-        id: version
-        env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          elif [[ -n "$RELEASE_TAG" ]]; then
-            echo "name=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=0.2.0-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-          fi
+        run: tools/ci-plan-release.sh
 
       # Optional Play-ready signing. Add these repository secrets to enable it:
       # KEYSTORE_BASE64 (base64 of the .jks), KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD.
@@ -86,33 +69,16 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "METRO_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
-      # Releases (manual runs and tags) skip tests and lint when a push build of this exact
-      # commit already passed them; otherwise they run the full checks themselves.
-      - name: Check for a passing build of this commit
-        id: checked
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/runs?head_sha=$GITHUB_SHA&event=push&status=success" --jq '.total_count' || echo 0)
-          if [ "${passed:-0}" -gt 0 ]; then
-            echo "Push build of $GITHUB_SHA already passed tests and lint; only building release outputs."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No passing push build of $GITHUB_SHA; running the full checks."
-          fi
-
       - name: Test, lint and build
         env:
           METRO_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           METRO_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           METRO_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          # Published releases must be signed with the real key; PR builds have no secrets and fall back.
-          REQUIRE_SIGNING: ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != '') && '-PrequireReleaseSigning=true' || ' ' }}
-          CHECKS: ${{ steps.checked.outputs.skip == 'true' && ' ' || 'testDebugUnitTest lintDebug' }}
+          # Releases must be signed with the real key; PR builds have no secrets and fall back.
+          REQUIRE_SIGNING: ${{ steps.plan.outputs.release == 'true' && '-PrequireReleaseSigning=true' || ' ' }}
         run: >
-          ./gradlew $CHECKS assembleRelease bundleRelease
-          -PversionName=${{ steps.version.outputs.name }}
+          ./gradlew testDebugUnitTest lintDebug assembleRelease bundleRelease
+          -PversionName=${{ steps.plan.outputs.version }}
           -PversionCode=${{ github.run_number }}
           $REQUIRE_SIGNING
 
@@ -126,12 +92,12 @@ jobs:
       - name: Collect outputs
         run: |
           mkdir dist
-          cp app/build/outputs/apk/release/app-release.apk "dist/metro-launcher-${{ steps.version.outputs.name }}.apk"
-          cp app/build/outputs/bundle/release/app-release.aab "dist/metro-launcher-${{ steps.version.outputs.name }}.aab"
+          cp app/build/outputs/apk/release/app-release.apk "dist/metro-launcher-${{ steps.plan.outputs.version }}.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "dist/metro-launcher-${{ steps.plan.outputs.version }}.aab"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: metro-launcher-${{ steps.version.outputs.name }}
+          name: metro-launcher-${{ steps.plan.outputs.version }}
           path: dist/
 
       - uses: actions/upload-artifact@v4
@@ -182,9 +148,11 @@ jobs:
           path: smoke-logcat.txt
           if-no-files-found: ignore
 
+  # Publishes the build above once it passed every check: for a merged PR labelled release,
+  # or a pushed v* tag.
   release:
     needs: [build, smoke]
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    if: needs.build.outputs.release == 'true'
     runs-on: ubuntu-latest
     env:
       KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -194,12 +162,33 @@ jobs:
           name: metro-launcher-${{ needs.build.outputs.version }}
           path: dist
 
-      # Runs for pushed v* tags, or a manual run with release_tag (the tag is then created
-      # on the built commit).
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          tag_name: v${{ needs.build.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*
+          generate_release_notes: true
+          prerelease: ${{ env.KEYSTORE_BASE64 == '' }}
+
+  # Manual fallback: publishes the existing, passed build of master's latest commit, no rebuild.
+  publish-latest:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Find and download the build
+        id: found
+        run: tools/ci-download-build.sh
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.found.outputs.version }}
           target_commitish: ${{ github.sha }}
           files: dist/*
           generate_release_notes: true

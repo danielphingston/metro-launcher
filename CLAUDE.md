@@ -46,4 +46,7 @@ export ANDROID_HOME=/opt/android-sdk
 
 1. Open a PR; CI must pass.
 2. Merge with a merge commit (not squash).
-3. Run the `build.yml` workflow via `workflow_dispatch` with `release_tag` set to publish.
+3. To release, label the PR `release` (next patch) or `release:minor` (next minor) before merging.
+   The merge's own build is tested, smoke-tested and published as is; nothing is rebuilt.
+4. Forgot the label? Run `build.yml` by hand on master: it publishes the passed build of master's
+   latest commit (version already baked in). Unlabelled merges never publish.
