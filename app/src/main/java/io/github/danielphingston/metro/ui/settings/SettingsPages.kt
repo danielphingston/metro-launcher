@@ -290,6 +290,8 @@ internal fun AboutPage() {
         )
     })
 
+    BackupSettingsSection()
+
     CrashLogSettingsSection()
 
     Section("about")

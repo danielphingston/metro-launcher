@@ -299,6 +299,9 @@ class SettingsRepository(private val context: Context) {
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
 
+    /** The settings stored in [prefs]; also used to check a backup before it is restored. */
+    internal fun settingsOf(prefs: Preferences): LauncherSettings = prefs.toSettings()
+
     private fun Preferences.toSettings(): LauncherSettings {
         val defaults = LauncherSettings()
         return LauncherSettings(

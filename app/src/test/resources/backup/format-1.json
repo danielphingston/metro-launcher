@@ -1,0 +1,87 @@
+{
+  "app": "metro-launcher",
+  "format": 1,
+  "appVersion": "0.7.16",
+  "exportedAt": 1762000000000,
+  "prefs": {
+    "theme": {
+      "type": "string",
+      "value": "LIGHT"
+    },
+    "accent": {
+      "type": "int",
+      "value": -16746753
+    },
+    "columns": {
+      "type": "int",
+      "value": 6
+    },
+    "monochrome_icons": {
+      "type": "boolean",
+      "value": true
+    },
+    "tile_transparency": {
+      "type": "int",
+      "value": 40
+    },
+    "launch_style": {
+      "type": "string",
+      "value": "TURNSTILE"
+    },
+    "animation_speed": {
+      "type": "int",
+      "value": 150
+    },
+    "tiles": {
+      "type": "string",
+      "value": "[{\"id\":1,\"size\":\"MEDIUM\",\"x\":0,\"y\":0,\"type\":\"app\",\"app\":\"com.example.mail/com.example.mail.Main#0\"},{\"id\":2,\"size\":\"WIDE\",\"x\":2,\"y\":0,\"type\":\"weather\"},{\"id\":3,\"size\":\"SMALL\",\"x\":0,\"y\":2,\"style\":\"iconOnly\",\"type\":\"app\",\"app\":\"com.example.maps/com.example.maps.Main#0\"},{\"id\":4,\"size\":\"MEDIUM\",\"x\":2,\"y\":2,\"type\":\"folder\",\"name\":\"games\",\"children\":[{\"id\":5,\"size\":\"SMALL\",\"type\":\"app\",\"app\":\"com.example.chess/com.example.chess.Main#0\"},{\"id\":6,\"size\":\"SMALL\",\"type\":\"app\",\"app\":\"com.example.cards/com.example.cards.Main#0\"}]},{\"id\":7,\"size\":\"SMALL\",\"x\":0,\"y\":3,\"type\":\"quick\",\"kind\":\"flashlight\"},{\"id\":8,\"size\":\"MEDIUM\",\"x\":4,\"y\":0,\"spanWidth\":3,\"spanHeight\":2,\"type\":\"photos\"}]"
+    },
+    "tile_photos": {
+      "type": "string",
+      "value": "content://media/picker/0/1\ncontent://media/picker/0/2"
+    },
+    "weather_name": {
+      "type": "string",
+      "value": "Pune"
+    },
+    "weather_detail": {
+      "type": "string",
+      "value": "Maharashtra, India"
+    },
+    "weather_latitude": {
+      "type": "double",
+      "value": 18.5204
+    },
+    "weather_longitude": {
+      "type": "double",
+      "value": 73.8567
+    },
+    "weather_fahrenheit": {
+      "type": "boolean",
+      "value": false
+    },
+    "search_keywords": {
+      "type": "string",
+      "value": "[{\"k\":\"w\",\"on\":true,\"t\":{\"type\":\"site\",\"name\":\"Wikipedia\",\"template\":\"https://en.wikipedia.org/w/index.php?search=%s\"}},{\"k\":\"yt\",\"on\":true,\"t\":{\"type\":\"app\",\"id\":\"youtube\"}}]"
+    },
+    "search_in_other_apps": {
+      "type": "stringSet",
+      "value": [
+        "com.example.shop",
+        "com.example.notes"
+      ]
+    },
+    "search_in_youtube": {
+      "type": "boolean",
+      "value": false
+    },
+    "smart_calendar": {
+      "type": "boolean",
+      "value": true
+    },
+    "future_setting_from_newer_build": {
+      "type": "string",
+      "value": "kept"
+    }
+  }
+}
