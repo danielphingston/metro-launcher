@@ -198,6 +198,18 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
         }
     }
 
+    /**
+     * Reads the layout from the store again, after a backup was restored into it. The restored
+     * layout replaces the one held in memory, so a later save can't write the old one back.
+     */
+    suspend fun reloadFromStore() {
+        val prefs = context.metroDataStore.data.first()
+        val loaded = TileStore.load(prefs[key], prefs[backupKey])
+        carried = loaded.unread
+        isFirstRun = false
+        _tiles.value = loaded.tiles.let(::load).let(::pruneDeadWidgets)
+    }
+
     @OptIn(FlowPreview::class)
     private suspend fun persistChanges() {
         _tiles.filterNotNull().drop(1).onEach { dirty = true }.debounce(400).collect { save(it) }
