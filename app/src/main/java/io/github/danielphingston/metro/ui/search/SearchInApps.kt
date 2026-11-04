@@ -3,6 +3,7 @@ package io.github.danielphingston.metro.ui.search
 import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.telephony.TelephonyManager
 import io.github.danielphingston.metro.data.AppInfo
@@ -105,7 +106,10 @@ internal interface SearchInPhone {
 }
 
 internal class RealSearchInPhone(private val context: Context) : SearchInPhone {
-    override fun resolves(intent: Intent) = context.packageManager.resolveActivity(intent, 0) != null
+    // Only handlers an ordinary start reaches (CATEGORY_DEFAULT): one without it, as some browsers'
+    // search activities are, would show a chip that does nothing when tapped.
+    override fun resolves(intent: Intent) =
+        context.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) != null
 
     override fun amazonDomain(locale: Locale) = AmazonDomain.forPhone(context, locale)
 
@@ -155,7 +159,7 @@ internal object SearchInApps {
         val found = LinkedHashMap<String, OtherSearchApp>()
         for (web in listOf(false, true)) {
             val probe = Intent(if (web) Intent.ACTION_WEB_SEARCH else Intent.ACTION_SEARCH)
-            pm.queryIntentActivities(probe, 0).forEach { info ->
+            pm.queryIntentActivities(probe, PackageManager.MATCH_DEFAULT_ONLY).forEach { info ->
                 val pkg = info.activityInfo?.packageName ?: return@forEach
                 if (pkg in builtInPackages || pkg == context.packageName || pkg in found) return@forEach
                 val label = apps.firstOrNull { it.key.packageName == pkg }?.label ?: info.loadLabel(pm).toString()
@@ -163,7 +167,7 @@ internal object SearchInApps {
             }
         }
         // Browsers can be searched through their results page even when they take no search intent.
-        pm.queryIntentActivities(SearchInIntents.browserProbe(), 0).forEach { info ->
+        pm.queryIntentActivities(SearchInIntents.browserProbe(), PackageManager.MATCH_DEFAULT_ONLY).forEach { info ->
             val pkg = info.activityInfo?.packageName ?: return@forEach
             if (pkg in builtInPackages || pkg == context.packageName || pkg in found || pkg == "android") return@forEach
             val label = apps.firstOrNull { it.key.packageName == pkg }?.label ?: info.loadLabel(pm).toString()
