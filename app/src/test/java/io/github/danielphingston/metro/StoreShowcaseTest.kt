@@ -686,7 +686,7 @@ class StoreShowcaseTest {
                     fun Tile(tile: ResolvedTile, p: io.github.danielphingston.metro.ui.start.Placement) {
                         Box(Modifier.offset(cell * p.x, cell * p.y).size(cell * p.width - gap, cell * p.height - gap)) {
                             if (tile === trips) {
-                                // ImageDecoder is not available on the JVM, so draw what "photo only" looks like: the photo and the chevron.
+                                // ImageDecoder is not available on the JVM, so draw what "full tile image" looks like: the photo and the chevron.
                                 val m = TileMetrics(cell, androidx.compose.ui.unit.Density(3f))
                                 val chevron = Metro.colors.onAccent
                                 Box(Modifier.fillMaxSize()) {
