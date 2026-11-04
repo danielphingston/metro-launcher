@@ -37,6 +37,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.name }}
     env:
       KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
     steps:
@@ -114,6 +116,13 @@ jobs:
           -PversionCode=${{ github.run_number }}
           $REQUIRE_SIGNING
 
+      # R8 can't see reflection, so a missing keep rule only shows up as a crash on a phone
+      # (v0.7.16 lost WorkManager's database constructor). Catch that class of bug here.
+      - name: Check the release APK for stripped constructors
+        run: >
+          python3 tools/check-release-apk.py app/build/outputs/apk/release/app-release.apk
+          app/build/outputs/mapping/release/mapping.txt
+
       - name: Collect outputs
         run: |
           mkdir dist
@@ -135,10 +144,59 @@ jobs:
             app/build/test-results/
             app/build/outputs/mapping/release/mapping.txt
 
+  # Installs the minified release APK on an emulator, opens it, drives it with random input
+  # and fails on any crash of the app. Unit tests run the unminified code, so only this sees
+  # what R8 did to it.
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: metro-launcher-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Launch and exercise the release build
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: tools/smoke-test.sh dist/*.apk
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-logcat
+          path: smoke-logcat.txt
+          if-no-files-found: ignore
+
+  release:
+    needs: [build, smoke]
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: metro-launcher-${{ needs.build.outputs.version }}
+          path: dist
+
       # Runs for pushed v* tags, or a manual run with release_tag (the tag is then created
       # on the built commit).
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.release_tag || github.ref_name }}
