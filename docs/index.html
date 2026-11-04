@@ -3,31 +3,165 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Metro Launcher</title>
-<link rel="stylesheet" href="style.css">
+<title>Metro Launcher: live tiles for Android</title>
+<meta name="description" content="A Windows Phone style home screen for Android 12 and later. Live tiles, folders, photos through tiles, turnstile animations and almost no battery use.">
+<meta property="og:title" content="Metro Launcher">
+<meta property="og:description" content="Live tiles, photos through tiles and turnstile animations for Android, built to use almost no battery.">
+<meta property="og:image" content="store/feature_graphic.png">
+<link rel="stylesheet" href="landing.css">
 </head>
 <body>
-<main>
-<h1>metro launcher</h1>
-<p class="meta">A home screen for Android 12 and later, inspired by Windows Phone.</p>
 
-<div class="shots">
-  <img src="start_dark.png" alt="Start screen with live tiles">
-  <img src="start_photo_tiles.png" alt="Start screen with a photo showing through the tiles">
-  <img src="app_list.png" alt="Alphabetical app list">
-  <img src="scrubber_circle.png" alt="Alphabet scrubber">
-  <img src="search_dark.png" alt="Search">
-  <img src="settings_menu.png" alt="Settings menu">
-</div>
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <p class="eyebrow">A home screen for Android 12 and later</p>
+      <h1>metro launcher</h1>
+      <p class="lead">Live tiles for your phone. Your photos behind them. Almost no battery.</p>
+      <div class="cta">
+        <a class="btn" href="https://play.google.com/store/apps/details?id=io.github.danielphingston.metro">Get it on Google Play</a>
+        <a class="btn ghost" href="https://github.com/danielphingston/metro-launcher">View on GitHub</a>
+      </div>
+      <p class="fine">No accounts, no ads, no analytics. <a href="privacy.html">Privacy policy</a></p>
+    </div>
+    <div class="hero-art" aria-hidden="false">
+      <img class="back" src="store/site/make_it_yours.webp" width="662" height="1298" alt="Light theme start screen with a sunset photo showing through magenta tiles">
+      <img class="front" src="store/site/home_screen.webp" width="662" height="1298" alt="Start screen with weather, clock, music, messages, calendar and people live tiles over a neon photo">
+    </div>
+  </div>
+</header>
 
-<p>Live tiles for unread messages, music, calendar, weather, photos and people. Small, medium, wide and large tiles, folders, widgets, the 20 classic accent colours and turnstile animations. Built to use almost no battery: nothing runs or animates while the home screen is not on screen.</p>
+<section class="feature">
+  <div class="wrap">
+    <div class="art single"><img loading="lazy" src="store/site/home_screen.webp" width="662" height="1298" alt="Live tiles for weather, clock, music, messages and calendar"></div>
+    <div>
+      <h2>your home screen, alive</h2>
+      <p>App tiles show an unread count and flip to the latest message. Clock and calendar tiles show the time, your next alarm and your next appointment. Music tiles show the current track with its album art.</p>
+      <p>There is a weather tile with a forecast, a photos tile that slides through pictures you pick, and a people tile that flips through a mosaic of contact photos. Tiles come small, medium, wide and large, and flip one at a time, only while you can see them.</p>
+    </div>
+  </div>
+</section>
 
-<h2>Links</h2>
-<ul>
-  <li><a href="privacy.html">Privacy policy</a></li>
-</ul>
+<section class="feature flip">
+  <div class="wrap">
+    <div class="art">
+      <img loading="lazy" src="store/site/make_it_yours.webp" width="662" height="1298" alt="Light theme with a magenta accent over a sunset photo">
+      <img loading="lazy" src="store/site/full_photo.webp" width="662" height="1298" alt="Full photo background with a violet accent">
+    </div>
+    <div>
+      <h2>make it yours</h2>
+      <p>Choose dark, light or follow the system, and pick from the 20 classic accent colours.</p>
+      <ul>
+        <li><strong>Photo tiles:</strong> every tile is a window onto one photo.</li>
+        <li><strong>Full photo</strong> with a gentle parallax, or your system wallpaper.</li>
+        <li>A tile transparency slider, and an accent colour taken from your background.</li>
+        <li>Themed icons on Android 13 and later, and icon packs.</li>
+      </ul>
+    </div>
+  </div>
+</section>
 
-<footer>Not affiliated with Microsoft. Weather data by <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0).</footer>
-</main>
+<section class="feature">
+  <div class="wrap">
+    <div class="art single"><img loading="lazy" src="store/site/folders.webp" width="662" height="1298" alt="A folder opened below its row, next to a folder that shows only a photo"></div>
+    <div>
+      <h2>folders that open in place</h2>
+      <p>Tap a folder and its tiles open right under its row. Drag them to reorder, or out of the band to take them out of the folder. Folder tiles can be resized like any other tile.</p>
+      <p>Show a folder as its apps with a name, apps only, apps over a photo, or just the photo.</p>
+    </div>
+  </div>
+</section>
+
+<section class="feature flip">
+  <div class="wrap">
+    <div class="art">
+      <img loading="lazy" src="store/site/search.webp" width="662" height="1298" alt="Search results for the letters ma: apps, contacts, calendar events and a web row">
+      <img loading="lazy" src="store/site/search_calc.webp" width="662" height="1298" alt="Search showing the answer to 15% of 2400">
+    </div>
+    <div>
+      <h2>find anything, fast</h2>
+      <p>Pull down on the start screen, or tap the magnifier. Results appear as you type: apps (initials and small typos work), app shortcuts and a web row. Nothing leaves the phone until you open a web result.</p>
+      <p>With Metro Plus, search also answers sums and unit conversions offline, jumps to phone settings, sets timers and alarms, and can look through your contacts and calendar events <span class="tag">metro plus</span></p>
+    </div>
+  </div>
+</section>
+
+<section class="feature">
+  <div class="wrap">
+    <div class="art single"><img loading="lazy" src="store/site/app_list.webp" width="662" height="1298" alt="Alphabetical app list with the alphabet scrubber under a finger"></div>
+    <div>
+      <h2>every app, a to z</h2>
+      <p>Swipe left for an alphabetical list with letter tiles, a jump grid, search and a group of recently added apps. Prefer bare icons? Switch to plain icons.</p>
+      <p>The alphabet scrubber on the right edge bulges in a wave around your finger, with a big letter you can place where it suits you. Press and hold an app to pin it, see its shortcuts, uninstall or open app info.</p>
+    </div>
+  </div>
+</section>
+
+<section class="feature flip">
+  <div class="wrap">
+    <div class="art">
+      <img loading="lazy" src="store/site/turnstile.webp" width="662" height="1298" alt="The start screen mid way through a turnstile launch animation">
+      <img loading="lazy" src="store/site/animations.webp" width="662" height="1298" alt="The animations settings page">
+    </div>
+    <div>
+      <h2>smooth as a turnstile</h2>
+      <p>The tiles swing away about their left edge, the one you tapped last, and swing back when you return. Pick turnstile, turnstile by rows, slide, zoom, fade or none.</p>
+      <p>Set the speed from 0.5x to 2x, play the animation backwards on return, open apps while it is still animating, and tune the tilt on press, live tile flips and page swing.</p>
+    </div>
+  </div>
+</section>
+
+<section class="feature">
+  <div class="wrap">
+    <div class="art single"><img loading="lazy" src="store/site/edit_mode.webp" width="662" height="1298" alt="Edit mode with one tile selected and its corner badges showing"></div>
+    <div>
+      <h2>arrange it your way</h2>
+      <p>Press and hold a tile to edit. Drag to move, and use the corner badges to unpin, resize or group into a folder. Tiles keep the place you give them and only slide straight up into free space.</p>
+      <p>Padding is adjustable on all four edges, there are four columns or six, and tablets and foldables get a grid that fills the screen. TalkBack gets custom actions as an alternative to dragging.</p>
+    </div>
+  </div>
+</section>
+
+<section class="feature flip">
+  <div class="wrap">
+    <div class="art single"><img loading="lazy" src="store/site/battery.webp" width="662" height="1298" alt="Quick settings tiles for battery, flashlight, do not disturb, ringer and brightness"></div>
+    <div>
+      <h2>barely touches your battery</h2>
+      <p>No service of its own, no wake locks, no alarms and no polling. Live tiles, flips, slideshows and widget updates run only while the home screen is on screen. The default background is black, and the turnstile is drawn in a single frame callback per launch.</p>
+      <p>The one scheduled job is the weather tile's hourly refresh, only while a weather tile is pinned.</p>
+      <p>Metro Plus adds quick settings tiles: flashlight, do not disturb, ringer, auto-rotate, brightness and battery <span class="tag">metro plus</span></p>
+    </div>
+  </div>
+</section>
+
+<section class="plus">
+  <div class="wrap">
+    <h2>free, with one optional pack</h2>
+    <p>Everything above works without paying, except what is marked <span class="tag">metro plus</span>, which is a single one-time purchase on Google Play.</p>
+    <div class="cards">
+      <div class="card"><h3>Free forever</h3><p>Live tiles, folders, widgets, photo backgrounds, animations, the app list and scrubber, plain app search with smart matching, the web row and typed addresses.</p></div>
+      <div class="card"><h3>Metro Plus</h3><p>Quick settings tiles, an assistant tile with an "ask" row in search, and smart search: calculator and units, settings shortcuts, quick actions, contacts, calendar events and more.</p></div>
+      <div class="card"><h3>Private by design</h3><p>No accounts, ads or analytics, and no server of ours. Weather is the only thing that goes online, to Open-Meteo, and only if you add a weather tile.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="closing">
+  <div class="wrap">
+    <h2>try it on your phone</h2>
+    <p>Metro Launcher needs Android 12 or later. It is open source, so you can read exactly what it does.</p>
+    <div class="cta">
+      <a class="btn" href="https://play.google.com/store/apps/details?id=io.github.danielphingston.metro">Get it on Google Play</a>
+      <a class="btn ghost" href="https://github.com/danielphingston/metro-launcher">Source on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><a href="privacy.html">Privacy policy</a> &middot; <a href="https://github.com/danielphingston/metro-launcher">GitHub</a></p>
+  <p>Not affiliated with Microsoft. Weather data by <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0).</p>
+  <p>Screenshots use made-up content and generated artwork.</p>
+</footer>
+
 </body>
 </html>

@@ -1250,7 +1250,7 @@ private fun TileStyleMenu(
     }
     val folder = spec.content is TileContent.Folder
     val items = TileStyles.styles(spec).map { style ->
-        val label = TileStyles.label(spec, style)
+        val label = style.label
         (if (style == spec.style) "• $label" else label) to { choose(style) }
     } + listOfNotNull(
         if (spec.style.needsImage) "choose another photo" to { choose(spec.style, newPhoto = true) } else null,

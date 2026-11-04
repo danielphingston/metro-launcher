@@ -174,6 +174,12 @@ fun QuickSettingFace(kind: QuickSettingKind, size: TileSize, label: String, cell
     val state by remember(kind) {
         QuickSettings.states(context, kind).catch { emit(QuickState(false, "unavailable")) }
     }.collectAsStateWithLifecycle(remember(kind) { QuickSettings.read(context, kind) })
+    QuickSettingFaceContent(kind, state, size, label, cellSize, modifier)
+}
+
+/** The face of [kind] for a given [state]; split out of [QuickSettingFace] so it can be drawn without a live setting. */
+@Composable
+internal fun QuickSettingFaceContent(kind: QuickSettingKind, state: QuickState, size: TileSize, label: String, cellSize: Dp, modifier: Modifier = Modifier) {
     val m = rememberTileMetrics(cellSize)
     val white = Metro.colors.onAccent
     // The dimming is not enough for a screen reader: say what the tile is, what it does and its state.

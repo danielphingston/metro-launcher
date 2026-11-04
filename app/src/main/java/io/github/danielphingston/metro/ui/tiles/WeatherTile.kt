@@ -129,7 +129,7 @@ private fun NotSetFace(size: TileSize, label: String, m: TileMetrics) {
 }
 
 @Composable
-private fun WeatherFront(size: TileSize, place: WeatherPlace, forecast: Forecast?, label: String, m: TileMetrics) {
+internal fun WeatherFront(size: TileSize, place: WeatherPlace, forecast: Forecast?, label: String, m: TileMetrics) {
     val white = Metro.colors.onAccent
     Box(Modifier.fillMaxSize()) {
         if (size == TileSize.SMALL) {
@@ -189,7 +189,7 @@ private fun WeatherFront(size: TileSize, place: WeatherPlace, forecast: Forecast
 }
 
 @Composable
-private fun WeatherBack(size: TileSize, forecast: Forecast, label: String, m: TileMetrics) {
+internal fun WeatherBack(size: TileSize, forecast: Forecast, label: String, m: TileMetrics) {
     val white = Metro.colors.onAccent
     Box(Modifier.fillMaxSize()) {
         val today = forecast.today

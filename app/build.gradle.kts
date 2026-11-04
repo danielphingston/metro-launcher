@@ -52,7 +52,11 @@ android {
             all {
                 // Default: verify screenshots against the goldens in src/test/screenshots, failing on a diff (diff and
                 // compare images go to build/outputs/roborazzi). -Proborazzi.record=true re-records them.
-                if (providers.gradleProperty("roborazzi.record").orNull == "true") {
+                // -PstoreShots renders the Play Store / website images (StoreShowcaseTest) into build/store/raw.
+                // Roborazzi has to be in record mode to write them; they go to build/, never to the goldens.
+                val storeShots = providers.gradleProperty("storeShots").isPresent
+                if (storeShots) it.systemProperty("storeShots", "true")
+                if (storeShots || providers.gradleProperty("roborazzi.record").orNull == "true") {
                     it.systemProperty("roborazzi.test.record", "true")
                 } else {
                     it.systemProperty("roborazzi.test.verify", "true")

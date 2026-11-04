@@ -4,6 +4,7 @@ import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.telephony.TelephonyManager
 import io.github.danielphingston.metro.data.AppInfo
@@ -162,7 +163,7 @@ internal object SearchInApps {
             pm.queryIntentActivities(probe, PackageManager.MATCH_DEFAULT_ONLY).forEach { info ->
                 val pkg = info.activityInfo?.packageName ?: return@forEach
                 if (pkg in builtInPackages || pkg == context.packageName || pkg in found) return@forEach
-                val label = apps.firstOrNull { it.key.packageName == pkg }?.label ?: info.loadLabel(pm).toString()
+                val label = labelOf(pm, info, apps) ?: return@forEach
                 found[pkg] = OtherSearchApp(pkg, label, web)
             }
         }
@@ -170,10 +171,23 @@ internal object SearchInApps {
         pm.queryIntentActivities(SearchInIntents.browserProbe(), PackageManager.MATCH_DEFAULT_ONLY).forEach { info ->
             val pkg = info.activityInfo?.packageName ?: return@forEach
             if (pkg in builtInPackages || pkg == context.packageName || pkg in found || pkg == "android") return@forEach
-            val label = apps.firstOrNull { it.key.packageName == pkg }?.label ?: info.loadLabel(pm).toString()
+            val label = labelOf(pm, info, apps) ?: return@forEach
             found[pkg] = OtherSearchApp(pkg, label, web = true)
         }
         return found.values.sortedBy { it.label.lowercase(Locale.ROOT) }
+    }
+
+    /**
+     * [info]'s name: its launcher name, else the activity's, else the app's. Null when all are
+     * blank, so a nameless entry isn't listed.
+     */
+    private fun labelOf(pm: PackageManager, info: ResolveInfo, apps: List<AppInfo>): String? {
+        val pkg = info.activityInfo.packageName
+        return sequenceOf(
+            { apps.firstOrNull { it.key.packageName == pkg }?.label },
+            { info.loadLabel(pm).toString() },
+            { info.activityInfo.applicationInfo?.let { pm.getApplicationLabel(it).toString() } },
+        ).firstNotNullOfOrNull { label -> label()?.trim()?.takeIf { it.isNotEmpty() } }
     }
 
     /**

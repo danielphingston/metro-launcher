@@ -412,15 +412,6 @@ internal object TileStyles {
             TileStyle.entries
         }
 
-    /** How [style] reads in [tile]'s menu: a folder shows apps rather than an icon. */
-    fun label(tile: TileSpec, style: TileStyle): String = if (tile.content !is TileContent.Folder) style.label else when (style) {
-        TileStyle.ICON -> "apps and name"
-        TileStyle.ICON_ONLY -> "apps only"
-        TileStyle.IMAGE_ICON -> "photo behind apps"
-        TileStyle.FULL_IMAGE -> "photo only"
-        else -> style.label
-    }
-
     fun set(tiles: List<TileSpec>, id: Long, style: TileStyle, image: String?): List<TileSpec> = tiles.map { tile ->
         when {
             tile.id == id -> tile.copy(style = style, image = image.takeIf { style.needsImage })
