@@ -177,7 +177,7 @@ object WidgetTiles {
         val updated = try {
             context.packageManager.getPackageInfo(info.provider.packageName, 0).lastUpdateTime
         } catch (_: Exception) {
-            return // Gone or hidden from us; the tile falls back to its placeholder elsewhere.
+            0L // Hidden from us (no launcher icon): still refreshed once per process, just not after its updates.
         }
         if (refreshedFor[appWidgetId] == updated) return
         refreshedFor[appWidgetId] = updated
