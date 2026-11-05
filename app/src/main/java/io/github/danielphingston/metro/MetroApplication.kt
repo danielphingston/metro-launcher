@@ -17,6 +17,7 @@ import io.github.danielphingston.metro.live.PeopleSource
 import io.github.danielphingston.metro.ui.search.ShortcutIndex
 import io.github.danielphingston.metro.ui.search.WhatsAppIndex
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
+import io.github.danielphingston.metro.ui.tiles.WidgetTiles
 import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +73,7 @@ class MetroApplication : Application(), Configuration.Provider {
             icons.invalidatePack(pkg)
             ShortcutIndex.shared(this).invalidate()
             WhatsAppIndex.shared(this).invalidate()
+            WidgetTiles.providerUpdated(this, pkg)
         })
         assistantReply = AssistantReplyStore(this, appScope)
         lastAsked = LastAskedStore(this, appScope, legacy = settings::takeLegacyLastAsked)
