@@ -202,11 +202,12 @@ internal fun rememberIcon(icons: IconCache, app: AppInfo, sizePx: Int, monochrom
 }
 
 /** How long to wait before each retry of an icon that could not be drawn (see [loadWithRetry]). */
-private val ICON_RETRY_MILLIS = longArrayOf(1_500L, 5_000L, 15_000L)
+private val ICON_RETRY_MILLIS = longArrayOf(1_500L, 5_000L, 15_000L, 60_000L, 60_000L, 300_000L)
 
 /**
  * Loads off the main thread. A null result is often transient (the app is being updated), and
- * nothing else would ask again, so it is retried a few times with growing delays.
+ * nothing else would ask again, so it is retried with growing delays for about eight minutes,
+ * long enough for a large app update to finish.
  */
 private suspend fun loadWithRetry(icons: IconCache, app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
     for (wait in ICON_RETRY_MILLIS) {

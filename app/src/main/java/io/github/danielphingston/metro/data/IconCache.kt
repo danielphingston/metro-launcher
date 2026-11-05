@@ -8,6 +8,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Process
 import android.util.LruCache
@@ -54,7 +55,8 @@ class IconCache(private val context: Context) {
 
     /**
      * Blocking: call off the main thread. Null when the icon can't be drawn, for instance while
-     * its app is being updated; the next call tries again.
+     * its app is being updated (the system then hands out its default icon, which is not cached
+     * either); the next call tries again.
      */
     fun load(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
         val key = cacheKey(app, sizePx, monochrome)
@@ -141,15 +143,29 @@ class IconCache(private val context: Context) {
         }
     }
 
-    private fun render(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon {
+    /**
+     * True when [raw] is the system's stand-in icon although [app] declares its own: the app's
+     * resources could not be read (typically while it is being updated). Caching that would keep
+     * the stand-in on its tiles until the launcher restarts.
+     */
+    private fun isStandIn(app: AppInfo, raw: Drawable, sizePx: Int): Boolean {
+        if (!app.declaresIcon) return false
+        val fallback = context.packageManager.defaultActivityIcon
+        if (raw.constantState != null && raw.constantState == fallback.constantState) return true
+        return raw.toBitmap(sizePx, sizePx).sameAs(fallback.toBitmap(sizePx, sizePx))
+    }
+
+    private fun render(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
         val density = context.resources.displayMetrics.densityDpi
         iconPack?.let { pack ->
             iconPacks.drawable(pack, app.component, density)?.let {
                 return TileIcon(it.toBitmap(sizePx, sizePx).asImageBitmap(), isMonochrome = false)
             }
         }
+        val raw = app.loadIcon(density, false)
+        if (isStandIn(app, raw, sizePx)) return null
         if (monochrome && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val adaptive = app.loadIcon(density, false) as? AdaptiveIconDrawable
+            val adaptive = raw as? AdaptiveIconDrawable
             val mono = adaptive?.monochrome?.mutate()
             if (mono != null) {
                 val bitmap = createBitmap(sizePx, sizePx)

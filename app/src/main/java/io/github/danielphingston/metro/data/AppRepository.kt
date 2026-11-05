@@ -33,6 +33,11 @@ class AppInfo(
     val isUninstallable: Boolean,
     /** When the app was first installed, in epoch millis; 0 if unknown. */
     val installTime: Long = 0L,
+    /**
+     * The app declares an icon of its own. When it does, getting the system's default icon back
+     * means loading failed (the app is mid-update), not that the app has no icon.
+     */
+    val declaresIcon: Boolean = false,
     /** Loads the raw icon at a screen density; `badged` adds the work-profile badge. */
     internal val loadIcon: (density: Int, badged: Boolean) -> Drawable,
 ) {
@@ -48,6 +53,7 @@ class AppInfo(
                     flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0,
                 // The same value as PackageInfo.firstInstallTime, and it also works for the work profile.
                 installTime = info.firstInstallTime,
+                declaresIcon = info.applicationInfo.icon != 0,
                 loadIcon = { density, badged -> if (badged) info.getBadgedIcon(density) else info.getIcon(density) },
             )
         }
