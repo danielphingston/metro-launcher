@@ -163,6 +163,45 @@ object WidgetTiles {
         }
     }
 
+    /** The provider app's install time each widget was last refreshed for. Main thread only. */
+    private val refreshedFor = HashMap<Int, Long>()
+
+    /**
+     * Asks the widget's provider to draw it again, once per launcher process and again after the
+     * provider app was updated. A widget can otherwise keep showing its loading layout after either
+     * app updates: the system hands back whatever views it holds, and the provider is not asked
+     * again until something about the widget changes (resizing did). Re-sending the widget's
+     * options makes the system tell the provider, which renders anew.
+     */
+    internal fun refreshIfStale(context: Context, appWidgetId: Int, info: AppWidgetProviderInfo) {
+        val updated = try {
+            context.packageManager.getPackageInfo(info.provider.packageName, 0).lastUpdateTime
+        } catch (_: Exception) {
+            0L // Hidden from us (no launcher icon): still refreshed once per process, just not after its updates.
+        }
+        if (refreshedFor[appWidgetId] == updated) return
+        refreshedFor[appWidgetId] = updated
+        try {
+            val manager = AppWidgetManager.getInstance(context)
+            manager.updateAppWidgetOptions(appWidgetId, manager.getAppWidgetOptions(appWidgetId))
+        } catch (_: RuntimeException) {
+            // The widget service refused or is gone; the widget keeps what it shows.
+        }
+    }
+
+    /** Refreshes this host's widgets of [packageName] after that app was updated while on screen. */
+    internal fun providerUpdated(context: Context, packageName: String) {
+        val ids = try {
+            host(context).appWidgetIds
+        } catch (_: RuntimeException) {
+            return
+        }
+        for (id in ids) {
+            val info = providerInfo(context, id) ?: continue
+            if (info.provider.packageName == packageName && id in refreshedFor) refreshIfStale(context, id, info)
+        }
+    }
+
     /**
      * The host view for a widget tile. A widget whose views the system can't hand over (too large
      * for a transaction, widget service dying) gets an empty view, so only its tile is blank.
@@ -379,6 +418,7 @@ fun WidgetTile(
                 Lifecycle.Event.ON_START -> if (!listening) {
                     listening = true
                     WidgetTiles.startListening(context)
+                    WidgetTiles.refreshIfStale(context, widget.appWidgetId, info)
                 }
                 Lifecycle.Event.ON_STOP -> stop()
                 else -> Unit
