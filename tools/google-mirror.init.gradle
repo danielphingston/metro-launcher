@@ -1,0 +1,25 @@
+// Downloads Maven Central artifacts from Google's mirror of it instead. Maven Central rate-limits
+// shared addresses (HTTP 429), which fails a build before anything compiles. Opt in per build:
+//
+//   ./gradlew --init-script tools/google-mirror.init.gradle testDebugUnitTest lintDebug
+//
+// The build files are untouched, so CI and release builds resolve exactly as before.
+
+def mirror = 'https://maven-central.storage-download.googleapis.com/maven2/'
+
+def useMirror = { repositories ->
+    def central = repositories.findAll {
+        it instanceof MavenArtifactRepository && it.url.host == 'repo.maven.apache.org'
+    }
+    if (central.isEmpty()) return
+    repositories.removeAll(central)
+    repositories.maven {
+        name = 'GoogleMavenCentralMirror'
+        url = mirror
+    }
+}
+
+settingsEvaluated { settings ->
+    useMirror(settings.pluginManagement.repositories)
+    useMirror(settings.dependencyResolutionManagement.repositories)
+}
