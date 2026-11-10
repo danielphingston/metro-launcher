@@ -7,16 +7,18 @@
 
 def mirror = 'https://maven-central.storage-download.googleapis.com/maven2/'
 
+// The mirror goes first: the Gradle plugin portal also redirects to Maven Central for what is
+// hosted there, so it must only be asked for what the mirror doesn't have.
 def useMirror = { repositories ->
-    def central = repositories.findAll {
+    repositories.removeAll(repositories.findAll {
         it instanceof MavenArtifactRepository && it.url.host == 'repo.maven.apache.org'
-    }
-    if (central.isEmpty()) return
-    repositories.removeAll(central)
-    repositories.maven {
+    })
+    def google = repositories.maven {
         name = 'GoogleMavenCentralMirror'
         url = mirror
     }
+    repositories.remove(google)
+    repositories.addFirst(google)
 }
 
 settingsEvaluated { settings ->
