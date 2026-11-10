@@ -517,7 +517,7 @@ internal object WidgetReclaim {
     /** The widget ids of [tiles], including the tiles inside folders. */
     fun referencedIds(tiles: List<TileSpec>): Set<Int> {
         val ids = HashSet<Int>()
-        fun visit(list: List<TileSpec>) = list.forEach { spec ->
+        fun visit(list: List<TileSpec>): Unit = list.forEach { spec ->
             when (val c = spec.content) {
                 is TileContent.Widget -> ids += c.appWidgetId
                 is TileContent.Folder -> visit(c.children)
