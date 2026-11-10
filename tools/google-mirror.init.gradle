@@ -25,3 +25,11 @@ settingsEvaluated { settings ->
     useMirror(settings.pluginManagement.repositories)
     useMirror(settings.dependencyResolutionManagement.repositories)
 }
+
+// Robolectric downloads its Android runtime jar itself, while the tests run, from Maven Central.
+allprojects {
+    tasks.withType(Test).configureEach {
+        systemProperty 'robolectric.dependency.repo.url', mirror
+        systemProperty 'robolectric.dependency.repo.id', 'google-maven-central-mirror'
+    }
+}
