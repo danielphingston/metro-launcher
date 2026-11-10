@@ -35,6 +35,7 @@ import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationHub
+import io.github.danielphingston.metro.live.UserSerials
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -164,8 +165,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 ResolvedTile(spec, icon?.let { byKey[it] ?: appFor(it.packageName, it.userSerial) }, c.label)
             }
             TileContent.Assistant -> {
+                val ownSerial = UserSerials.of(application, android.os.Process.myUserHandle())
                 val pkg = AssistantChoice.resolve(assistantSetting, byPackage.keys.mapTo(HashSet()) { it.first })
-                val app = pkg?.let { appFor(it, 0L) ?: byPackage.entries.firstOrNull { e -> e.key.first == it }?.value?.first() }
+                val app = pkg?.let { appFor(it, ownSerial) ?: byPackage.entries.firstOrNull { e -> e.key.first == it }?.value?.first() }
                 ResolvedTile(spec, app, app?.let { AssistantChoice.displayName(it.key.packageName, it.label) } ?: "assistant")
             }
             is TileContent.Folder -> ResolvedTile(

@@ -1,0 +1,35 @@
+// Downloads Maven Central artifacts from Google's mirror of it instead. Maven Central rate-limits
+// shared addresses (HTTP 429), which fails a build before anything compiles. Opt in per build:
+//
+//   ./gradlew --init-script tools/google-mirror.init.gradle testDebugUnitTest lintDebug
+//
+// The build files are untouched, so CI and release builds resolve exactly as before.
+
+def mirror = 'https://maven-central.storage-download.googleapis.com/maven2/'
+
+// The mirror goes first: the Gradle plugin portal also redirects to Maven Central for what is
+// hosted there, so it must only be asked for what the mirror doesn't have.
+def useMirror = { repositories ->
+    repositories.removeAll(repositories.findAll {
+        it instanceof MavenArtifactRepository && it.url.host == 'repo.maven.apache.org'
+    })
+    def google = repositories.maven {
+        name = 'GoogleMavenCentralMirror'
+        url = mirror
+    }
+    repositories.remove(google)
+    repositories.addFirst(google)
+}
+
+settingsEvaluated { settings ->
+    useMirror(settings.pluginManagement.repositories)
+    useMirror(settings.dependencyResolutionManagement.repositories)
+}
+
+// Robolectric downloads its Android runtime jar itself, while the tests run, from Maven Central.
+allprojects {
+    tasks.withType(Test).configureEach {
+        systemProperty 'robolectric.dependency.repo.url', mirror
+        systemProperty 'robolectric.dependency.repo.id', 'google-maven-central-mirror'
+    }
+}

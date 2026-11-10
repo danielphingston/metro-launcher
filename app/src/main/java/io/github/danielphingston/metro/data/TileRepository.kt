@@ -3,12 +3,15 @@ package io.github.danielphingston.metro.data
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
+import android.os.Process
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import io.github.danielphingston.metro.live.UserSerials
 import io.github.danielphingston.metro.ui.start.GridPos
 import io.github.danielphingston.metro.ui.start.StartColumns
 import io.github.danielphingston.metro.ui.start.TilePlacement
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +24,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -153,7 +157,17 @@ data class TileSpec(
  * layout (upward gravity only) after every change, using the current column count from
  * [columns]; the first value is read before the saved layout is migrated.
  */
-class TileRepository(private val context: Context, private val scope: CoroutineScope, private val columns: Flow<Int>) {
+class TileRepository(
+    private val context: Context,
+    private val scope: CoroutineScope,
+    private val columns: Flow<Int>,
+    /**
+     * Called on the main thread each time a stored layout was loaded (at start, after a backup
+     * import): the app widget ids that layout references (see [WidgetReclaim.referencedIds]) and
+     * whether some entries could not be decoded. Lets the app reclaim ids no tile uses.
+     */
+    private val onLoaded: (referenced: Set<Int>, undecoded: Boolean) -> Unit = { _, _ -> },
+) {
     private val key = stringPreferencesKey("tiles")
 
     /** The layout as it was before the latest save, kept while it still parses; see [TileStore.load]. */
@@ -184,6 +198,22 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
     var isFirstRun = false
         private set
 
+    /** Guards [pendingAdds] and the switch of [_tiles] from null to loaded. */
+    private val loadLock = Any()
+
+    /** Tiles added before the layout loaded; the load puts them after the stored tiles. */
+    private val pendingAdds = ArrayList<PendingAdd>()
+
+    private class PendingAdd(val content: TileContent, val size: TileSize, val span: TileSpan?)
+
+    /**
+     * Whether the layout in use is the stored one itself. A missing or damaged one (the backup or an
+     * empty layout stands in) says nothing about which widgets the user has, so no id is reclaimed for it.
+     */
+    private fun readAsStored(stored: String?): Boolean = stored != null && TileJson.isReadable(stored)
+
+    private fun undecoded(): Boolean = carried.top.isNotEmpty() || carried.children.values.any { it.isNotEmpty() }
+
     init {
         scope.launch {
             columns.first().takeIf { it != LauncherSettings.AUTO_COLUMNS }?.let { columnCount = it }
@@ -192,9 +222,11 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
             isFirstRun = stored == null
             val loaded = TileStore.load(stored, prefs[backupKey])
             carried = loaded.unread
-            _tiles.value = loaded.tiles.let(::load).let(::pruneDeadWidgets)
+            val pruned = loaded.tiles.let(::load).let { pruneDeadWidgets(it) }
+            val hadPending = publishLoaded(pruned)
+            onLoaded(WidgetReclaim.referencedIds(loaded.tiles) + WidgetReclaim.referencedIds(_tiles.value.orEmpty()), undecoded() || !readAsStored(stored))
             launch { columns.collect { if (it != LauncherSettings.AUTO_COLUMNS) columnCount = it } }
-            persistChanges()
+            persistChanges(initialIsEdit = hadPending)
         }
     }
 
@@ -204,15 +236,30 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
      */
     suspend fun reloadFromStore() {
         val prefs = context.metroDataStore.data.first()
-        val loaded = TileStore.load(prefs[key], prefs[backupKey])
+        val stored = prefs[key]
+        val loaded = TileStore.load(stored, prefs[backupKey])
         carried = loaded.unread
         isFirstRun = false
-        _tiles.value = loaded.tiles.let(::load).let(::pruneDeadWidgets)
+        val pruned = loaded.tiles.let(::load).let { pruneDeadWidgets(it) }
+        _tiles.value = pruned
+        onLoaded(WidgetReclaim.referencedIds(loaded.tiles) + WidgetReclaim.referencedIds(pruned), undecoded() || !readAsStored(stored))
     }
 
+    /**
+     * Publishes the first loaded layout with the tiles that were added while it loaded. True when
+     * there were any: that value is then an edit that still has to be saved.
+     */
+    private fun publishLoaded(stored: List<TileSpec>): Boolean = synchronized(loadLock) {
+        val queued = pendingAdds.toList()
+        pendingAdds.clear()
+        _tiles.value = queued.fold(stored) { list, add -> withAdded(list, add.content, add.size, add.span)?.first ?: list }
+        queued.isNotEmpty()
+    }
+
+    /** [persistChanges] normally skips the first value (the loaded layout); [initialIsEdit] saves it too. */
     @OptIn(FlowPreview::class)
-    private suspend fun persistChanges() {
-        _tiles.filterNotNull().drop(1).onEach { dirty = true }.debounce(400).collect { save(it) }
+    private suspend fun persistChanges(initialIsEdit: Boolean) {
+        _tiles.filterNotNull().let { if (initialIsEdit) it else it.drop(1) }.onEach { dirty = true }.debounce(400).collect { save(it) }
     }
 
     private suspend fun save(list: List<TileSpec>) {
@@ -247,17 +294,28 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
      * the system (a RuntimeException, caught below): such a tile is simply kept, so this can never
      * delete a live widget, at worst it prunes nothing.
      */
-    private fun pruneDeadWidgets(tiles: List<TileSpec>): List<TileSpec> {
+    private suspend fun pruneDeadWidgets(tiles: List<TileSpec>): List<TileSpec> {
         if (tiles.none { it.content is TileContent.Widget }) return tiles
+        // Binder calls, one of them large (every provider on the device): off the main thread, and the list once.
+        return withContext(Dispatchers.Default) { pruneDeadWidgetsNow(tiles) }
+    }
+
+    private fun pruneDeadWidgetsNow(tiles: List<TileSpec>): List<TileSpec> {
         val manager = AppWidgetManager.getInstance(context)
+        val ownSerial = UserSerials.of(context, Process.myUserHandle())
+        val installed = try {
+            manager.installedProviders.mapTo(HashSet()) { it.provider }
+        } catch (_: RuntimeException) {
+            null // No answer: no provider counts as installed, so every tile is kept.
+        }
         return tiles.filterNot { spec ->
             val widget = spec.content as? TileContent.Widget ?: return@filterNot false
             try {
                 val provider = ComponentName.unflattenFromString(widget.provider)
                 WidgetPruning.isDead(
-                    ownProfile = widget.userSerial == 0L,
+                    ownProfile = widget.userSerial == ownSerial,
                     infoKnown = manager.getAppWidgetInfo(widget.appWidgetId) != null,
-                    providerInstalled = provider != null && manager.installedProviders.any { it.provider == provider },
+                    providerInstalled = provider != null && installed != null && provider in installed,
                     idsOfProvider = provider?.let { manager.getAppWidgetIds(it) },
                     id = widget.appWidgetId,
                 )
@@ -301,14 +359,27 @@ class TileRepository(private val context: Context, private val scope: CoroutineS
     /** Pins a tile at the bottom of the start screen unless an identical one (same app or shortcut) is already pinned. A [span] replaces the footprint of [size]. */
     fun add(content: TileContent, size: TileSize, span: TileSpan? = null): Long? {
         var newId: Long? = null
-        _tiles.update { current ->
-            val list = current.orEmpty()
-            if (content !is TileContent.Widget && list.flatten().any { it.content == content }) return@update list
-            val id = nextId(list)
-            newId = id
-            TilePlacement.settle(list + TileSpec(id, size, content, span = span), columnCount)
+        synchronized(loadLock) {
+            if (_tiles.value == null) {
+                // The layout is still loading: a tile published now would be overwritten by it. The
+                // load adds this one after the stored tiles; nobody needs its id (callers ignore the result).
+                pendingAdds += PendingAdd(content, size, span)
+                return null
+            }
+            _tiles.update { list ->
+                val added = list?.let { withAdded(it, content, size, span) }
+                newId = added?.second
+                added?.first ?: list
+            }
         }
         return newId
+    }
+
+    /** [list] with the new tile (and its id) settled in, or null when an identical app or shortcut is already pinned. */
+    private fun withAdded(list: List<TileSpec>, content: TileContent, size: TileSize, span: TileSpan?): Pair<List<TileSpec>, Long>? {
+        if (content !is TileContent.Widget && list.flatten().any { it.content == content }) return null
+        val id = nextId(list)
+        return TilePlacement.settle(list + TileSpec(id, size, content, span = span), columnCount) to id
     }
 
     fun isPinned(content: TileContent): Boolean = _tiles.value.orEmpty().flatten().any { it.content == content }
@@ -439,6 +510,30 @@ internal object TileStyles {
             else -> tile
         }
     }
+}
+
+/** Which app widget ids our host holds for nothing, so they can be freed. */
+internal object WidgetReclaim {
+    /** The widget ids of [tiles], including the tiles inside folders. */
+    fun referencedIds(tiles: List<TileSpec>): Set<Int> {
+        val ids = HashSet<Int>()
+        fun visit(list: List<TileSpec>): Unit = list.forEach { spec ->
+            when (val c = spec.content) {
+                is TileContent.Widget -> ids += c.appWidgetId
+                is TileContent.Folder -> visit(c.children)
+                else -> Unit
+            }
+        }
+        visit(tiles)
+        return ids
+    }
+
+    /**
+     * The ids to delete: held by the host, used by no tile. Nothing at all when some stored entries
+     * couldn't be decoded ([undecoded]): one of them may be a widget tile of a newer build.
+     */
+    fun toDelete(hostIds: Collection<Int>, referenced: Set<Int>, undecoded: Boolean): List<Int> =
+        if (undecoded) emptyList() else hostIds.filter { it !in referenced }
 }
 
 internal object WidgetPruning {

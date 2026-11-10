@@ -201,6 +201,9 @@ class StartState(val scroll: ScrollState) {
     /** The "add a tile" menu and the widget and quick-settings pickers it can open. */
     var addMenuOpen by mutableStateOf(false)
 
+    /** The "live tiles" submenu of the add menu. */
+    var liveTilesOpen by mutableStateOf(false)
+
     /** The tile whose style menu is open, or null. */
     var stylingId by mutableStateOf<Long?>(null)
 
@@ -259,12 +262,13 @@ class StartState(val scroll: ScrollState) {
     }
 
     /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || grouping
+    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || grouping
 
     /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
         val any = flyoutOpen
         addMenuOpen = false
+        liveTilesOpen = false
         stylingId = null
         iconPickerId = null
         widgetPickerOpen = false
@@ -676,7 +680,7 @@ fun StartScreen(
                         onResize = if (isWidget) null else ({ viewModel.resize(tiles[selectedIndex].spec.id) }),
                         onGroup = if (TileFolders.canGroup(selectedTile.spec)) ({ state.startGrouping(selectedTile.spec.id) }) else null,
                         groupLabel = if (selectedTile.spec.content is TileContent.Folder) "add to folder" else "group into folder",
-                        onStyle = if (TileStyles.canStyle(selectedTile.spec)) ({ state.stylingId = selectedTile.spec.id }) else null,
+                        onStyle = if (offersStyle(selectedTile.spec, defaults)) ({ state.stylingId = selectedTile.spec.id }) else null,
                     )
                     WidgetEditBadges(
                         tile = tiles[selectedIndex],
@@ -698,7 +702,7 @@ fun StartScreen(
                             state.exitEdit()
                         },
                         onResize = { viewModel.resize(openChildren[selectedChild].spec.id) },
-                        onStyle = if (TileStyles.canStyle(openChildren[selectedChild].spec)) ({ state.stylingId = openChildren[selectedChild].spec.id }) else null,
+                        onStyle = if (offersStyle(openChildren[selectedChild].spec, defaults)) ({ state.stylingId = openChildren[selectedChild].spec.id }) else null,
                     )
                 }
             }
@@ -757,9 +761,9 @@ fun StartScreen(
         }
         if (state.addMenuOpen) {
             AddTileMenu(
-                onAdd = { content, size ->
+                onLiveTiles = {
                     state.addMenuOpen = false
-                    viewModel.addTile(content, size)
+                    state.liveTilesOpen = true
                 },
                 onWidgets = {
                     state.addMenuOpen = false
@@ -770,6 +774,22 @@ fun StartScreen(
                     state.quickPickerOpen = true
                 },
                 onDismiss = { state.addMenuOpen = false },
+            )
+        }
+        if (state.liveTilesOpen) {
+            // Personal profile first, so a work-profile twin of the clock is only a fallback.
+            val me = android.os.Process.myUserHandle()
+            val apps by viewModel.apps.collectAsStateWithLifecycle()
+            val entries = remember(defaults, apps) {
+                liveTileEntries(defaults, apps.sortedBy { it.user != me }.map { it.key })
+            }
+            LiveTilesMenu(
+                entries = entries,
+                onAdd = { entry ->
+                    state.liveTilesOpen = false
+                    viewModel.addTile(entry.content, entry.size)
+                },
+                onDismiss = { state.liveTilesOpen = false },
             )
         }
         if (state.widgetPickerOpen) {
@@ -1270,7 +1290,7 @@ private fun TileStyleMenu(
 /** Menu for tiles that don't come from the app list. */
 @Composable
 private fun AddTileMenu(
-    onAdd: (TileContent, TileSize) -> Unit,
+    onLiveTiles: () -> Unit,
     onWidgets: () -> Unit,
     onQuickSettings: () -> Unit,
     onDismiss: () -> Unit,
@@ -1278,12 +1298,27 @@ private fun AddTileMenu(
     MetroFlyout(onDismiss) {
         MetroMenu(
             items = listOf(
-                "weather" to { onAdd(TileContent.Weather, TileSize.WIDE) },
-                "photos" to { onAdd(TileContent.Photos, TileSize.WIDE) },
-                "people" to { onAdd(TileContent.People, TileSize.MEDIUM) },
+                "live tiles" to onLiveTiles,
                 "metro plus" to onQuickSettings,
                 "widgets" to onWidgets,
             ),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+        )
+    }
+}
+
+/** The tiles that draw themselves live: clock, calendar, weather, photos and people. */
+@Composable
+private fun LiveTilesMenu(
+    entries: List<LiveTileEntry>,
+    onAdd: (LiveTileEntry) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    MetroFlyout(onDismiss) {
+        MetroMenu(
+            items = entries.map { entry -> entry.label to { onAdd(entry) } },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),

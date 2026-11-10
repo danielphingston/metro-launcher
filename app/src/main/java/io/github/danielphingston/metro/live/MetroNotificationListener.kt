@@ -1,6 +1,7 @@
 package io.github.danielphingston.metro.live
 
 import android.app.Notification
+import android.os.Process
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
@@ -111,10 +112,11 @@ class MetroNotificationListener : NotificationListenerService() {
             return
         }
         val settings = app.settings.settings.first()
+        val ownSerial = UserSerials.of(this, Process.myUserHandle())
         val installed = app.apps.apps.value?.mapTo(HashSet()) { it.key.packageName } ?: return
         val pkg = AssistantChoice.resolve(settings.assistant, installed) ?: return
-        val preview = published[AppKey.notificationKey(pkg, 0L)]?.previews?.firstOrNull()
-        val label = app.apps.apps.value?.firstOrNull { it.key.packageName == pkg && it.key.userSerial == 0L }
+        val preview = published[AppKey.notificationKey(pkg, ownSerial)]?.previews?.firstOrNull()
+        val label = app.apps.apps.value?.firstOrNull { it.key.packageName == pkg && it.key.userSerial == ownSerial }
             ?.let { AssistantChoice.displayName(pkg, it.label) } ?: AssistantChoice.displayName(pkg, pkg)
         app.assistantReply.save(AssistantLastReply.toSave(pkg, label, preview, settings.showNotificationContent))
     }

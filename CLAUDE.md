@@ -35,9 +35,15 @@ a keep rule and, if the check can't see it yet, extend `check-release-apk.py`.
 
 ```
 export ANDROID_HOME=/opt/android-sdk
-./gradlew testDebugUnitTest lintDebug
+./gradlew --init-script tools/google-mirror.init.gradle testDebugUnitTest lintDebug
 ```
 
+- Download dependencies through Google's mirror of Maven Central, which doesn't rate-limit the way
+  Maven Central does (HTTP 429 before anything compiles): add
+  `--init-script tools/google-mirror.init.gradle` to every local `./gradlew` command. The build
+  files and CI are unchanged by it.
+- No SDK at `/opt/android-sdk`? Install the command-line tools there, then
+  `sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"`.
 - Roborazzi screenshot tests compare against goldens in `app/src/test/screenshots`. Do not re-record
   them unless the visual change is intended; a changed settings page fails its golden on purpose.
 - Do not run `assembleDebug` just to check; unit tests and lint are the gate.

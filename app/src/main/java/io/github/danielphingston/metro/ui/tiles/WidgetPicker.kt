@@ -171,13 +171,22 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     }
 
     fun choose(entry: WidgetEntry) {
-        val id = host.allocateAppWidgetId()
+        val id = try {
+            host.allocateAppWidgetId()
+        } catch (_: RuntimeException) {
+            return // The widget service is gone (rethrown as a RuntimeException).
+        }
         val widget = PendingWidget(id, entry)
         pending = widget
         val provider = entry.info.provider
         // The widget's own default size until its tile reports the real one.
         val options = WidgetTiles.sizeOptions(SizeF(entry.dims.minWidth, entry.dims.minHeight))
-        if (AppWidgetManager.getInstance(context).bindAppWidgetIdIfAllowed(id, entry.user, provider, options)) {
+        val bound = try {
+            AppWidgetManager.getInstance(context).bindAppWidgetIdIfAllowed(id, entry.user, provider, options)
+        } catch (_: RuntimeException) {
+            return cancel() // Releases the id just allocated and clears pending.
+        }
+        if (bound) {
             configureOrPin(widget)
         } else {
             val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)

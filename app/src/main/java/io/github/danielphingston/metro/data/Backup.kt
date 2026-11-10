@@ -188,12 +188,10 @@ object Backup {
         // A value of the wrong type under a key the launcher reads would crash it on every start.
         try {
             SettingsRepository(context).settingsOf(restored)
-            restored.asMap().forEach { (key, value) ->
-                if (key.name in STRING_KEYS && value !is String) throw ClassCastException(key.name)
-            }
         } catch (e: ClassCastException) {
-            throw BackupException("This backup is damaged: it holds a setting of the wrong kind.", e)
+            throw wrongKind(e)
         }
+        checkKeyTypes(restored)
         context.metroDataStore.edit { prefs ->
             prefs.asMap().keys.filter { it.name !in EXCLUDED_KEYS }.forEach { prefs.remove(it) }
             prefs += restored
@@ -205,6 +203,29 @@ object Backup {
         }
     }
 
-    /** Keys other code reads as strings. */
-    private val STRING_KEYS = setOf("tiles", "tiles_backup", "tile_photos", "weather_name", "weather_detail")
+    /**
+     * Keys read outside SettingsRepository (TileRepository, PhotoSource, WeatherStore) with the
+     * type each is read as. The forecast keys are in [EXCLUDED_KEYS] and never imported.
+     */
+    private val EXTERNAL_KEYS: Map<String, Class<*>> = mapOf(
+        "tiles" to String::class.java,
+        "tiles_backup" to String::class.java,
+        "tile_photos" to String::class.java,
+        "weather_name" to String::class.java,
+        "weather_detail" to String::class.java,
+        "weather_latitude" to Double::class.javaObjectType,
+        "weather_longitude" to Double::class.javaObjectType,
+        "weather_fahrenheit" to Boolean::class.javaObjectType,
+    )
+
+    private fun wrongKind(cause: Throwable? = null) =
+        BackupException("This backup is damaged: it holds a setting of the wrong kind.", cause)
+
+    /** Throws [BackupException] when a key read outside SettingsRepository holds the wrong type. */
+    internal fun checkKeyTypes(prefs: Preferences) {
+        prefs.asMap().forEach { (key, value) ->
+            val expected = EXTERNAL_KEYS[key.name] ?: return@forEach
+            if (!expected.isInstance(value)) throw wrongKind()
+        }
+    }
 }

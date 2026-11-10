@@ -154,6 +154,36 @@ class BackupTest {
     }
 
     @Test
+    fun wronglyTypedWeatherKeysAreRejected() {
+        val wrong = "This backup is damaged: it holds a setting of the wrong kind."
+        val intLatitude = mutablePreferencesOf(intPreferencesKey("weather_latitude") to 18)
+        assertEquals(wrong, message { Backup.checkKeyTypes(intLatitude) })
+        val stringFahrenheit = mutablePreferencesOf(stringPreferencesKey("weather_fahrenheit") to "yes")
+        assertEquals(wrong, message { Backup.checkKeyTypes(stringFahrenheit) })
+        val intTiles = mutablePreferencesOf(intPreferencesKey("tiles") to 1)
+        assertEquals(wrong, message { Backup.checkKeyTypes(intTiles) })
+        // Through decode as well: a hand-edited file whose latitude is an int.
+        val json = """{"app":"metro-launcher","format":1,"prefs":{"weather_latitude":{"type":"int","value":18}}}"""
+        assertEquals(wrong, message { Backup.checkKeyTypes(Backup.decode(json)) })
+    }
+
+    @Test
+    fun correctlyTypedWeatherKeysPass() {
+        val prefs = mutablePreferencesOf(
+            doublePreferencesKey("weather_latitude") to 18.5204,
+            doublePreferencesKey("weather_longitude") to 73.8567,
+            booleanPreferencesKey("weather_fahrenheit") to true,
+            stringPreferencesKey("weather_name") to "Pune",
+            stringPreferencesKey("tiles") to "[]",
+            intPreferencesKey("columns") to 4,
+        )
+        assertEquals(null, message { Backup.checkKeyTypes(prefs) })
+        for (file in fixtures()) {
+            assertEquals(file.name, null, message { Backup.checkKeyTypes(Backup.decode(file.readText())) })
+        }
+    }
+
+    @Test
     fun formatOneNeedsNoMigration() {
         val root = org.json.JSONObject("""{"app":"metro-launcher","format":1,"prefs":{}}""")
         assertTrue(Backup.migrate(1, root) === root)
