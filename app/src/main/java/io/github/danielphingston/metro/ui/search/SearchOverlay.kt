@@ -55,6 +55,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,6 +111,7 @@ import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.tiles.ShortcutTiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.danielphingston.metro.data.KeywordMatch
 
@@ -398,6 +400,8 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
         }
     }
 
+    val scope = rememberCoroutineScope()
+
     fun activate(row: SearchRow, bounds: Rect?) {
         // The history rows stay in the panel: one types the search again, the other wipes the history.
         if (row is SearchRow.RecentSearch) { state.queryCursor = null; state.query = row.text; return }
@@ -419,8 +423,16 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
             is SearchRow.Item -> { perform(row.item.action, bounds, onStarted); return }
             is SearchRow.Keyword -> {
                 // The row on screen may still carry the text before the last keystroke; run the current one.
-                val current = keywordMatch?.let { KeywordRows.build(it, searchContext, RealSearchInPhone(context)) }
-                perform((current?.item ?: row.item).action, bounds, onStarted)
+                // Building it asks the package manager, so it happens off the main thread; the values it
+                // needs are captured now, before the panel recomposes.
+                val match = keywordMatch
+                val buildContext = searchContext
+                scope.launch {
+                    val current = match?.let {
+                        withContext(Dispatchers.Default) { KeywordRows.build(it, buildContext, RealSearchInPhone(context)) }
+                    }
+                    perform((current?.item ?: row.item).action, bounds, onStarted)
+                }
                 return
             }
             is SearchRow.Caption, is SearchRow.Examples, is SearchRow.RecentSearch, SearchRow.ClearHistory -> return

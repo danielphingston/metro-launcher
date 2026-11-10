@@ -101,7 +101,10 @@ class IconCache(private val context: Context) {
     }
 
     /** Gives memory back, keeping the [keep] (0..1) share of the cache used last; see [CacheTrim]. */
-    fun trimMemory(keep: Float) = cache.trimTo(keep)
+    fun trimMemory(keep: Float) {
+        cache.trimTo(keep)
+        synchronized(standInBitmaps) { standInBitmaps.clear() }
+    }
 
     /**
      * Drops the cached icons of [packageName] and bumps [generation], so tiles showing the old
@@ -148,11 +151,18 @@ class IconCache(private val context: Context) {
      * resources could not be read (typically while it is being updated). Caching that would keep
      * the stand-in on its tiles until the launcher restarts.
      */
-    private fun isStandIn(app: AppInfo, raw: Drawable, sizePx: Int): Boolean {
+    private fun isStandIn(app: AppInfo, raw: Drawable, rawBitmap: Bitmap?): Boolean {
         if (!app.declaresIcon) return false
         val fallback = context.packageManager.defaultActivityIcon
         if (raw.constantState != null && raw.constantState == fallback.constantState) return true
-        return raw.toBitmap(sizePx, sizePx).sameAs(fallback.toBitmap(sizePx, sizePx))
+        return rawBitmap!!.sameAs(standInBitmap(rawBitmap.width))
+    }
+
+    /** The system default icon per size: it never changes, but icons load on several threads. */
+    private val standInBitmaps = HashMap<Int, Bitmap>()
+
+    private fun standInBitmap(sizePx: Int): Bitmap = synchronized(standInBitmaps) {
+        standInBitmaps.getOrPut(sizePx) { context.packageManager.defaultActivityIcon.toBitmap(sizePx, sizePx) }
     }
 
     private fun render(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
@@ -163,7 +173,9 @@ class IconCache(private val context: Context) {
             }
         }
         val raw = app.loadIcon(density, false)
-        if (isStandIn(app, raw, sizePx)) return null
+        // Rendered once, for the stand-in check and, for personal apps, the colour icon below.
+        val rawBitmap = if (app.declaresIcon) raw.toBitmap(sizePx, sizePx) else null
+        if (isStandIn(app, raw, rawBitmap)) return null
         if (monochrome && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val adaptive = raw as? AdaptiveIconDrawable
             val mono = adaptive?.monochrome?.mutate()
@@ -177,7 +189,12 @@ class IconCache(private val context: Context) {
                 return TileIcon(badgedForWork(app, bitmap, sizePx).asImageBitmap(), isMonochrome = true)
             }
         }
-        val drawable = app.loadIcon(density, true)
-        return TileIcon(drawable.toBitmap(sizePx, sizePx).asImageBitmap(), isMonochrome = false)
+        // Badged and unbadged are the same for personal apps; work apps need the badged load.
+        val bitmap = if (app.user == Process.myUserHandle() && rawBitmap != null) {
+            rawBitmap
+        } else {
+            app.loadIcon(density, true).toBitmap(sizePx, sizePx)
+        }
+        return TileIcon(bitmap.asImageBitmap(), isMonochrome = false)
     }
 }
