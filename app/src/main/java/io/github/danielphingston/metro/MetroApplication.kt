@@ -12,6 +12,7 @@ import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.SearchHistory
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileRepository
+import io.github.danielphingston.metro.data.WidgetReclaim
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.live.PeopleSource
 import io.github.danielphingston.metro.ui.search.ShortcutIndex
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Process-wide singletons. The launcher process is long-lived, so these are created once. */
 class MetroApplication : Application(), Configuration.Provider {
@@ -62,7 +64,10 @@ class MetroApplication : Application(), Configuration.Provider {
         settings = SettingsRepository(this)
         searchHistory = SearchHistory(this)
         purchases = Purchases(this, appScope)
-        tiles = TileRepository(this, appScope, settings.settings.map { it.columns }.distinctUntilChanged())
+        tiles = TileRepository(
+            this, appScope, settings.settings.map { it.columns }.distinctUntilChanged(),
+            onLoaded = { referenced, undecoded -> appScope.launch { reclaimWidgetIds(referenced, undecoded) } },
+        )
         icons = IconCache(this)
         apps = AppRepository(this, appScope, onPackageRemoved = { pkg, serial ->
             val removed = tiles.removePackage(pkg, serial)
@@ -102,6 +107,26 @@ class MetroApplication : Application(), Configuration.Provider {
         appScope.launch {
             settings.settings.map { it.iconPack }.distinctUntilChanged().collect { icons.iconPack = it }
         }
+    }
+
+    /**
+     * Frees app widget ids the host holds that no tile uses: left behind by a backup import or by an
+     * activity recreated while a widget was being bound. Any failure of the widget service frees nothing.
+     */
+    private suspend fun reclaimWidgetIds(referenced: Set<Int>, undecoded: Boolean) {
+        if (undecoded) return
+        val held = withContext(Dispatchers.Default) {
+            try {
+                WidgetTiles.host(this@MetroApplication).appWidgetIds.toSet()
+            } catch (_: RuntimeException) {
+                null
+            }
+        } ?: return
+        // Read again now: a tile may have been added while the ids were fetched.
+        val used = referenced + WidgetReclaim.referencedIds(tiles.tiles.value.orEmpty())
+        val stale = WidgetReclaim.toDelete(held, used, undecoded)
+        if (stale.isEmpty()) return
+        withContext(Dispatchers.Default) { stale.forEach { WidgetTiles.release(this@MetroApplication, it) } }
     }
 
     /**
