@@ -89,6 +89,13 @@ class MetroApplication : Application(), Configuration.Provider {
             },
         )
         layouts = StartLayoutRepository(this, appScope, tiles, undo = { undo })
+        // One app shortcut per saved layout, for automation apps; rewritten only when the layouts change.
+        appScope.launch {
+            layouts.layouts.map { set -> set?.layouts?.map { it.id to it.name } }.distinctUntilChanged().collect {
+                val set = layouts.layouts.value
+                withContext(Dispatchers.Default) { io.github.danielphingston.metro.data.LayoutShortcuts.sync(this@MetroApplication, set) }
+            }
+        }
         icons = IconCache(this)
         apps = AppRepository(this, appScope, onPackageRemoved = { pkg, serial ->
             val removed = tiles.removePackage(pkg, serial)

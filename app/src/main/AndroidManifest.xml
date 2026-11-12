@@ -208,6 +208,22 @@
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- Switches the start layout for an app shortcut or a metro://layout/<name> link, so
+             automation apps (Samsung Modes and Routines, Tasker...) can do it. Shows nothing. -->
+        <activity
+            android:name=".ui.SwitchLayoutActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="metro" android:host="layout" />
+            </intent-filter>
+        </activity>
+
         <!-- WorkManager starts on first use instead of at every process start; see
              MetroApplication.workManagerConfiguration. -->
         <provider
