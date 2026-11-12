@@ -146,6 +146,8 @@ data class LauncherSettings(
     val searchInOrder: SearchInOrder = SearchInOrder.default,
     /** The custom order of the strip: target ids (see [SearchInOrdering]); targets not listed come last. */
     val searchInCustomOrder: List<String> = emptyList(),
+    /** What each start screen gesture does; none until chosen. */
+    val gestures: GestureSettings = GestureSettings(),
 ) {
     /** Whether [feature]'s own switch is on (it still needs Metro Plus to show anything). */
     fun smartOn(feature: SmartFeature): Boolean = feature in smartFeatures
@@ -358,6 +360,7 @@ class SettingsRepository(private val context: Context) {
             searchKeywords = SearchKeywords.decode(this[Keys.searchKeywords]),
             searchInOrder = SearchInOrder.fromId(this[Keys.searchInOrder]),
             searchInCustomOrder = SearchInOrdering.decode(this[Keys.searchInCustomOrder]),
+            gestures = GestureSettings.from(this),
         )
     }
 
@@ -508,6 +511,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun resetSearchKeywords() = context.metroDataStore.edit { it.remove(Keys.searchKeywords) }
 
     suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }
+
+    /** Sets what [gesture] does; [app] is only kept for [GestureAction.OPEN_APP]. */
+    suspend fun setGesture(gesture: Gesture, action: GestureAction, app: AppKey? = null) = context.metroDataStore.edit {
+        if (action == GestureAction.NONE) it.remove(gesture.actionKey) else it[gesture.actionKey] = action.id
+        if (action == GestureAction.OPEN_APP && app != null) it[gesture.appKey] = app.serialize() else it.remove(gesture.appKey)
+    }
 
     /** The photo can't be read any more: forget it and go back to the plain background. */
     suspend fun clearUnreadablePhoto() = context.metroDataStore.edit {
