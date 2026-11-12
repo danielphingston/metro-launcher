@@ -121,6 +121,13 @@ class StartLayoutRepository(
         return if (update { set, live, settings -> LayoutOps.saveAs(set, live, name, settings) }) null else "couldn't save the layout"
     }
 
+    /** Adds a layout with no tiles and the current start settings, without switching to it; returns why not, or null when it was added. */
+    suspend fun createEmpty(name: String): String? {
+        if (!unlocked()) return LOCKED
+        LayoutNames.problem(LayoutNames.clean(name), _layouts.value)?.let { return it }
+        return if (update { set, live, settings -> LayoutOps.newEmpty(set, live, name, settings) }) null else "couldn't add the layout"
+    }
+
     /** Renames layout [id]; returns why not, or null when it was renamed. */
     suspend fun rename(id: Long, name: String): String? {
         LayoutNames.problem(LayoutNames.clean(name), _layouts.value, exceptId = id)?.let { return it }

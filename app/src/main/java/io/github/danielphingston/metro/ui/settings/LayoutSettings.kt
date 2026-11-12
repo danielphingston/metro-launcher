@@ -120,6 +120,7 @@ internal const val LAYOUTS_PITCH = "Keep a start screen for work and one for the
 /** What the layouts page is asking for: a name for a new layout or a renamed one, or a confirmed delete. */
 private sealed interface LayoutEdit {
     data object SaveNew : LayoutEdit
+    data object NewEmpty : LayoutEdit
     data class Rename(val layout: SavedLayout) : LayoutEdit
     data class Delete(val layout: SavedLayout) : LayoutEdit
 }
@@ -165,7 +166,15 @@ internal fun LayoutsPage() {
                 .padding(vertical = 8.dp),
         ) {
             MetroText(layout.name, MetroType.sectionTitle, maxLines = 1)
-            MetroText(if (active) "on start now" else "tap for actions", MetroType.caption, color = if (active) colors.accent else colors.subtle)
+            MetroText(
+                when {
+                    active -> "on start now"
+                    layout.hasNoTiles -> "no tiles yet · tap for actions"
+                    else -> "tap for actions"
+                },
+                MetroType.caption,
+                color = if (active) colors.accent else colors.subtle,
+            )
         }
         if (current != null && open == layout.id) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -180,7 +189,10 @@ internal fun LayoutsPage() {
 
     Spacer(Modifier.height(16.dp))
     when (val e = edit) {
-        null -> MetroButton("save current as new layout", onClick = { edit = LayoutEdit.SaveNew })
+        null -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            MetroButton("save current as new layout", onClick = { edit = LayoutEdit.SaveNew })
+            MetroButton("new empty layout", onClick = { edit = LayoutEdit.NewEmpty })
+        }
         is LayoutEdit.Delete -> DeleteConfirm(
             e.layout,
             onDelete = {
@@ -192,8 +204,15 @@ internal fun LayoutsPage() {
         )
         else -> NameEditor(
             initial = (e as? LayoutEdit.Rename)?.layout?.name.orEmpty(),
-            title = if (e is LayoutEdit.Rename) "rename layout" else "new layout",
-            note = if (current == null) {
+            title = when (e) {
+                is LayoutEdit.Rename -> "rename layout"
+                LayoutEdit.NewEmpty -> "new empty layout"
+                else -> "new layout"
+            },
+            note = if (e == LayoutEdit.NewEmpty) {
+                (if (current == null) "Your start screen as it is now is kept as “${LayoutNames.FIRST}”. " else "") +
+                    "The new layout has no tiles and starts with the current start settings. It stays off start until you switch to it."
+            } else if (current == null) {
                 "Your start screen as it is now is kept as “${LayoutNames.FIRST}”, and the new layout starts as a copy of it, settings and wallpaper included."
             } else {
                 "The new layout starts as a copy of the start screen as it is now, settings and wallpaper included."
@@ -202,7 +221,11 @@ internal fun LayoutsPage() {
             exceptId = (e as? LayoutEdit.Rename)?.layout?.id,
             onSave = { name ->
                 scope.launch {
-                    val problem = if (e is LayoutEdit.Rename) repository.rename(e.layout.id, name) else repository.saveCurrentAs(name)
+                    val problem = when (e) {
+                        is LayoutEdit.Rename -> repository.rename(e.layout.id, name)
+                        LayoutEdit.NewEmpty -> repository.createEmpty(name)
+                        else -> repository.saveCurrentAs(name)
+                    }
                     if (problem == null) edit = null
                 }
             },

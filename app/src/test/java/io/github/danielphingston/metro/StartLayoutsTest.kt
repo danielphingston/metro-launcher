@@ -272,4 +272,34 @@ class StartLayoutsTest {
         val layouts = listOf(SavedLayout(1, "start", "[]"), SavedLayout(2, "work", "[]"), SavedLayout(3, "weekend", "[]"))
         assertEquals(listOf(3L), LauncherActions.layoutsFor("week", layouts).map { it.id })
     }
+
+    @Test
+    fun newEmptyLayoutHasNoTilesKeepsTheCurrentSettingsAndStaysOff() {
+        val live = json(app(1, "a"), widget(2, 70, 2, 0))
+        val settings = mapOf<String, Any>("start_columns" to 6)
+        // First time: the current start becomes "start", the empty layout is added after it.
+        val first = LayoutOps.newEmpty(null, live, " quiet ", settings)!!
+        assertEquals(1L, first.active)
+        assertEquals(listOf("start", "quiet"), first.layouts.map { it.name })
+        assertEquals(live, first.byId(1)!!.tiles)
+        assertEquals("[]", first.byId(2)!!.tiles)
+        assertTrue(first.byId(2)!!.hasNoTiles)
+        assertFalse(first.byId(1)!!.hasNoTiles)
+        assertEquals(settings, first.byId(2)!!.settings)
+        // Nothing of the empty layout holds a widget; the live one is not an inactive layout.
+        assertTrue(first.inactiveTiles().flatMap(WidgetReclaim::referencedIds).isEmpty())
+        assertNull(LayoutOps.newEmpty(null, live, "Start"))
+        assertNull(LayoutOps.newEmpty(first, live, "QUIET"))
+        // Later: the active layout is written back and keeps its tiles, ids don't clash.
+        val edited = json(app(1, "a"))
+        val more = LayoutOps.newEmpty(first, edited, "empty two", mapOf("start_columns" to 4))!!
+        assertEquals(1L, more.active)
+        assertEquals(edited, more.byId(1)!!.tiles)
+        assertEquals(3L, more.layouts.last().id)
+        assertEquals(mapOf<String, Any>("start_columns" to 4), more.layouts.last().settings)
+        assertTrue(LayoutsJson.decode(LayoutsJson.encode(more))!!.layouts.last().hasNoTiles)
+        // Switching to it leaves the live tiles in the layout it leaves.
+        val toEmpty = LayoutOps.switch(more, edited, 3)!!
+        assertEquals("[]", toEmpty.activeLayout.tiles)
+    }
 }
