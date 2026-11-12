@@ -295,9 +295,17 @@ class SettingsRepository(private val context: Context) {
 
         val searchInOrder = stringPreferencesKey("search_in_order")
         val searchInCustomOrder = stringPreferencesKey("search_in_custom_order")
+
+        /** Unset until the first-run setup was finished or skipped; false asks for it to run again. */
+        val onboardingDone = booleanPreferencesKey("onboarding_done")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
+
+    /** The first-run setup's flag: null while unset; see [io.github.danielphingston.metro.ui.onboarding.Onboarding]. */
+    val onboardingDone: Flow<Boolean?> = context.metroDataStore.data.map { it[Keys.onboardingDone] }
+
+    suspend fun setOnboardingDone(done: Boolean) = context.metroDataStore.edit { it[Keys.onboardingDone] = done }
 
     /** The settings stored in [prefs]; also used to check a backup before it is restored. */
     internal fun settingsOf(prefs: Preferences): LauncherSettings = prefs.toSettings()

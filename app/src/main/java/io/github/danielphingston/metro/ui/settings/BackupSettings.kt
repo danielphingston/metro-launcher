@@ -38,7 +38,6 @@ internal fun BackupSettingsSection() {
     val context = LocalContext.current
     val colors = Metro.colors
     val scope = rememberCoroutineScope()
-    var pendingRestore by remember { mutableStateOf<Uri?>(null) }
 
     fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_LONG).show()
 
@@ -53,10 +52,6 @@ internal fun BackupSettingsSection() {
             }
         }
     }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) pendingRestore = uri
-    }
-
     Section("backup")
     MetroText(
         "Save your tiles and settings to a file, or bring them back from one, for example on a new phone.",
@@ -66,13 +61,31 @@ internal fun BackupSettingsSection() {
     Spacer(Modifier.height(10.dp))
     MetroButton("export backup", onClick = { exporter.launch("metro-backup-${LocalDate.now()}.json") })
     Spacer(Modifier.height(10.dp))
-    MetroButton("restore from backup", onClick = { picker.launch(arrayOf("application/json", "text/plain", "*/*")) })
+    RestoreFromBackupButton()
     Spacer(Modifier.height(6.dp))
     MetroText(
         "Photos chosen for tiles or the background may need to be picked again on a new phone.",
         MetroType.caption,
         color = colors.subtle,
     )
+}
+
+/**
+ * The "restore from backup" button with its file picker and confirmation; [onRestored] runs after
+ * a backup was restored. Shared by the about page and the first-run setup.
+ */
+@Composable
+internal fun RestoreFromBackupButton(modifier: Modifier = Modifier, onRestored: () -> Unit = {}) {
+    val context = LocalContext.current
+    val colors = Metro.colors
+    val scope = rememberCoroutineScope()
+    var pendingRestore by remember { mutableStateOf<Uri?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) pendingRestore = uri
+    }
+    fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_LONG).show()
+
+    MetroButton("restore from backup", modifier = modifier, onClick = { picker.launch(arrayOf("application/json", "text/plain", "*/*")) })
 
     pendingRestore?.let { uri ->
         Dialog(onDismissRequest = { pendingRestore = null }) {
@@ -97,6 +110,7 @@ internal fun BackupSettingsSection() {
                             try {
                                 Backup.import(context, uri)
                                 toast("Backup restored")
+                                onRestored()
                             } catch (e: BackupException) {
                                 toast(e.message ?: "This backup can't be restored.")
                             } catch (e: IOException) {
