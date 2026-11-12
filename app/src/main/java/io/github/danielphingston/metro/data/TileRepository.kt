@@ -71,6 +71,9 @@ sealed interface TileContent {
     /** The assistant tile (Metro Plus): follows the shared assistant setting; shows its latest reply and the last question asked. */
     data object Assistant : TileContent
 
+    /** The "me" tile: what is new across all apps, from the notification listener. Persists nothing; one per layout. */
+    data object Me : TileContent
+
     /**
      * Something pinned from the search results that isn't an app or an app shortcut: a contact, a
      * settings page, a timer, a web search. [target] says what it opens and [icon] what it shows.
@@ -626,6 +629,7 @@ internal object TileJson {
             TileContent.People -> obj.put("type", "people")
             is TileContent.QuickSetting -> obj.put("type", "quick").put("kind", c.kind.id)
             TileContent.Assistant -> obj.put("type", "assistant")
+            TileContent.Me -> obj.put("type", "me")
             is TileContent.Action -> obj.put("type", "action").put("label", c.label).put("target", c.target.toJson()).apply {
                 when (val icon = c.icon) {
                     is ActionIcon.Glyph -> put("glyph", icon.id)
@@ -656,6 +660,7 @@ internal object TileJson {
             "people" -> TileContent.People
             "quick" -> TileContent.QuickSetting(QuickSettingKind.fromId(obj.optString("kind")) ?: return null)
             "assistant" -> TileContent.Assistant
+            "me" -> TileContent.Me
             "action" -> TileContent.Action(
                 obj.optString("label"),
                 when {

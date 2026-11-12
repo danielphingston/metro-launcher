@@ -66,6 +66,7 @@ sealed interface LiveContent {
     data class Notifications(val data: AppNotifications, val showContent: Boolean) : LiveContent
     data class NowPlaying(val info: io.github.danielphingston.metro.live.NowPlaying) : LiveContent
     data class Assistant(val model: io.github.danielphingston.metro.data.AssistantModel) : LiveContent
+    data class Me(val model: io.github.danielphingston.metro.ui.tiles.MeModel, val apps: Map<String, AppInfo>) : LiveContent
 
     /** Whether the tile has a second face to flip to. Small tiles never flip. */
     fun hasBack(size: TileSize): Boolean = size != TileSize.SMALL && when (this) {
@@ -74,6 +75,7 @@ sealed interface LiveContent {
         is Notifications -> showContent && data.previews.isNotEmpty()
         is NowPlaying -> true
         is Assistant -> model.hasBack(size)
+        is Me -> model.hasBack(size)
     }
 }
 
@@ -187,6 +189,7 @@ private fun Back(
         is LiveContent.Notifications -> NotificationsBack(app, size, live.data, monochromeIcons, icons, m)
         is LiveContent.NowPlaying -> NowPlayingBack(app, size, live.info, m)
         is LiveContent.Assistant -> Unit // Drawn by AssistantTile, never by TileFace.
+        is LiveContent.Me -> Unit // Drawn by MeTile, never by TileFace.
     }
 }
 

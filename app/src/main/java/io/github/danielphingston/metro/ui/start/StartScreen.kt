@@ -119,6 +119,9 @@ import io.github.danielphingston.metro.ui.tiles.PhotosTiles
 import io.github.danielphingston.metro.ui.tiles.QuickSettingPicker
 import io.github.danielphingston.metro.ui.tiles.ActionTile
 import io.github.danielphingston.metro.ui.tiles.AssistantTile
+import io.github.danielphingston.metro.ui.tiles.MeModel
+import io.github.danielphingston.metro.ui.tiles.MeTile
+import io.github.danielphingston.metro.ui.tiles.MeTiles
 import io.github.danielphingston.metro.data.AssistantModel
 import io.github.danielphingston.metro.ui.settings.SettingsActivity
 import io.github.danielphingston.metro.ui.settings.SettingsPage
@@ -324,6 +327,9 @@ fun StartScreen(
     val calendarGranted by viewModel.calendarGranted.collectAsStateWithLifecycle()
     val quickUnlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
     val tiles = loadedTiles.orEmpty()
+    // Read lazily by the me tile's own composition, so a notification does not recompose the screen.
+    val meFeed = viewModel.meFeed.collectAsStateWithLifecycle()
+    val meApps = viewModel.apps.collectAsStateWithLifecycle()
 
     // Live sources run only when a tile needs them and only while the launcher is visible
     // (collectAsStateWithLifecycle stops collecting below STARTED).
@@ -363,6 +369,13 @@ fun StartScreen(
                     savedReply,
                     tile.app?.key?.packageName,
                 ),
+            )
+        } else if (tile.spec.content == TileContent.Me) {
+            LiveContent.Me(
+                MeModel.of(
+                    meFeed.value, listenerConnected, settings.showNotificationContent, tile.spec.size,
+                ) { app -> meApps.value.firstOrNull { it.key.notificationKey == app.appKey }?.label ?: app.packageName },
+                meApps.value.associateBy { it.key.notificationKey },
             )
         } else if (key == null) {
             null
@@ -963,6 +976,7 @@ internal fun TileHost(
                     if (folder != null) append("${tile.label}, folder, ${tile.children.size} items") else append(tile.label)
                     (liveContent as? LiveContent.Notifications)?.let { append(", ${it.data.count} new") }
                     (liveContent as? LiveContent.Assistant)?.let { clear(); append(it.model.description()) }
+                    (liveContent as? LiveContent.Me)?.let { clear(); append(it.model.description()) }
                 }
                 if (grouping) {
                     // Grouping mode: tiles are picked, not opened; only those that can join respond.
@@ -1191,6 +1205,7 @@ private fun TileBody(
         is TileContent.Action -> ActionTile(tile, cell, icons, monochromeIcons)
         TileContent.Assistant -> AssistantTile(tile, live as? LiveContent.Assistant, flipped, monochromeIcons, icons, cell)
         is TileContent.Folder -> FolderTile(tile, cell, icons, monochromeIcons, folderOpen)
+        TileContent.Me -> MeTile(tile, live as? LiveContent.Me, flipped, monochromeIcons, icons, cell)
     }
 }
 
@@ -1223,6 +1238,7 @@ private fun activateTile(
             else -> launcher.start(SettingsActivity.intent(context, SettingsPage.METRO_PLUS), bounds)
         }
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
+        TileContent.Me -> MeTiles.activate(context, bounds, launcher)
     }
 }
 

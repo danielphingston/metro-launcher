@@ -33,6 +33,8 @@ import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.tiles.acquireTileResources
 import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import io.github.danielphingston.metro.live.AppNotifications
+import io.github.danielphingston.metro.live.MeFeed
+import io.github.danielphingston.metro.live.MeSnapshot
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationHub
 import io.github.danielphingston.metro.live.UserSerials
@@ -132,6 +134,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     val notifications: StateFlow<Map<String, AppNotifications>> = NotificationHub.byApp
 
+    /** What the me tile shows: every counted notification, updated only by listener callbacks. */
+    val meFeed: StateFlow<MeSnapshot> = MeFeed.snapshot
+
     /** The assistant tile's saved last reply, shown when its notification is gone. */
     val assistantReply: StateFlow<SavedReply?> = metro.assistantReply.reply
     val lastAsked: StateFlow<LastAsked?> = metro.lastAsked.asked
@@ -173,6 +178,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             is TileContent.Folder -> ResolvedTile(
                 spec, null, c.name.ifBlank { "folder" }, c.children.mapNotNull(::resolve),
             )
+            TileContent.Me -> ResolvedTile(spec, null, "me")
         }
         specs.mapNotNull(::resolve)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
