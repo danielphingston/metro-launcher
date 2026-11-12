@@ -48,8 +48,11 @@ class GestureDispatcher(
     private val context: Context,
     private val host: GestureHost,
     private val tick: () -> Unit,
+    /** Gestures are part of Metro Plus: while it is locked they do nothing, whatever is set. */
+    private val unlocked: () -> Boolean = { true },
 ) {
     fun perform(binding: GestureBinding) {
+        if (!unlocked()) return
         when (GestureRouting.route(binding, MetroAccessibilityService.isConnected)) {
             GestureRoute.NOTHING -> Unit
             GestureRoute.NEEDS_SERVICE -> toastServiceOff()

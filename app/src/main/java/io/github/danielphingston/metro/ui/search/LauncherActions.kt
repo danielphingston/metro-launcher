@@ -104,7 +104,7 @@ internal class LauncherActionsProvider(
     /** One row per saved layout matching [name]; tapping it switches start to that layout. */
     private fun layoutItems(name: String, context: Context): List<SearchItem> {
         val app = context.applicationContext as? MetroApplication ?: return emptyList()
-        val set = app.layouts.layouts.value ?: return emptyList()
+        val set = app.layouts.layouts.value?.takeIf { app.layouts.isUnlocked } ?: return emptyList()
         return LauncherActions.layoutsFor(name, set.layouts).map { layout ->
             val active = layout.id == set.active
             SearchItem(

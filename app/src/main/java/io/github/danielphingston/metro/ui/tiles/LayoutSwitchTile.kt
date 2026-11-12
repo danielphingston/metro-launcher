@@ -63,6 +63,11 @@ object LayoutSwitchTiles {
      */
     fun activate(context: Context, content: TileContent.LayoutSwitch) {
         val app = context.applicationContext as MetroApplication
+        if (!app.layouts.isUnlocked) {
+            android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
+            context.startActivity(SettingsActivity.intent(context, SettingsPage.METRO_PLUS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        }
         val set = app.layouts.layouts.value
         val target = content.layoutId?.let { set?.byId(it) } ?: if (content.layoutId == null) set?.next() else null
         if (target == null) {

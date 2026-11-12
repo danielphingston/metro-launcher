@@ -18,6 +18,9 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Tiles keep the place you give them and only ever slide straight up into free space, never sideways into gaps; resizing or dropping a tile pushes the ones in its way down. Any tile can rise one row into a row left half empty, such as under a pair of small tiles. New tiles go at the bottom.
 - Press and hold a tile to edit: drag to move (dragging never makes a folder), the corner badges unpin, resize or group into a folder. Back, Home or a tap on empty space leaves edit mode.
 - "+" under the tiles adds weather, photos, people, widget and Metro Plus tiles (quick settings and assistant); the arrow opens the app list. Settings can tint these buttons ("+", magnifier, arrow) in the accent colour.
+- First run: a short setup walks through the default home app, notification access for live tiles, and theme and accent colour; every step can be skipped, and "run setup again" is on the about page.
+- Undo: after unpinning, resizing, moving, grouping, restyling or recolouring a tile, a bar at the bottom of start offers "undo" for a few seconds; in edit mode you can undo several steps in a row. An unpinned widget keeps its id until it can no longer be undone.
+- Tile colours: in edit mode the style badge has "tile colour": default, the accent, a colour taken from the app's icon, or one of the 20 accent colours, on every kind of tile. Settings, "start", "tile colour" sets what tiles without their own colour use (the accent, or each app's icon) and how vivid icon colours are.
 - Padding is adjustable on all four edges (top, bottom, left, right). TalkBack gets custom actions (open folder, group into folder, remove from folder, unpin, resize) as an alternative to dragging.
 
 **Tiles and live tiles**
@@ -26,6 +29,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Photos tile (slideshow of photos you pick) and People tile (mosaic of contact photos).
 - Shortcut tiles: apps' pinned shortcuts, from the app list menu or an app's own "pin shortcut" request.
 - Widget tiles: Android app widgets hosted inside a tile, from the "widgets" picker (with search) or an app's pin request. Taps, buttons and scrolling lists work in place. In edit mode a widget tile gets a settings badge (when the widget has settings), a badge that shows it on the accent tile or without a tile background, and a corner handle you drag to resize it in whole cells, within the sizes its provider allows (TalkBack: make wider, narrower, taller, shorter).
+- Me tile ("+", live tiles): how many notifications are waiting across all apps and which apps they are from, flipping through the latest five; a tap opens the one showing. It follows "show message text on tiles" and never shows secret notifications.
 - Live tiles flip one at a time, only while visible.
 - A soft fade under the status bar keeps the clock and icons readable when tiles scroll up behind them (start screen and app list).
 
@@ -44,11 +48,13 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 - Search results follow the app list's icon style, so "plain icons" applies there too.
 - Metro makes no network requests while you type; nothing leaves the phone until you open a web result, and then your browser does it.
 
-**Metro Plus** (one paid pack: quick settings tiles, assistant, smart search)
+**Metro Plus** (one paid pack: quick settings tiles, assistant, smart search, layouts, gestures)
 - A one-time Google Play purchase (Play product id `tiles_quick_settings`, unchanged), always unlocked in debug builds; locked tiles show "unlock to use". Add tiles from "+" under the tiles; settings has a "metro plus" page with two sections: "assistant" and "smart search".
 - *Quick settings tiles.* Kinds: flashlight, do not disturb, ringer (ring, vibrate, silent), auto-rotate, brightness (auto, 25%, 50%, 100%) and battery. Larger battery tiles show extra detail such as charge state and temperature.
 - Tapping flashlight, do not disturb, ringer, auto-rotate and brightness changes the setting in place (the first tap on do not disturb or silent, or on brightness or auto-rotate, opens the system screen where you grant do not disturb access or "modify system settings"). Battery opens its settings page.
 - *Assistant.* One tile that follows the shared assistant choice: the app's icon and unread count, the latest reply (conversation title over the reply text, read from its notifications; the last message of a MessagingStyle notification is preferred and SECRET notifications are never shown), a "you asked: ..." footer, and a flip to the last question you asked from search. A notification titled with just the app's name shows the reply text only. Tap opens the assistant app; with no assistant chosen it shows "choose an assistant in settings". Nothing is polled: it reacts to notification changes. When the notification is gone (opened or dismissed) the tile keeps the assistant's last reply, dimmed and with a relative time ("2h ago") instead of an unread count; "clear last reply" in the metro plus page deletes it, as do changing the assistant or turning notification access or previews off.
+- *Layouts.* Keep several start screens, such as "work" and "weekend" (settings, "layouts": save the current start as a new layout, switch, rename, duplicate, delete). Edits belong to the layout on screen. Switch with a switch tile ("+", "layouts": one layout, or "next layout"), by searching "layout <name>", or from outside Metro: each layout gets an app shortcut on the "Metro settings" icon and the link `metro://layout/<name>` (`metro://layout/next`), so automation apps such as Samsung Modes and Routines or Tasker can put a layout on start. Tiles the two layouts share glide to their new places. A widget keeps its id while any layout holds it.
+- *Gestures.* Settings, "gestures": double tap on empty space, two-finger swipe down or up, and pinch in on the start screen, each set to nothing (the default), search, app list, edit tiles, Metro settings, an app, notifications, quick settings, recent apps or turn the screen off. Turning the screen off and recent apps use an optional accessibility service (below); notifications and quick settings use it only when the direct way is refused.
 - *Smart search.* Each feature has its own switch in settings, "search", "smart search"; while Metro Plus is locked none shows in results and that page lists them all with a lock and an "unlock with Metro Plus" button. Free forever: plain app-name search, the web row, the typed-address "open" row and smarter app matching.
 
 **Smart search features** (Metro Plus; default in brackets)
@@ -78,7 +84,7 @@ Contacts and calendar are only read while you search with their switch on and th
 
 **Backgrounds and personalisation**
 - Theme: dark, light or follow system. The 20 Windows Phone accent colours.
-- Start background: solid; photo tiles (each tile is a window onto one photo); full photo with parallax; or the system wallpaper.
+- Start background: solid; photo tiles (each tile is a window onto one photo); full photo with parallax; or the system wallpaper. In photo tiles mode, "photo moves with the tiles" (off by default) slides the photo away with the tiles when you swipe to the app list.
 - Settings are a menu of pages: start, app list, search, appearance, animations, tiles, metro plus and about.
 - Tile transparency slider, and "accent colour from my background" for the photo modes.
 - Themed (monochrome) app icons on Android 13+, and icon packs (ADW, Nova and Apex formats).
@@ -95,7 +101,7 @@ Contacts and calendar are only read while you search with their switch on and th
 
 ## Battery design
 
-- No service of our own, no wake locks, no alarms, no polling. The only scheduled background work is the weather tile's WorkManager job: about hourly, only while a weather tile is pinned and a place is set, with a network and not on a low battery.
+- No service of our own that does any work, no wake locks, no alarms, no polling. The optional accessibility service for gestures requests no events and no window content, so the system never calls it; it only performs "lock the screen" (and the like) when you make a gesture you set up. The only scheduled background work is the weather tile's WorkManager job: about hourly, only while a weather tile is pinned and a place is set, with a network and not on a low battery.
 - Notification counts come from a `NotificationListenerService` the system calls only when a notification is posted or removed. Media sessions are watched only while the start screen is visible.
 - Clock ticker, calendar queries, tile flips, slideshows and widget updates run only while the launcher is on screen (`collectAsStateWithLifecycle`, `repeatOnLifecycle`), and flips only for visible tiles. Device location is taken at most once an hour, only while a weather tile is shown.
 - Black background by default (OLED pixels off) and an opaque window; the wallpaper is composited only in "wallpaper" mode. Photo backgrounds hold one downsampled bitmap and animate nothing: parallax is a draw-only offset.
@@ -113,6 +119,8 @@ Contacts and calendar are only read while you search with their switch on and th
 | `ACCESS_NOTIFICATION_POLICY` | Do not disturb and silent on the quick settings tiles | Only when you tap one of those tiles; Metro opens the system "do not disturb access" screen |
 | `BILLING` (`com.android.vending.BILLING`, added by the Play Billing library) | The one-time Metro Plus purchase | Only when you choose to buy |
 | `REQUEST_DELETE_PACKAGES` | "Uninstall" in the app list (the system still asks to confirm) | Only when you choose uninstall |
+| `EXPAND_STATUS_BAR` | The "notifications" and "quick settings" gestures | Granted at install; used only when you make that gesture |
+| Accessibility service (`BIND_ACCESSIBILITY_SERVICE`), optional | The "turn the screen off" and "recent apps" gestures. Declares no event types and cannot read the screen | You enable it in system settings from the gestures page, after an in-app explanation. Sideloaded installs on Android 13+ may first need "allow restricted settings" in app info |
 | Notification access (`BIND_NOTIFICATION_LISTENER_SERVICE`) | Counts, latest message and now-playing on tiles | You enable it in system settings from a button in Metro settings, after an in-app explanation |
 
 Background and tile photos use the system photo picker, so no media permission is needed. Nothing else is requested, and `QUERY_ALL_PACKAGES` is not used: `<queries>` lists launchable apps, the `ACTION_SEND` text/plain intent (to find apps that take shared text for the assistant row) and the five known assistant packages, the system settings app (settings shortcuts), the clock app's `SET_ALARM`/`SET_TIMER` intents and the wallpaper picker (quick actions and launcher actions).
@@ -162,6 +170,7 @@ If Metro crashes, the stack trace is saved to `last_crash.txt` in the app's priv
 - **Location and weather:** the approximate location (rounded to about 1 km) and any city name you search for are sent to Open-Meteo, hourly while a weather tile is shown. Declare this in the Data safety form. Open-Meteo's data is CC BY 4.0 and requires attribution; credit it in the store listing.
 - **Contacts and calendar:** read on the device to draw tiles and, if the user switches those smart search features on, to show search results; never uploaded. Declare the permissions and explain them in the listing.
 - **In-app product and billing:** create a one-time, non-consumable in-app product with ID `tiles_quick_settings` in Play Console and activate it. Metro uses Play Billing, acknowledges the purchase and caches the owned state for offline use; until the product exists the buy button simply doesn't appear. Debug builds are always unlocked.
+- **Accessibility service:** declare it in Play Console. It is used only to call `performGlobalAction` (lock screen, notifications, quick settings, recents) when the user makes a gesture they configured; it declares no event types, does not retrieve window content, collects nothing, and is not an accessibility tool. The gestures page shows the disclosure before sending the user to system settings.
 - **Special access:** `WRITE_SETTINGS` and `ACCESS_NOTIFICATION_POLICY` are special access granted in system settings.
 - **Photos:** the photo picker means no media permission and nothing to declare. Metro keeps only the URIs of photos you picked.
 - **No `QUERY_ALL_PACKAGES`:** package visibility comes from `<queries>`, so no declaration is needed. There are no SMS or call-log permissions.

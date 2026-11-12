@@ -256,13 +256,15 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
                 }
             },
             tick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+            unlocked = { viewModel.quickTilesUnlocked.value },
         )
     }
+    val gesturesUnlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
     val gestureSettings by rememberUpdatedState(settings.gestures)
     val gesturesIdle = startState.editing || startState.flyoutOpen || startState.openFolderId != null ||
         searchState.isOpen || pager.currentPage != 0
     val twoFingerGestures = Modifier.twoFingerGestures(
-        enabled = !gesturesIdle && listOf(Gesture.TWO_FINGER_DOWN, Gesture.TWO_FINGER_UP, Gesture.PINCH_IN).any { settings.gestures[it].active },
+        enabled = gesturesUnlocked && !gesturesIdle && listOf(Gesture.TWO_FINGER_DOWN, Gesture.TWO_FINGER_UP, Gesture.PINCH_IN).any { settings.gestures[it].active },
     ) { gesture ->
         gestureDispatcher.perform(
             gestureSettings[

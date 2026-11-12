@@ -96,12 +96,15 @@ class MetroApplication : Application(), Configuration.Provider {
                 }
             },
         )
-        layouts = StartLayoutRepository(this, appScope, tiles, undo = { undo })
+        layouts = StartLayoutRepository(this, appScope, tiles, undo = { undo }, unlocked = { purchases.quickTilesUnlocked.value })
         wired.complete(Unit)
         // One app shortcut per saved layout, for automation apps; rewritten only when the layouts change.
         appScope.launch {
-            layouts.layouts.map { set -> set?.layouts?.map { it.id to it.name } }.distinctUntilChanged().collect {
-                val set = layouts.layouts.value
+            // No shortcuts while Metro Plus is locked: they could not switch anything.
+            kotlinx.coroutines.flow.combine(layouts.layouts, purchases.quickTilesUnlocked) { set, unlocked ->
+                if (unlocked) set else null
+            }.map { set -> set?.layouts?.map { it.id to it.name } }.distinctUntilChanged().collect {
+                val set = layouts.layouts.value.takeIf { purchases.quickTilesUnlocked.value }
                 withContext(Dispatchers.Default) { io.github.danielphingston.metro.data.LayoutShortcuts.sync(this@MetroApplication, set) }
             }
         }

@@ -33,6 +33,8 @@ class StartLayoutRepository(
     scope: CoroutineScope,
     private val tiles: TileRepository,
     private val undo: () -> TileUndo,
+    /** Layouts are part of Metro Plus: while it is locked nothing is saved, copied or switched (what is stored stays). */
+    private val unlocked: () -> Boolean = { true },
 ) {
     private val key = stringPreferencesKey(LayoutsJson.KEY)
     private val mutex = Mutex()
@@ -69,6 +71,13 @@ class StartLayoutRepository(
 
     suspend fun awaitLoaded() = loaded.await()
 
+    /** Whether layouts can be used now; see the constructor. */
+    val isUnlocked: Boolean get() = unlocked()
+
+    companion object {
+        const val LOCKED = "layouts are a Metro Plus feature"
+    }
+
     /** The tiles of the layouts that are not on screen, which keep their widget ids and shortcuts. */
     fun heldTiles(): List<List<TileSpec>> {
         val set = _layouts.value ?: return emptyList()
@@ -96,6 +105,7 @@ class StartLayoutRepository(
 
     /** Saves the current start as a new layout called [name]; returns why not, or null when it was saved. */
     suspend fun saveCurrentAs(name: String): String? {
+        if (!unlocked()) return LOCKED
         LayoutNames.problem(LayoutNames.clean(name), _layouts.value)?.let { return it }
         return if (update { set, live -> LayoutOps.saveAs(set, live, name) }) null else "couldn't save the layout"
     }
@@ -106,7 +116,7 @@ class StartLayoutRepository(
         return if (update { set, live -> set?.let { LayoutOps.rename(it, id, name, live) } }) null else "couldn't rename the layout"
     }
 
-    suspend fun duplicate(id: Long): Boolean = update { set, live -> set?.let { LayoutOps.duplicate(it, id, live) } }
+    suspend fun duplicate(id: Long): Boolean = unlocked() && update { set, live -> set?.let { LayoutOps.duplicate(it, id, live) } }
 
     /** Deletes layout [id] (never the active one) and frees the widget ids and shortcuts only it used. */
     suspend fun delete(id: Long): Boolean {
@@ -127,6 +137,7 @@ class StartLayoutRepository(
      * are dropped. False for the active layout, a missing one, or a failed write.
      */
     suspend fun switchTo(id: Long): Boolean = mutex.withLock {
+        if (!unlocked()) return false
         val set = _layouts.value ?: return false
         val live = tiles.encoded() ?: return false
         val next = LayoutOps.switch(set, live, id) ?: return false
