@@ -311,6 +311,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun setStyle(id: Long, style: io.github.danielphingston.metro.data.TileStyle, image: String?) =
         undoable(StartEdit.STYLE) { metro.tiles.setStyle(id, style, image) }
 
+    /** Changes tile [id] through [change] as one undoable [edit]; see [io.github.danielphingston.metro.data.TileOptions]. */
+    fun updateTile(id: Long, edit: StartEdit, change: (io.github.danielphingston.metro.data.TileSpec) -> io.github.danielphingston.metro.data.TileSpec) =
+        undoable(edit) { metro.tiles.update(id, change) }
+
     /** Sets the colour of tile [id]; see [io.github.danielphingston.metro.data.TileColors]. */
     fun setColor(id: Long, color: String?) = undoable(StartEdit.COLOUR) { metro.tiles.setColor(id, color) }
 
