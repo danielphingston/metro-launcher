@@ -146,4 +146,23 @@ class MeTileTest {
         assertFalse(counts("com.example.mail", flags = android.app.Notification.FLAG_GROUP_SUMMARY))
         assertFalse(counts(own))
     }
+
+    @Test
+    fun appTileCountsKeepTheSystemsOwnNotifications() {
+        val own = "io.github.danielphingston.metro"
+        fun counts(pkg: String, flags: Int = 0, ongoing: Boolean = false, category: String? = null) =
+            io.github.danielphingston.metro.live.NotificationFilter.countsForAppTile(pkg, own, ongoing, true, flags, category)
+        // As before the me tile: a system app's or the system UI's entries count on their app tile.
+        assertTrue(counts("com.google.android.gms"))
+        assertTrue(counts("com.android.systemui"))
+        assertTrue(counts("android"))
+        assertTrue(counts("com.example.mail"))
+        assertFalse(counts(own))
+        assertFalse(counts("com.example.mail", flags = android.app.Notification.FLAG_GROUP_SUMMARY))
+        assertFalse(counts("com.example.mail", ongoing = true))
+        assertFalse(counts("com.example.mail", category = android.app.Notification.CATEGORY_PROGRESS))
+        // The me tile leaves those out.
+        assertFalse(io.github.danielphingston.metro.live.NotificationFilter.counts("com.google.android.gms", own, false, true, 0, null, true, false))
+        assertTrue(io.github.danielphingston.metro.live.NotificationFilter.counts("com.google.android.gms", own, false, true, 0, null, true, true))
+    }
 }

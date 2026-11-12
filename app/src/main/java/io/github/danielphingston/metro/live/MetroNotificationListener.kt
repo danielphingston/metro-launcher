@@ -85,6 +85,8 @@ class MetroNotificationListener : NotificationListenerService() {
         // Disconnected while the rebuild was pending: don't resurrect what setConnected(false) cleared.
         if (!NotificationHub.connected.value) return
         val counted = active.filter(::countsTowardTile)
+        // The me tile also leaves out the system's own entries; app tiles count them as they always have.
+        val forMe = counted.filter { !isSystemNoise(it.packageName) }
         val grouped = counted
             .groupBy { AppKey.notificationKey(it.packageName, UserSerials.of(this, it.user)) }
         val published = grouped.mapValues { (_, list) ->
@@ -99,7 +101,7 @@ class MetroNotificationListener : NotificationListenerService() {
         NotificationHub.publish(published)
         MeFeed.publish(
             MeFeed.build(
-                counted.map {
+                forMe.map {
                     MeInput(
                         it.key, AppKey.notificationKey(it.packageName, UserSerials.of(this, it.user)), it.packageName,
                         it.postTime, it.notification.contentIntent, { preview(it) },
@@ -134,13 +136,16 @@ class MetroNotificationListener : NotificationListenerService() {
 
     private fun countsTowardTile(sbn: StatusBarNotification): Boolean {
         val n = sbn.notification
-        val pkg = sbn.packageName
-        // Only look the package up when it could matter: the cheap checks come first.
-        val system = pkg !in NotificationFilter.SYSTEM_PACKAGES && isSystemApp(pkg)
+        return NotificationFilter.countsForAppTile(sbn.packageName, packageName, sbn.isOngoing, sbn.isClearable, n.flags, n.category)
+    }
+
+    /** The system UI, or a system app with no launcher entry; see [NotificationFilter.isSystemNoise]. */
+    private fun isSystemNoise(pkg: String): Boolean {
+        // Only look the package up when it could matter: the cheap check comes first.
+        if (pkg in NotificationFilter.SYSTEM_PACKAGES) return true
+        val system = isSystemApp(pkg)
         val launchable = !system || packageManager.getLaunchIntentForPackage(pkg) != null
-        return NotificationFilter.counts(
-            pkg, packageName, sbn.isOngoing, sbn.isClearable, n.flags, n.category, system, launchable,
-        )
+        return NotificationFilter.isSystemNoise(pkg, system, launchable)
     }
 
     private fun isSystemApp(pkg: String): Boolean = try {

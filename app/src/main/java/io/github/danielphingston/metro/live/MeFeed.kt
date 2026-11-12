@@ -68,7 +68,10 @@ object MeFeed {
     }
 }
 
-/** Which notifications count toward the unread counts and the me tile; pure so it can be tested. */
+/**
+ * Which notifications count toward an app tile's unread count ([countsForAppTile]) and the me tile
+ * ([counts], which also leaves out the system's own); pure so it can be tested.
+ */
 internal object NotificationFilter {
     /** The system's own packages: their entries ("N more notifications", USB, charging...) summarise or announce, never message. */
     val SYSTEM_PACKAGES = setOf("com.android.systemui", "android")
@@ -77,6 +80,7 @@ internal object NotificationFilter {
     fun isSystemNoise(packageName: String, isSystemApp: Boolean, launchable: Boolean): Boolean =
         packageName in SYSTEM_PACKAGES || (isSystemApp && !launchable)
 
+    /** For the me tile: what counts on an app tile, without the system's own noise. */
     fun counts(
         packageName: String,
         ownPackage: String,
@@ -86,8 +90,19 @@ internal object NotificationFilter {
         category: String?,
         isSystemApp: Boolean,
         launchable: Boolean,
+    ): Boolean = !isSystemNoise(packageName, isSystemApp, launchable) &&
+        countsForAppTile(packageName, ownPackage, ongoing, clearable, flags, category)
+
+    /** For an app tile's unread count: anything but Metro's own, ongoing, summary and progress-like entries. */
+    fun countsForAppTile(
+        packageName: String,
+        ownPackage: String,
+        ongoing: Boolean,
+        clearable: Boolean,
+        flags: Int,
+        category: String?,
     ): Boolean {
-        if (packageName == ownPackage || isSystemNoise(packageName, isSystemApp, launchable)) return false
+        if (packageName == ownPackage) return false
         if (ongoing || !clearable) return false
         if (flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0) return false
         return category != android.app.Notification.CATEGORY_PROGRESS &&
