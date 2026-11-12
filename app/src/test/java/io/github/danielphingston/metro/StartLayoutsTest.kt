@@ -27,6 +27,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles.Outcome
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -325,5 +326,22 @@ class StartLayoutsTest {
         (row.action as io.github.danielphingston.metro.ui.search.ItemAction.Run)
             .run(io.github.danielphingston.metro.ui.search.ActionEnv(org.robolectric.RuntimeEnvironment.getApplication(), null, null, commands))
         assertEquals(listOf(2L), asked)
+    }
+
+    @Test
+    fun searchAndTilesSwitchLayoutsTheSameWay() {
+        val tiles = LayoutSwitchTiles
+        val set = LayoutSet(1, listOf(SavedLayout(1, "start", "[]"), SavedLayout(2, "work", "[]")))
+        // Locked: "unlock to use" and the Metro Plus page, whatever the layout.
+        assertEquals(Outcome.Locked, tiles.outcome(TileContent.LayoutSwitch(2), unlocked = false, set))
+        // Gone: the layouts page.
+        assertEquals(Outcome.Missing, tiles.outcome(TileContent.LayoutSwitch(9), unlocked = true, set))
+        assertEquals(Outcome.Missing, tiles.outcome(TileContent.LayoutSwitch(2), unlocked = true, null))
+        // Already on start: nothing (search just closes).
+        assertEquals(Outcome.AlreadyActive, tiles.outcome(TileContent.LayoutSwitch(1), unlocked = true, set))
+        assertEquals(Outcome.Switch(2), tiles.outcome(TileContent.LayoutSwitch(2), unlocked = true, set))
+        // "Next layout" goes round.
+        assertEquals(Outcome.Switch(2), tiles.outcome(TileContent.LayoutSwitch(null), unlocked = true, set))
+        assertEquals(Outcome.Missing, tiles.outcome(TileContent.LayoutSwitch(null), unlocked = true, LayoutSet(1, listOf(SavedLayout(1, "start", "[]")))))
     }
 }
