@@ -302,4 +302,18 @@ class StartLayoutsTest {
         val toEmpty = LayoutOps.switch(more, edited, 3)!!
         assertEquals("[]", toEmpty.activeLayout.tiles)
     }
+
+    @Test
+    fun aLayoutSearchRowRunsInPlaceAndPinsTheRealSwitchTile() {
+        var switched = 0
+        val row = LauncherActions.layoutItem(SavedLayout(2, "work", "[]"), activeId = 1) { switched++ }
+        // Nothing is launched (no turnstile): the row runs in place.
+        assertTrue(row.action is io.github.danielphingston.metro.ui.search.ItemAction.Run)
+        // It pins the same tile the add menu's "layouts" entry adds, not an action tile.
+        assertEquals(TileContent.LayoutSwitch(2), row.pin)
+        assertEquals(layoutSwitchEntries(LayoutSet(1, listOf(SavedLayout(2, "work", "[]")))).last().second, row.pin)
+        assertEquals("switch the start screen to it", row.subtitle)
+        assertEquals("on start now", LauncherActions.layoutItem(SavedLayout(1, "start", "[]"), 1) {}.subtitle)
+        assertEquals(0, switched)
+    }
 }

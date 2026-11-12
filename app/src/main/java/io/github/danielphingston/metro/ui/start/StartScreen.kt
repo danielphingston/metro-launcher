@@ -155,7 +155,6 @@ import io.github.danielphingston.metro.ui.theme.LocalStartBackdrop
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.flowOf
@@ -347,6 +346,7 @@ fun StartScreen(
     val undoNext by viewModel.undoNext.collectAsStateWithLifecycle()
     val tileKeys = viewModel.tileKeys
     val switchMotion = remember { SwitchMotion() }
+    val settingsWatch = remember { SettingsWatch() }
 
     // Live sources run only when a tile needs them and only while the launcher is visible
     // (collectAsStateWithLifecycle stops collecting below STARTED).
@@ -483,6 +483,11 @@ fun StartScreen(
         // A layout switch: what left, what is new and what changed size, for the extras of its animation.
         switchMotion.ended
         val switchGeneration = tileKeys.generation
+        // The settings the screen had before this switch, so the wait for the new ones (see below) can tell
+        // "already arrived" from "not yet": a wait for a change that has already happened never ends.
+        if (switchGeneration != settingsWatch.generation) settingsWatch.beforeSwitch = settingsWatch.latest
+        settingsWatch.generation = switchGeneration
+        settingsWatch.latest = settings
         switchMotion.update(
             switchGeneration,
             tiles.indices.associate { tileKeys.keyOf(tiles[it].spec.id) to (tiles[it] to placements[it]) },
@@ -602,7 +607,8 @@ fun StartScreen(
                 // The new layout's settings (columns, paddings) land just after its tiles: stay
                 // transparent until they have, briefly at most, so the fade shows the final grid.
                 state.scroll.scrollTo(0)
-                withTimeoutOrNull(SWITCH_SETTINGS_WAIT_MILLIS) { snapshotFlow { currentSettings }.drop(1).first() }
+                val before = settingsWatch.beforeSwitch
+                withTimeoutOrNull(SWITCH_SETTINGS_WAIT_MILLIS) { snapshotFlow { currentSettings }.first { it != before } }
                 switchMotion.play(motion.duration(SWITCH_MILLIS))
             } else {
                 launch { state.scroll.animateScrollTo(0) }
@@ -1516,4 +1522,11 @@ private fun AllAppsArrow(accent: Boolean, onClick: () -> Unit) = RoundGlyphButto
     drawLine(color, Offset(l, y), Offset(r, y), stroke, StrokeCap.Round)
     drawLine(color, Offset(r, y), Offset(r - head, y - head), stroke, StrokeCap.Round)
     drawLine(color, Offset(r, y), Offset(r - head, y + head), stroke, StrokeCap.Round)
+}
+
+/** What the start screen saw of the settings around a layout switch; see [SWITCH_SETTINGS_WAIT_MILLIS]. */
+private class SettingsWatch {
+    var generation = 0
+    var latest: Any? = null
+    var beforeSwitch: Any? = null
 }

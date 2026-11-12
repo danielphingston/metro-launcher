@@ -10,6 +10,7 @@ import io.github.danielphingston.metro.live.PhotoSource
 import io.github.danielphingston.metro.ui.start.TileKeys
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -63,8 +65,9 @@ class StartLayoutRepository(
 
     init {
         scope.launch {
-            context.metroDataStore.data.map(::stored).distinctUntilChanged().collect {
-                _layouts.value = LayoutsJson.decode(it)
+            // Decoding every saved layout is real work (all their tile JSON): off the main thread, which a switch would stall.
+            context.metroDataStore.data.map(::stored).distinctUntilChanged().map(LayoutsJson::decode).flowOn(Dispatchers.Default).collect {
+                _layouts.value = it
                 loaded.complete(Unit)
             }
         }
