@@ -204,10 +204,19 @@ object TileOptions {
 
     /**
      * [spec] with its name shown or hidden. A tile with the icon-and-name look changes its look; any
-     * other (a live face) only its flag, so its style, and what older versions show, stays.
+     * other (a live face) only its flag, so its style, and what older versions show, stays. A
+     * contact's photo face also keeps its style and only drops the name strip: the plain style with
+     * the hidden name, which no older style means, so an old "icon only" contact stays the drawing.
      */
-    fun withNameShown(spec: TileSpec, shown: Boolean, hasLook: Boolean): TileSpec =
-        if (hasLook) withLook(spec, spec.look.copy(showName = shown), spec.image) else spec.copy(hideName = !shown)
+    fun withNameShown(spec: TileSpec, shown: Boolean, hasLook: Boolean): TileSpec = when {
+        !hasLook || isContactPhotoFace(spec) -> spec.copy(hideName = !shown)
+        else -> withLook(spec, spec.look.copy(showName = shown), spec.image)
+    }
+
+    /** A contact search tile in the plain style without a picked icon: its photo fills it. */
+    fun isContactPhotoFace(spec: TileSpec): Boolean =
+        (spec.content as? TileContent.Action)?.icon is ActionIcon.Contact &&
+            spec.style == TileStyle.ICON && spec.icon == null && !spec.hideIcon
 
     /** [spec] with its icon shown or hidden. */
     fun withIconShown(spec: TileSpec, shown: Boolean): TileSpec = withLook(spec, spec.look.copy(showIcon = shown), spec.image)

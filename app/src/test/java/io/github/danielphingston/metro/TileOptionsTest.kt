@@ -35,6 +35,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import io.github.danielphingston.metro.ui.tiles.ActionFace
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -472,5 +473,38 @@ class TileOptionsTest {
                 else -> assertEquals(key, e, a)
             }
         }
+    }
+
+    @Test
+    fun searchTileFacesKeepOldStylesAndAContactPhotoWithoutItsName() {
+        val faces = io.github.danielphingston.metro.ui.tiles.ActionFaces
+        fun action(icon: ActionIcon) = TileSpec(1, TileSize.MEDIUM, TileContent.Action("x", icon, LaunchTarget.Web("https://example.com")))
+        val contact = action(ActionIcon.Contact("content://com.android.contacts/contacts/lookup/p/2"))
+        val glyph = action(ActionIcon.Glyph("gear"))
+        fun roundTrip(spec: TileSpec) = TileJson.decode(TileJson.encode(listOf(spec))).single()
+        // Old tiles, as before the customise sheet: only the plain style without a picked icon is the photo.
+        assertEquals(ActionFace.CONTACT_PHOTO, faces.of(contact))
+        for (style in TileStyle.entries - TileStyle.ICON) assertEquals(style.name, ActionFace.STYLED, faces.of(contact.copy(style = style)))
+        assertEquals(ActionFace.STYLED, faces.of(contact.copy(icon = "glyph:alarm")))
+        assertEquals(ActionFace.PLAIN, faces.of(glyph))
+        assertEquals(ActionFace.STYLED, faces.of(glyph.copy(style = TileStyle.ICON_ONLY)))
+        // Show name off on the photo face keeps the photo, stored apart from an old "icon only".
+        val noName = TileOptions.withNameShown(contact, shown = false, hasLook = true)
+        assertEquals(TileStyle.ICON, noName.style)
+        assertFalse(noName.look.showName)
+        assertEquals(ActionFace.CONTACT_PHOTO_NO_NAME, faces.of(noName))
+        assertEquals(noName, roundTrip(noName))
+        assertEquals(ActionFace.CONTACT_PHOTO_NO_NAME, faces.of(roundTrip(noName)))
+        // And back on: the normal photo face.
+        assertEquals(contact, TileOptions.withNameShown(noName, shown = true, hasLook = true))
+        // An old "icon only" contact stays the drawing without a name, also after a round trip.
+        val oldIconOnly = contact.copy(style = TileStyle.ICON_ONLY)
+        assertEquals(ActionFace.STYLED, faces.of(roundTrip(oldIconOnly)))
+        assertFalse(roundTrip(oldIconOnly).look.showName)
+        // Any other search tile: Show name off is the styled face without the label.
+        val glyphNoName = TileOptions.withNameShown(glyph, shown = false, hasLook = true)
+        assertFalse(glyphNoName.look.showName)
+        assertEquals(ActionFace.STYLED, faces.of(glyphNoName))
+        assertEquals(glyphNoName, roundTrip(glyphNoName))
     }
 }

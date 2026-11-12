@@ -22,9 +22,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.asImageBitmap
+import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.captureRoboImage
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.AppKey
@@ -32,6 +35,7 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileJson
+import io.github.danielphingston.metro.data.TileOptions
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.start.StartState
@@ -43,6 +47,7 @@ import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.theme.StartBackdrop
 import io.github.danielphingston.metro.ui.theme.startBackdrop
 import org.json.JSONArray
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -105,8 +110,127 @@ class OldTileStylesScreenshotTest {
     }
 
     @Test
-    fun oldStylesDrawAsTheyAlwaysHave() {
-        val tiles = TileJson.decode(JSONArray(oldLayout(photoUri())))
+    fun oldStylesDrawAsTheyAlwaysHave() = drawAndCapture(oldLayout(photoUri()), "start_old_styles")
+
+    /**
+     * Search (action) tiles in every old style, size and picture kind: a glyph, a contact (no
+     * contacts permission here, so the person drawing) and a picked pack-style glyph icon, with and
+     * without their photo. `start_old_action_styles.png` was recorded with the code from before the
+     * customise sheet.
+     */
+    @Test
+    @Config(qualifiers = "w411dp-h1700dp-xhdpi")
+    fun oldActionStylesDrawAsTheyAlwaysHave() = drawAndCapture(
+        oldActionLayout(photoUri()), "start_old_action_styles",
+        // A wrongly shown or hidden label is a few hundred pixels of this tall image: compare closely.
+        RoborazziOptions(compareOptions = RoborazziOptions.CompareOptions(changeThreshold = 0.0001f)),
+    )
+
+    private fun oldActionLayout(photo: String): String {
+        var id = 0
+        fun action(size: String, style: String?, label: String, icon: String, image: Boolean = false, extra: String = ""): String {
+            id++
+            return """{"id":$id,"size":"$size","type":"action","label":"$label",$icon,"target":{"kind":"web","url":"https://example.com"}""" +
+                (style?.let { ""","style":"$it"""" } ?: "") + (if (image) ""","image":"$photo"""" else "") + extra + "}"
+        }
+        val glyph = """"glyph":"gear""""
+        val contact = """"contact":"content://com.android.contacts/contacts/lookup/x/1""""
+        val styles = listOf(null, "iconOnly", "name", "customIcon", "image", "imageIcon")
+        val tiles = ArrayList<String>()
+        for (style in styles) {
+            val photo = style == "customIcon" || style == "image" || style == "imageIcon"
+            tiles += action("MEDIUM", style, "g ${style ?: "icon"}", glyph, image = photo)
+            tiles += action("MEDIUM", style, "c ${style ?: "icon"}", contact, image = photo)
+            tiles += action("SMALL", style, "s ${style ?: "icon"}", glyph, image = photo)
+        }
+        // Photo styles whose photo is gone, and a picked icon in each plain style.
+        for (style in listOf("customIcon", "image", "imageIcon")) {
+            tiles += action("MEDIUM", style, "gone $style", glyph)
+            tiles += action("MEDIUM", style, "cgone $style", contact)
+        }
+        for (style in listOf(null, "iconOnly", "name")) {
+            tiles += action("MEDIUM", style, "picked ${style ?: "icon"}", glyph, extra = ""","icon":"glyph:alarm"""")
+        }
+        tiles += action("WIDE", "iconOnly", "wide", glyph)
+        tiles += action("LARGE", null, "large", contact)
+        return tiles.joinToString(",", "[", "]")
+    }
+
+    private val contactUri = "content://com.android.contacts/contacts/lookup/p/2"
+
+    /** Contact tiles in the old styles whose contact has a photo. `start_old_contact_photos.png` was recorded with the code from before the customise sheet. */
+    @Test
+    fun oldContactTilesWithAPhotoDrawAsTheyAlwaysHave() {
+        ContactPhotoStub.install(contactUri)
+        drawAndCapture(
+            oldContactLayout(), "start_old_contact_photos",
+            RoborazziOptions(compareOptions = RoborazziOptions.CompareOptions(changeThreshold = 0.0001f)),
+        )
+    }
+
+    private fun oldContactLayout(): String {
+        var id = 0
+        fun contact(size: String, style: String?, label: String, extra: String = ""): String {
+            id++
+            return """{"id":$id,"size":"$size","type":"action","label":"$label","contact":"$contactUri","target":{"kind":"web","url":"https://example.com"}""" +
+                (style?.let { ""","style":"$it"""" } ?: "") + extra + "}"
+        }
+        return listOf(
+            contact("MEDIUM", null, "p icon"),
+            contact("MEDIUM", "iconOnly", "p iconOnly"),
+            contact("MEDIUM", "name", "p name"),
+            contact("MEDIUM", null, "p picked", extra = ""","icon":"glyph:alarm""""),
+            contact("SMALL", null, "p small"),
+            contact("SMALL", "iconOnly", "p small iconOnly"),
+            contact("WIDE", null, "p wide"),
+            contact("WIDE", "iconOnly", "p wide iconOnly"),
+        ).joinToString(",", "[", "]")
+    }
+
+    /**
+     * "Show name" off on a contact's photo face keeps the photo and drops only the name strip; the
+     * old "icon only" contact next to it stays the person drawing without a name.
+     */
+    @Test
+    fun contactPhotoWithNameHiddenKeepsThePhoto() {
+        ContactPhotoStub.install(contactUri)
+        val old = TileJson.decode(JSONArray(oldContactLayout()))
+        val photo = old.first { (it.content as TileContent.Action).label == "p icon" }
+        val wide = old.first { (it.content as TileContent.Action).label == "p wide" }
+        val iconOnly = old.first { (it.content as TileContent.Action).label == "p iconOnly" }
+        val tiles = listOf(photo, wide).map { TileOptions.withNameShown(it, shown = false, hasLook = true) } + iconOnly
+        // What is stored survives a save and a restart.
+        val stored = TileJson.decode(TileJson.encode(tiles))
+        assertEquals(tiles, stored)
+        drawAndCapture(TileJson.encode(stored).toString(), "start_contact_photo_no_name")
+        rule.onAllNodesWithText("p icon").assertCountEquals(0)
+        rule.onAllNodesWithText("p wide").assertCountEquals(0)
+        rule.onAllNodesWithText("p iconOnly").assertCountEquals(0)
+    }
+
+    /** "Show name" off on a search tile hides its label, for a glyph and for a contact. */
+    @Test
+    fun actionTileWithNameHiddenHasNoLabel() {
+        val glyph = TileJson.decode(JSONArray(oldActionLayout(photoUri()))).first { (it.content as TileContent.Action).label == "g icon" }
+        val contact = TileJson.decode(JSONArray(oldActionLayout(photoUri()))).first { (it.content as TileContent.Action).label == "c icon" }
+        val hidden = listOf(glyph, contact.copy(id = 99)).map { TileOptions.withNameShown(it, shown = false, hasLook = true) }
+        draw(hidden)
+        rule.waitForIdle()
+        rule.onAllNodesWithText("g icon").assertCountEquals(0)
+        rule.onAllNodesWithText("c icon").assertCountEquals(0)
+    }
+
+    private fun drawAndCapture(layout: String, golden: String, options: RoborazziOptions = ScreenshotOptions) {
+        draw(TileJson.decode(JSONArray(layout)))
+        // Icons and photos load on background threads; give them time to arrive and settle.
+        repeat(8) {
+            Thread.sleep(250)
+            rule.waitForIdle()
+        }
+        rule.onRoot().captureRoboImage("src/test/screenshots/$golden.png", roborazziOptions = options)
+    }
+
+    private fun draw(tiles: List<TileSpec>) {
         rule.setContent {
             MetroTheme(LauncherSettings(columns = 6)) {
                 val context = LocalContext.current
@@ -147,12 +271,6 @@ class OldTileStylesScreenshotTest {
                 }
             }
         }
-        // Icons and photos load on background threads; give them time to arrive and settle.
-        repeat(8) {
-            Thread.sleep(250)
-            rule.waitForIdle()
-        }
-        rule.onRoot().captureRoboImage("src/test/screenshots/start_old_styles.png", roborazziOptions = ScreenshotOptions)
     }
 
     private fun resolve(spec: TileSpec): ResolvedTile = when (val c = spec.content) {
@@ -227,5 +345,40 @@ internal object TilePhotoStub {
         val cache = field.get(null) as android.util.LruCache<String, androidx.compose.ui.graphics.ImageBitmap>
         for (px in sizes) cache.put("$uri@${px}x$px", image)
         return uri
+    }
+}
+
+/**
+ * Contact photos for screenshot tests: Robolectric has no contacts provider, so the contact
+ * permission is granted and the photo put straight into PeopleSource's cache, marked as looked up
+ * just now, under every size a small, medium or wide tile asks for.
+ */
+internal object ContactPhotoStub {
+    fun install(uri: String) {
+        val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+        org.robolectric.Shadows.shadowOf(app).grantPermissions(android.Manifest.permission.READ_CONTACTS)
+        val side = 96
+        val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.shader = LinearGradient(0f, 0f, 0f, side.toFloat(), 0xFF7FB77E.toInt(), 0xFF2F5D50.toInt(), Shader.TileMode.CLAMP)
+        canvas.drawRect(0f, 0f, side.toFloat(), side.toFloat(), paint)
+        paint.shader = null
+        paint.color = 0xFFF2D0B5.toInt()
+        canvas.drawCircle(side * 0.5f, side * 0.4f, side * 0.2f, paint)
+        canvas.drawCircle(side * 0.5f, side * 1.05f, side * 0.38f, paint)
+        val owner = Class.forName("io.github.danielphingston.metro.live.PeopleSource")
+        @Suppress("UNCHECKED_CAST")
+        val cache = owner.getDeclaredField("cache").apply { isAccessible = true }.get(null) as android.util.LruCache<String, Bitmap>
+        @Suppress("UNCHECKED_CAST")
+        val checked = owner.getDeclaredField("contactChecked").apply { isAccessible = true }.get(null) as android.util.LruCache<String, Any>
+        val check = Class.forName("io.github.danielphingston.metro.live.PeopleSource\$ContactCheck")
+            .getDeclaredConstructor(Long::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+            .apply { isAccessible = true }
+        for (px in (128..138) + (261..271) + (527..537)) {
+            val key = "contact:$uri#$px"
+            cache.put(key, bitmap)
+            checked.put(key, check.newInstance(android.os.SystemClock.elapsedRealtime(), true))
+        }
     }
 }
