@@ -136,6 +136,7 @@ internal enum class SettingsPage(val title: String, val summary: String, val par
     SEARCH_IN_APPS("search in apps", "which apps the results can search, and their order", SEARCH),
     SEARCH_KEYWORDS("search keywords", "short words that search one app or site", SEARCH),
     SEARCH_HELP("what can I type?", "the phrases smart search understands", SEARCH),
+    LAYOUTS("layouts", "save and switch start layouts"),
 }
 
 @Composable
@@ -178,6 +179,7 @@ internal fun SettingsScreen(
                     SettingsPage.TILES -> TilesPage(settings, repository)
                     SettingsPage.METRO_PLUS -> MetroPlusSettingsSection(settings, repository, onOpenSearchSettings = { page = SettingsPage.SEARCH.name })
                     SettingsPage.ABOUT -> AboutPage()
+                    SettingsPage.LAYOUTS -> LayoutsPage()
                 }
             }
         }

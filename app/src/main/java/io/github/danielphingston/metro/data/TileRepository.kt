@@ -4,6 +4,7 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.os.Process
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import io.github.danielphingston.metro.live.UserSerials
@@ -79,6 +80,9 @@ sealed interface TileContent {
 
     /** Windows Phone 8.1 tile folder. Children are app or shortcut tiles. */
     data class Folder(val name: String, val children: List<TileSpec>) : TileContent
+
+    /** Switches start to the saved layout [layoutId] (see [StartLayoutRepository]); null: to the next one in turn. */
+    data class LayoutSwitch(val layoutId: Long?) : TileContent
 }
 
 /** The quick-setting tiles. [id] is the name saved in the layout, so it must never change. */
@@ -480,6 +484,39 @@ class TileRepository(
     fun restore(tiles: List<TileSpec>) {
         if (_tiles.value != null) _tiles.value = tiles
     }
+
+    /** The live layout as the tiles key stores it, entries this version can't decode included; null until loaded. */
+    fun encoded(): String? = _tiles.value?.let { TileJson.encode(it, carried).toString() }
+
+    /**
+     * Replaces the live layout with another stored tile array ([json]; unreadable reads as empty),
+     * writing it in the same store edit as [alsoWrite] so the two can never disagree (see
+     * [StartLayouts]). [beforePublish] gets the new tiles first. False when the store couldn't be
+     * written; nothing changed then.
+     */
+    internal suspend fun swap(json: String, beforePublish: (List<TileSpec>) -> Unit, alsoWrite: (MutablePreferences) -> Unit): Boolean {
+        val previous = _tiles.value ?: return false
+        val previousCarried = carried
+        val read = TileJson.read(json) ?: TileJson.Read(emptyList(), TileJson.Unread())
+        val list = load(read.tiles)
+        val encoded = TileJson.encode(list, read.unread).toString()
+        beforePublish(list)
+        carried = read.unread
+        _tiles.value = list
+        try {
+            context.metroDataStore.edit { prefs ->
+                alsoWrite(prefs)
+                prefs[key] = encoded
+            }
+        } catch (_: IOException) {
+            carried = previousCarried
+            _tiles.value = previous
+            return false
+        }
+        // A save of the old layout queued just before the swap must not be the last write.
+        save(list)
+        return true
+    }
 }
 
 /** When a stored widget tile can safely be dropped; see [TileRepository]. */
@@ -639,6 +676,7 @@ internal object TileJson {
                 }
             }
             is TileContent.Folder -> obj.put("type", "folder").put("name", c.name).put("children", encode(c.children).apply { unread.children[tile.id]?.forEach { put(it) } })
+            is TileContent.LayoutSwitch -> obj.put("type", "layoutSwitch").apply { c.layoutId?.let { put("layout", it) } }
         }
         return obj
     }
@@ -676,6 +714,7 @@ internal object TileJson {
                 if (unread.isNotEmpty()) unreadChildren[obj.getLong("id")] = unread
                 TileContent.Folder(obj.optString("name"), kids)
             }
+            "layoutSwitch" -> TileContent.LayoutSwitch(if (obj.has("layout")) obj.getLong("layout") else null)
             else -> return null
         }
         val span = if (obj.has("spanWidth") && obj.has("spanHeight")) {

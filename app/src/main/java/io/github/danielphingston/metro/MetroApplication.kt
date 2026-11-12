@@ -11,6 +11,7 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.SearchHistory
 import io.github.danielphingston.metro.data.SettingsRepository
+import io.github.danielphingston.metro.data.StartLayoutRepository
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.data.TileUndo
 import io.github.danielphingston.metro.data.WidgetReclaim
@@ -63,9 +64,14 @@ class MetroApplication : Application(), Configuration.Provider {
         TileUndo(
             current = { tiles.tiles.value },
             restore = tiles::restore,
+            alsoHeld = { layouts.heldTiles() },
             release = { removed -> appScope.launch { releaseTileResources(this@MetroApplication, removed) } },
         )
     }
+
+    /** The saved start layouts and switching between them; see [StartLayoutRepository]. */
+    lateinit var layouts: StartLayoutRepository
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -82,6 +88,7 @@ class MetroApplication : Application(), Configuration.Provider {
                 appScope.launch { reclaimWidgetIds(referenced, undecoded) }
             },
         )
+        layouts = StartLayoutRepository(this, appScope, tiles, undo = { undo })
         icons = IconCache(this)
         apps = AppRepository(this, appScope, onPackageRemoved = { pkg, serial ->
             val removed = tiles.removePackage(pkg, serial)
@@ -128,7 +135,9 @@ class MetroApplication : Application(), Configuration.Provider {
      * activity recreated while a widget was being bound. Any failure of the widget service frees nothing.
      */
     private suspend fun reclaimWidgetIds(referenced: Set<Int>, undecoded: Boolean) {
-        if (undecoded) return
+        // Widgets of the saved layouts that are not on screen keep their ids too.
+        layouts.awaitLoaded()
+        if (undecoded || layouts.hasUndecoded()) return
         val held = withContext(Dispatchers.Default) {
             try {
                 WidgetTiles.host(this@MetroApplication).appWidgetIds.toSet()
@@ -138,7 +147,7 @@ class MetroApplication : Application(), Configuration.Provider {
         } ?: return
         // Read again now: a tile may have been added while the ids were fetched.
         val used = referenced + WidgetReclaim.referencedIds(tiles.tiles.value.orEmpty()) +
-            undo.snapshots().flatMap(WidgetReclaim::referencedIds)
+            (undo.snapshots() + layouts.heldTiles()).flatMap(WidgetReclaim::referencedIds)
         val stale = WidgetReclaim.toDelete(held, used, undecoded)
         if (stale.isEmpty()) return
         withContext(Dispatchers.Default) { stale.forEach { WidgetTiles.release(this@MetroApplication, it) } }

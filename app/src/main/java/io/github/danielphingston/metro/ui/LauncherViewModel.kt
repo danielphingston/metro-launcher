@@ -25,6 +25,10 @@ import io.github.danielphingston.metro.data.HistoryData
 import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.data.StartEdit
+import io.github.danielphingston.metro.data.LayoutSet
+import io.github.danielphingston.metro.data.StartLayoutRepository
+import io.github.danielphingston.metro.ui.start.TileKeys
+import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.TileRepository
@@ -140,7 +144,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val assistantStored: Flow<String?> = metro.settings.settings.map { it.assistant }.distinctUntilChanged()
 
     /** Null while loading, so the start screen can tell "empty" from "not ready yet". */
-    val tiles: StateFlow<List<ResolvedTile>?> = combine(metro.tiles.tiles, metro.apps.apps, assistantStored) { specs, apps, assistantSetting ->
+    val tiles: StateFlow<List<ResolvedTile>?> = combine(metro.tiles.tiles, metro.apps.apps, assistantStored, metro.layouts.layouts) { specs, apps, assistantSetting, layouts ->
         if (specs == null || apps == null) return@combine null
         val byKey = apps.associateBy { it.key }
         // An app update can rename its launcher activity; fall back to the package's main entry.
@@ -173,6 +177,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             is TileContent.Folder -> ResolvedTile(
                 spec, null, c.name.ifBlank { "folder" }, c.children.mapNotNull(::resolve),
             )
+            is TileContent.LayoutSwitch -> ResolvedTile(spec, null, LayoutSwitchTiles.label(c, layouts))
         }
         specs.mapNotNull(::resolve)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -275,7 +280,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         removed?.let { metro.undo.releaseUnreferenced(listOf(it)) }
     }
 
-    fun resize(id: Long) = undoable(StartEdit.RESIZE) { metro.tiles.resize(id) }
+    fun resize(id: Long) = undoable(StartEdit.RESIZE) {
+        val spec = metro.tiles.tiles.value.orEmpty().firstOrNull { it.id == id }
+        // A layout switch tile has no large size: wide goes back to small.
+        if (spec?.content is TileContent.LayoutSwitch && spec.size == TileSize.WIDE) {
+            metro.tiles.edit { list -> list.map { if (it.id == id) it.copy(size = TileSize.SMALL, span = null) else it } }
+        } else {
+            metro.tiles.resize(id)
+        }
+    }
     fun setSpan(id: Long, width: Int, height: Int) = undoable(StartEdit.RESIZE) { metro.tiles.setSpan(id, width, height) }
 
     /** Sets the picked icon of tile [id]; null restores its own. */
@@ -311,6 +324,19 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Takes back the latest start screen edit; see [io.github.danielphingston.metro.data.TileUndo]. */
     fun undo() {
         metro.undo.undo()
+    }
+
+    /** The saved start layouts, null while there are none; see [StartLayoutRepository]. */
+    val layouts: StateFlow<LayoutSet?> = metro.layouts.layouts
+
+    /** Each layout switch, wherever it came from (a tile, search, settings), for the bar that offers to go back. */
+    val layoutSwitches: SharedFlow<StartLayoutRepository.Switched> = metro.layouts.switches
+
+    /** Composition keys of the start tiles, kept across a layout switch so shared tiles glide; see [TileKeys]. */
+    val tileKeys: TileKeys get() = metro.layouts.keys
+
+    fun switchLayout(id: Long) {
+        metro.appScope.launch { metro.layouts.switchTo(id) }
     }
 
     private fun undoable(edit: StartEdit, apply: () -> Unit) {

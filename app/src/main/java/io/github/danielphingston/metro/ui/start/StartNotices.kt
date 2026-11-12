@@ -53,6 +53,11 @@ internal sealed interface StartNotice {
     data class Edited(override val message: String, override val serial: Long) : StartNotice {
         override val action get() = "undo"
     }
+
+    /** Start switched to the layout [message]; the action goes back to layout [previous]. */
+    data class Switched(override val message: String, val previous: Long, override val serial: Long) : StartNotice {
+        override val action get() = "back"
+    }
 }
 
 /**
@@ -90,6 +95,9 @@ internal fun rememberStartNotices(viewModel: LauncherViewModel, isCurrentPage: B
     val notices = remember { StartNotices() }
     LaunchedEffect(viewModel) {
         viewModel.undoRecorded.collect { label -> notices.show { StartNotice.Edited(label, it) } }
+    }
+    LaunchedEffect(viewModel) {
+        viewModel.layoutSwitches.collect { switch -> notices.show { StartNotice.Switched(switch.name, switch.previous, it) } }
     }
     val accessibility = LocalAccessibilityManager.current
     LaunchedEffect(notices.current) {
@@ -159,6 +167,10 @@ internal fun StartNoticeBar(
                             is StartNotice.Edited, null -> {
                                 viewModel.undo()
                                 // In edit mode the bar stays on to offer the step before.
+                                notices.dismiss()
+                            }
+                            is StartNotice.Switched -> {
+                                viewModel.switchLayout(notice.previous)
                                 notices.dismiss()
                             }
                         }

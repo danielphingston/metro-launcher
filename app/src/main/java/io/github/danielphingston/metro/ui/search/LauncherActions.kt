@@ -2,7 +2,10 @@ package io.github.danielphingston.metro.ui.search
 
 import android.content.Context
 import android.content.Intent
+import kotlinx.coroutines.launch
+import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.AppInfo
+import io.github.danielphingston.metro.data.SavedLayout
 import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.ui.settings.SettingsActivity
 import io.github.danielphingston.metro.ui.settings.SettingsPage
@@ -16,6 +19,9 @@ internal sealed interface LauncherAction {
     data class ForApp(val verb: Verb, val name: String) : LauncherAction
 
     enum class Verb { APP_INFO, UNINSTALL }
+
+    /** "layout <name>": switch start to the saved layout [name] points at. */
+    data class SwitchLayout(val name: String) : LauncherAction
 }
 
 /** The phrases that act on the launcher itself, and their matching; pure. */
@@ -25,9 +31,11 @@ internal object LauncherActions {
         EDIT_TILES("edit tiles", listOf("edit tiles", "edit start", "edit start screen", "rearrange tiles")),
         METRO_SETTINGS("Metro settings", listOf("metro settings", "launcher settings")),
         SMART_SEARCH_SETTINGS("smart search settings", listOf("smart search settings", "search settings", "smart search")),
+        LAYOUTS("layouts", listOf("layouts", "start layouts", "layout settings")),
     }
 
     private val appInfo = Regex("""^(?:app info|app settings|info)\s+(.+)$""", RegexOption.IGNORE_CASE)
+    private val layout = Regex("""^(?:layout|switch to layout|switch layout)\s+(.+)$""", RegexOption.IGNORE_CASE)
     private val uninstall = Regex("""^(?:uninstall|remove app|delete app)\s+(.+)$""", RegexOption.IGNORE_CASE)
 
     private const val MIN_QUERY = 2
@@ -39,6 +47,7 @@ internal object LauncherActions {
         if (q.length < MIN_QUERY) return emptyList()
         appInfo.matchEntire(q)?.let { return listOf(LauncherAction.ForApp(LauncherAction.Verb.APP_INFO, it.groupValues[1].trim())) }
         uninstall.matchEntire(q)?.let { return listOf(LauncherAction.ForApp(LauncherAction.Verb.UNINSTALL, it.groupValues[1].trim())) }
+        layout.matchEntire(q)?.let { return listOf(LauncherAction.SwitchLayout(it.groupValues[1].trim()), LauncherAction.Command(Cmd.LAYOUTS)) }
         return Cmd.entries
             .mapNotNull { cmd ->
                 cmd.keywords.mapNotNull { SearchRanking.rank(it, q) }.filter { it != SearchRanking.CONTAINS }.minOrNull()
@@ -53,6 +62,12 @@ internal object LauncherActions {
         val candidates = if (verb == LauncherAction.Verb.UNINSTALL) apps.filter { it.isUninstallable } else apps
         return SearchRanking.top(candidates, name, MAX_APPS) { listOf(it.label) }.map { it.item }
     }
+
+    /** The saved layouts [name] points at, best first. */
+    fun layoutsFor(name: String, layouts: List<SavedLayout>): List<SavedLayout> =
+        SearchRanking.top(layouts, name, MAX_LAYOUTS) { listOf(it.name) }.map { it.item }
+
+    private const val MAX_LAYOUTS = 3
 }
 
 /** Feature 7: commands for the launcher itself, plus app info and uninstall for a named app. */
@@ -68,6 +83,7 @@ internal class LauncherActionsProvider(
         return LauncherActions.parse(query).flatMap { action ->
             when (action) {
                 is LauncherAction.Command -> listOfNotNull(command(action.command, context))
+                is LauncherAction.SwitchLayout -> layoutItems(action.name, context)
                 is LauncherAction.ForApp -> LauncherActions.appsFor(action.verb, action.name, ctx.apps).map { app ->
                     if (action.verb == LauncherAction.Verb.APP_INFO) {
                         SearchItem(
@@ -82,6 +98,19 @@ internal class LauncherActionsProvider(
                     }
                 }
             }
+        }
+    }
+
+    /** One row per saved layout matching [name]; tapping it switches start to that layout. */
+    private fun layoutItems(name: String, context: Context): List<SearchItem> {
+        val app = context.applicationContext as? MetroApplication ?: return emptyList()
+        val set = app.layouts.layouts.value ?: return emptyList()
+        return LauncherActions.layoutsFor(name, set.layouts).map { layout ->
+            val active = layout.id == set.active
+            SearchItem(
+                "layout:${layout.id}", "layout: ${layout.name}", if (active) "on start now" else "switch the start screen to it", SearchGlyphs.tiles,
+                ItemAction.Run { app.appScope.launch { app.layouts.switchTo(layout.id) } },
+            )
         }
     }
 
@@ -106,6 +135,11 @@ internal class LauncherActionsProvider(
                 cmd.name, cmd.title, "choose what search can do", SearchGlyphs.gear,
                 SearchActions.start(SettingsActivity.intent(context, SettingsPage.SEARCH)),
                 pin = SearchActions.pin(cmd.title, SearchGlyphs.gear, SettingsActivity.intent(context, SettingsPage.SEARCH)),
+            )
+        LauncherActions.Cmd.LAYOUTS ->
+            SearchItem(
+                cmd.name, cmd.title, "save and switch start layouts", SearchGlyphs.tiles,
+                SearchActions.start(SettingsActivity.intent(context, SettingsPage.LAYOUTS)),
             )
     }
 }
