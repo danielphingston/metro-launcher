@@ -92,10 +92,10 @@ class StartNoticesTest {
     @Test
     fun barReservesRoomOnlyWhenSomethingCoversTheBottom() {
         val notices = StartNotices()
-        assertFalse(notices.barShown(editing = false, undoNext = "tile moved"))
-        assertFalse(notices.barShown(editing = true, undoNext = null))
-        assertTrue(notices.barShown(editing = true, undoNext = "tile moved"))
+        assertFalse(notices.pillShown(editing = false, undoNext = "tile moved"))
+        assertFalse(notices.pillShown(editing = true, undoNext = null))
+        assertTrue(notices.pillShown(editing = true, undoNext = "tile moved"))
         notices.send(NoticeEvent.Edit("x unpinned", true))
-        assertTrue(notices.barShown(editing = false, undoNext = null))
+        assertTrue(notices.pillShown(editing = false, undoNext = null))
     }
 }

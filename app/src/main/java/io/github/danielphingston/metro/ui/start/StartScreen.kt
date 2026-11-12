@@ -798,7 +798,7 @@ fun StartScreen(
             }
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             // Room to scroll the last tiles above the grouping bar.
-            if (state.grouping || notices.barShown(state.editing, undoNext)) Spacer(Modifier.height(GroupingBarHeight))
+            if (state.grouping) Spacer(Modifier.height(GroupingBarHeight))
         }
 
         // Tiles scroll up under the status bar; keep its clock and icons legible.
@@ -915,10 +915,8 @@ fun StartScreen(
                 onCancel = state::endGrouping,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
-        } else {
-            StartNoticeBar(notices, viewModel, Modifier.align(Alignment.BottomCenter))
-            EditUndoButton(state.editing && notices.current == null, viewModel, Modifier.align(Alignment.BottomCenter))
         }
+        if (!state.grouping) UndoPill(notices, viewModel, state.editing, Modifier.align(Alignment.TopCenter))
         tiles.firstOrNull { it.spec.id == state.renamingFolderId }?.let { folder ->
             FolderRename((folder.spec.content as? TileContent.Folder)?.name.orEmpty()) { name ->
                 viewModel.renameFolder(folder.spec.id, name)
