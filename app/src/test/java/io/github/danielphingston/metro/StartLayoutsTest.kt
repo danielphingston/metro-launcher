@@ -305,15 +305,25 @@ class StartLayoutsTest {
 
     @Test
     fun aLayoutSearchRowRunsInPlaceAndPinsTheRealSwitchTile() {
-        var switched = 0
-        val row = LauncherActions.layoutItem(SavedLayout(2, "work", "[]"), activeId = 1) { switched++ }
+        val row = LauncherActions.layoutItem(SavedLayout(2, "work", "[]"), activeId = 1)
         // Nothing is launched (no turnstile): the row runs in place.
         assertTrue(row.action is io.github.danielphingston.metro.ui.search.ItemAction.Run)
         // It pins the same tile the add menu's "layouts" entry adds, not an action tile.
         assertEquals(TileContent.LayoutSwitch(2), row.pin)
         assertEquals(layoutSwitchEntries(LayoutSet(1, listOf(SavedLayout(2, "work", "[]")))).last().second, row.pin)
         assertEquals("switch the start screen to it", row.subtitle)
-        assertEquals("on start now", LauncherActions.layoutItem(SavedLayout(1, "start", "[]"), 1) {}.subtitle)
-        assertEquals(0, switched)
+        assertEquals("on start now", LauncherActions.layoutItem(SavedLayout(1, "start", "[]"), 1).subtitle)
+        // Running it asks the launcher to switch, the same way a switch tile does.
+        val asked = mutableListOf<Long>()
+        val commands = object : io.github.danielphingston.metro.ui.search.LauncherCommands {
+            override fun editStart() = Unit
+            override fun appInfo(app: io.github.danielphingston.metro.data.AppInfo) = Unit
+            override fun uninstall(app: io.github.danielphingston.metro.data.AppInfo) = Unit
+            override fun recordAssistantQuestion(question: String) = Unit
+            override fun switchLayout(id: Long) { asked += id }
+        }
+        (row.action as io.github.danielphingston.metro.ui.search.ItemAction.Run)
+            .run(io.github.danielphingston.metro.ui.search.ActionEnv(org.robolectric.RuntimeEnvironment.getApplication(), null, null, commands))
+        assertEquals(listOf(2L), asked)
     }
 }

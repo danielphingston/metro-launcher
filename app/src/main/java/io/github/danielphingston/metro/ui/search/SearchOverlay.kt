@@ -1,6 +1,7 @@
 package io.github.danielphingston.metro.ui.search
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -301,7 +302,7 @@ fun SearchOverlay(viewModel: LauncherViewModel, state: SearchState, launcher: Ap
         visible = state.isOpen,
         modifier = Modifier.fillMaxSize(),
         enter = fadeIn(tween(200)) + slideInVertically(tween(200, easing = FastOutSlowInEasing)) { -it / 8 },
-        exit = fadeOut(tween(120)),
+        exit = if (state.instantExit) ExitTransition.None else fadeOut(tween(120)),
     ) {
         SearchPanel(viewModel, state, launcher, commands)
     }

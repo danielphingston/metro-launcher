@@ -16,6 +16,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -165,12 +166,20 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
     }
     TurnstileReturn(turnstile, animate = motion.animateReturn)
     // What search results can ask of the launcher itself (edit mode, app info, uninstall...).
-    val commands = remember(viewModel, startState) {
+    val commands = remember(viewModel, startState, searchState, scope) {
         object : LauncherCommands {
             override fun editStart() = startState.startEditing()
             override fun appInfo(app: AppInfo) = viewModel.openAppInfo(app)
             override fun uninstall(app: AppInfo) = viewModel.uninstall(app)
             override fun recordAssistantQuestion(question: String) = viewModel.recordAssistantQuestion(question)
+            override fun switchLayout(id: Long) {
+                searchState.closeNow()
+                scope.launch {
+                    // One frame for the panel and keyboard to go, then the same switch a tile makes.
+                    withFrameNanos { }
+                    viewModel.switchLayout(id)
+                }
+            }
         }
     }
 

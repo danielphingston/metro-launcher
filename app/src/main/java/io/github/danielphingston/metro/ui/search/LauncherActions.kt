@@ -2,7 +2,6 @@ package io.github.danielphingston.metro.ui.search
 
 import android.content.Context
 import android.content.Intent
-import kotlinx.coroutines.launch
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.SavedLayout
@@ -81,14 +80,14 @@ internal object LauncherActions {
     private const val MAX_LAYOUTS = 3
 
     /**
-     * The search row for [layout]: tapping it runs [switch] in place (nothing is launched, so no app
-     * transition plays; the start screen's own switch animation does), and it pins as the real
-     * layout switch tile, the same as one added from the add menu.
+     * The search row for [layout]: tapping it asks the launcher to switch (see
+     * [LauncherCommands.switchLayout]: search goes at once and the switch runs as from a switch
+     * tile), and it pins as the real layout switch tile, the same as one added from the add menu.
      */
-    fun layoutItem(layout: SavedLayout, activeId: Long, switch: () -> Unit): SearchItem = SearchItem(
+    fun layoutItem(layout: SavedLayout, activeId: Long): SearchItem = SearchItem(
         "layout:${layout.id}", "layout: ${layout.name}",
         if (layout.id == activeId) "on start now" else "switch the start screen to it", SearchGlyphs.tiles,
-        ItemAction.Run { switch() },
+        ItemAction.Run { it.commands.switchLayout(layout.id) },
         pin = TileContent.LayoutSwitch(layout.id),
     )
 }
@@ -150,7 +149,7 @@ internal class LauncherActionsProvider(
         val app = context.applicationContext as? MetroApplication ?: return emptyList()
         val set = app.layouts.layouts.value?.takeIf { app.layouts.isUnlocked } ?: return emptyList()
         return LauncherActions.layoutsFor(name, set.layouts).map { layout ->
-            LauncherActions.layoutItem(layout, set.active) { app.appScope.launch { app.layouts.switchTo(layout.id) } }
+            LauncherActions.layoutItem(layout, set.active)
         }
     }
 
