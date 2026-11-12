@@ -152,6 +152,21 @@ class LayoutShortcutsAndBackupTest {
     }
 
     @Test
+    fun anAppsPinRequestForMetrosOwnLayoutShortcutAddsTheSwitchTileWithoutASystemPin() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val mine = LayoutShortcuts.ownSerial(context)
+        val own = io.github.danielphingston.metro.BuildConfig.APPLICATION_ID
+        // Not a shortcut: PinShortcutActivity adds it without accepting the request (no system pin).
+        assertEquals(
+            TileContent.LayoutSwitch(20),
+            io.github.danielphingston.metro.ui.tileForPinRequest(context, TileContent.Shortcut(own, "layout_20", mine, "work")),
+        )
+        // Any other shortcut is accepted (pinned with the system) and added as itself.
+        val other = TileContent.Shortcut("com.example.chat", "c1", mine, "Ann")
+        assertEquals(other, io.github.danielphingston.metro.ui.tileForPinRequest(context, other))
+    }
+
+    @Test
     fun aWorkProfileMetrosLayoutShortcutsAreNotOurs() {
         val own = "io.github.danielphingston.metro"
         // Metro in the work profile (serial 10) publishes layout_<id> for its own layouts.
