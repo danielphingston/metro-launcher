@@ -5,7 +5,15 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.view.accessibility.AccessibilityManager
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
@@ -56,6 +64,8 @@ internal fun GesturesPage(settings: LauncherSettings, repository: SettingsReposi
     val apps by (context.applicationContext as MetroApplication).apps.apps.collectAsState()
     val launchable = apps.orEmpty()
     var open by remember { mutableStateOf<Gesture?>(null) }
+    // The disclosure and consent Google Play asks for before the user is sent to turn the service on.
+    var askingConsent by remember { mutableStateOf(false) }
 
     Spacer(Modifier.height(12.dp))
     MetroText(
@@ -83,6 +93,7 @@ internal fun GesturesPage(settings: LauncherSettings, repository: SettingsReposi
                         if (action != GestureAction.OPEN_APP) {
                             open = null
                             scope.launch { repository.setGesture(gesture, action) }
+                            if (action.access == GestureAction.Access.REQUIRED && !serviceOn) askingConsent = true
                         } else if (binding.action != action) {
                             scope.launch { repository.setGesture(gesture, action, binding.app) }
                         }
@@ -139,9 +150,58 @@ internal fun GesturesPage(settings: LauncherSettings, repository: SettingsReposi
         color = colors.subtle,
     )
     Spacer(Modifier.height(10.dp))
-    MetroButton(if (serviceOn) "accessibility settings" else "turn on", onClick = {
+    fun openAccessibilitySettings() {
         runCatching {
             context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
+    }
+    MetroButton(if (serviceOn) "accessibility settings" else "turn on", onClick = {
+        if (serviceOn) openAccessibilitySettings() else askingConsent = true
     })
+
+    if (askingConsent) {
+        AccessibilityConsentDialog(
+            onAgree = {
+                askingConsent = false
+                openAccessibilitySettings()
+            },
+            onDecline = { askingConsent = false },
+        )
+    }
+}
+
+/** What Metro's accessibility service is for, word for word what the user agrees to. */
+internal const val ACCESSIBILITY_DISCLOSURE =
+    "Metro Launcher uses Android's Accessibility API for one thing: to turn the screen off, or to open recent apps, " +
+        "the notification shade or quick settings, when you make a start screen gesture you set up here.\n\n" +
+        "Through it Metro does not see, read or collect anything: not what is on your screen, not what you type, " +
+        "not which apps you use. Nothing is stored and nothing is shared.\n\n" +
+        "It is optional. If you agree, Android's accessibility settings open next; turn on \"Metro gestures\" there. " +
+        "You can turn it off again at any time."
+
+/**
+ * The prominent disclosure for the accessibility service: shown before the user is sent to the
+ * system settings, and only "agree" goes on. Declining changes nothing; it is shown again the next
+ * time the user asks to turn the service on.
+ */
+@Composable
+private fun AccessibilityConsentDialog(onAgree: () -> Unit, onDecline: () -> Unit) {
+    val colors = Metro.colors
+    Dialog(onDismissRequest = onDecline) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(colors.chrome)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            MetroText("use the accessibility service?", MetroType.sectionTitle, maxLines = 3)
+            MetroText(ACCESSIBILITY_DISCLOSURE, MetroType.body, color = colors.subtle, maxLines = 40)
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                MetroButton("agree", modifier = Modifier.weight(1f), onClick = onAgree)
+                MetroButton("no thanks", modifier = Modifier.weight(1f), onClick = onDecline)
+            }
+        }
+    }
 }
