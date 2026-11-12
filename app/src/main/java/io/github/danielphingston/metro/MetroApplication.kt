@@ -12,6 +12,7 @@ import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.SearchHistory
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileRepository
+import io.github.danielphingston.metro.data.TileUndo
 import io.github.danielphingston.metro.data.WidgetReclaim
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.live.PeopleSource
@@ -57,6 +58,15 @@ class MetroApplication : Application(), Configuration.Provider {
     lateinit var lastAsked: LastAskedStore
         private set
 
+    /** Undo for start screen edits; widget ids and shortcuts it may bring back stay held. See [TileUndo]. */
+    val undo: TileUndo by lazy {
+        TileUndo(
+            current = { tiles.tiles.value },
+            restore = tiles::restore,
+            release = { removed -> appScope.launch { releaseTileResources(this@MetroApplication, removed) } },
+        )
+    }
+
     override fun onCreate() {
         super.onCreate()
         // First, so a crash anywhere below is recorded too.
@@ -66,7 +76,11 @@ class MetroApplication : Application(), Configuration.Provider {
         purchases = Purchases(this, appScope)
         tiles = TileRepository(
             this, appScope, settings.settings.map { it.columns }.distinctUntilChanged(),
-            onLoaded = { referenced, undecoded -> appScope.launch { reclaimWidgetIds(referenced, undecoded) } },
+            onLoaded = { referenced, undecoded ->
+                // A restored backup replaced the layout the undo steps were taken from.
+                undo.clear()
+                appScope.launch { reclaimWidgetIds(referenced, undecoded) }
+            },
         )
         icons = IconCache(this)
         apps = AppRepository(this, appScope, onPackageRemoved = { pkg, serial ->
@@ -123,7 +137,8 @@ class MetroApplication : Application(), Configuration.Provider {
             }
         } ?: return
         // Read again now: a tile may have been added while the ids were fetched.
-        val used = referenced + WidgetReclaim.referencedIds(tiles.tiles.value.orEmpty())
+        val used = referenced + WidgetReclaim.referencedIds(tiles.tiles.value.orEmpty()) +
+            undo.snapshots().flatMap(WidgetReclaim::referencedIds)
         val stale = WidgetReclaim.toDelete(held, used, undecoded)
         if (stale.isEmpty()) return
         withContext(Dispatchers.Default) { stale.forEach { WidgetTiles.release(this@MetroApplication, it) } }

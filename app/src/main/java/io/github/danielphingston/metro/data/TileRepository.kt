@@ -476,6 +476,10 @@ class TileRepository(
         return removed
     }
 
+    /** Puts back a layout this repository published before (see [TileUndo]) exactly as it was; saved like any edit. */
+    fun restore(tiles: List<TileSpec>) {
+        if (_tiles.value != null) _tiles.value = tiles
+    }
 }
 
 /** When a stored widget tile can safely be dropped; see [TileRepository]. */

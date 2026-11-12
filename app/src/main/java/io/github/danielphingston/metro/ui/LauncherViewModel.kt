@@ -24,6 +24,7 @@ import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.HistoryData
 import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.SmartFeature
+import io.github.danielphingston.metro.data.StartEdit
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.TileRepository
@@ -31,7 +32,6 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.tiles.acquireTileResources
-import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationHub
@@ -269,29 +269,56 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun unpin(id: Long) {
-        val removed = metro.tiles.unpin(id) ?: return
-        // Also frees the children of a removed folder; shortcut binder calls run off the main thread.
-        metro.appScope.launch { releaseTileResources(getApplication(), listOf(removed)) }
+        var removed: TileSpec? = null
+        metro.undo.record(StartEdit.UNPIN.label(labelOf(id))) { removed = metro.tiles.unpin(id) }
+        // Also frees the children of a removed folder, unless an undo step can still bring them back.
+        removed?.let { metro.undo.releaseUnreferenced(listOf(it)) }
     }
 
-    fun resize(id: Long) = metro.tiles.resize(id)
-    fun setSpan(id: Long, width: Int, height: Int) = metro.tiles.setSpan(id, width, height)
+    fun resize(id: Long) = undoable(StartEdit.RESIZE) { metro.tiles.resize(id) }
+    fun setSpan(id: Long, width: Int, height: Int) = undoable(StartEdit.RESIZE) { metro.tiles.setSpan(id, width, height) }
 
     /** Sets the picked icon of tile [id]; null restores its own. */
-    fun setIcon(id: Long, icon: String?) = metro.tiles.setIcon(id, icon)
+    fun setIcon(id: Long, icon: String?) = undoable(StartEdit.ICON) { metro.tiles.setIcon(id, icon) }
 
     /** Sets how tile [id] draws itself; see [io.github.danielphingston.metro.data.TileRepository.setStyle]. */
-    fun setStyle(id: Long, style: io.github.danielphingston.metro.data.TileStyle, image: String?) = metro.tiles.setStyle(id, style, image)
+    fun setStyle(id: Long, style: io.github.danielphingston.metro.data.TileStyle, image: String?) =
+        undoable(StartEdit.STYLE) { metro.tiles.setStyle(id, style, image) }
 
     /** Drops tile [id] with its top-left corner on the grid cell [x], [y]. */
-    fun moveTo(id: Long, x: Int, y: Int) = metro.tiles.moveTo(id, x, y)
+    fun moveTo(id: Long, x: Int, y: Int) = undoable(StartEdit.MOVE) { metro.tiles.moveTo(id, x, y) }
 
     /** The start screen now shows [count] columns; see [io.github.danielphingston.metro.data.TileRepository.setColumns]. */
     fun setColumns(count: Int) = metro.tiles.setColumns(count)
 
     /** Groups tiles [ids] with [anchorId] into a new folder or the anchor folder; returns the folder's id, or null if nothing was grouped. */
-    fun groupIntoFolder(anchorId: Long, ids: List<Long>): Long? = metro.tiles.groupIntoFolder(anchorId, ids)
-    fun removeFromFolder(folderId: Long, childId: Long) = metro.tiles.removeFromFolder(folderId, childId)
-    fun renameFolder(id: Long, name: String) = metro.tiles.renameFolder(id, name)
+    fun groupIntoFolder(anchorId: Long, ids: List<Long>): Long? {
+        val intoFolder = metro.tiles.tiles.value.orEmpty().any { it.id == anchorId && it.content is TileContent.Folder }
+        var folderId: Long? = null
+        undoable(if (intoFolder) StartEdit.FOLDER_ADDED else StartEdit.FOLDER_CREATED) { folderId = metro.tiles.groupIntoFolder(anchorId, ids) }
+        return folderId
+    }
+    fun removeFromFolder(folderId: Long, childId: Long) = undoable(StartEdit.FOLDER_REMOVED_FROM) { metro.tiles.removeFromFolder(folderId, childId) }
+    fun renameFolder(id: Long, name: String) = undoable(StartEdit.FOLDER_RENAMED) { metro.tiles.renameFolder(id, name) }
     fun moveInFolder(folderId: Long, id: Long, targetId: Long) = metro.tiles.moveInFolder(folderId, id, targetId)
+
+    /** What the next undo takes back (the bar's text), or null when there is nothing to undo. */
+    val undoNext: StateFlow<String?> = metro.undo.next
+
+    /** Each undoable edit's label as it happens, for the bar along the bottom of start. */
+    val undoRecorded: SharedFlow<String> = metro.undo.recorded
+
+    /** Takes back the latest start screen edit; see [io.github.danielphingston.metro.data.TileUndo]. */
+    fun undo() {
+        metro.undo.undo()
+    }
+
+    private fun undoable(edit: StartEdit, apply: () -> Unit) {
+        metro.undo.record(edit.label(), apply)
+    }
+
+    /** The shown name of tile [id], also inside a folder. */
+    private fun labelOf(id: Long): String? = tiles.value.orEmpty()
+        .flatMap { listOf(it) + it.children }
+        .firstOrNull { it.spec.id == id }?.label
 }

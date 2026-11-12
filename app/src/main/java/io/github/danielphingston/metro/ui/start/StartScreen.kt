@@ -324,6 +324,8 @@ fun StartScreen(
     val calendarGranted by viewModel.calendarGranted.collectAsStateWithLifecycle()
     val quickUnlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
     val tiles = loadedTiles.orEmpty()
+    val notices = rememberStartNotices(viewModel, isCurrentPage)
+    val undoNext by viewModel.undoNext.collectAsStateWithLifecycle()
 
     // Live sources run only when a tile needs them and only while the launcher is visible
     // (collectAsStateWithLifecycle stops collecting below STARTED).
@@ -719,7 +721,7 @@ fun StartScreen(
             }
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             // Room to scroll the last tiles above the grouping bar.
-            if (state.grouping) Spacer(Modifier.height(GroupingBarHeight))
+            if (state.grouping || notices.barShown(state.editing, undoNext)) Spacer(Modifier.height(GroupingBarHeight))
         }
 
         // Tiles scroll up under the status bar; keep its clock and icons legible.
@@ -811,6 +813,8 @@ fun StartScreen(
                 onCancel = state::endGrouping,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+        } else {
+            StartNoticeBar(notices, state.editing, viewModel, Modifier.align(Alignment.BottomCenter))
         }
         tiles.firstOrNull { it.spec.id == state.renamingFolderId }?.let { folder ->
             FolderRename((folder.spec.content as? TileContent.Folder)?.name.orEmpty()) { name ->
