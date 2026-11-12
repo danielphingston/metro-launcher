@@ -49,13 +49,20 @@ internal fun TileColourMenu(spec: TileSpec, onPick: (String?) -> Unit, onDismiss
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
-                .background(Metro.colors.chrome)
-                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+                .background(Metro.colors.chrome),
         ) {
             MetroMenu(items)
-            Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Same 24dp margins as the menu entries above; the chrome runs under the navigation bar and
+            // the last row clears it with normal spacing, so it never sits under the gesture handle.
+            Column(
+                Modifier.padding(
+                    start = 24.dp, end = 24.dp, top = 8.dp,
+                    bottom = 16.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 MetroAccents.chunked(5).forEach { line ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         line.forEach { (name, color) ->
                             val value = TileColors.fixed(color.toArgb())
                             val selected = spec.color == value
