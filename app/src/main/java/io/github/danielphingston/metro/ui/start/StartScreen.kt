@@ -1,17 +1,11 @@
 package io.github.danielphingston.metro.ui.start
 
-import android.content.Intent
 import android.os.SystemClock
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.core.net.toUri
 import io.github.danielphingston.metro.data.LayoutShortcuts
-import io.github.danielphingston.metro.data.TileSpec
-import io.github.danielphingston.metro.data.TileStyle
-import io.github.danielphingston.metro.data.TileStyles
+import io.github.danielphingston.metro.data.StartEdit
+import io.github.danielphingston.metro.data.TileLooks
+import io.github.danielphingston.metro.data.TileOption
+import io.github.danielphingston.metro.data.TileOptions
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
@@ -630,6 +624,10 @@ fun StartScreen(
             onDrop: (completed: Boolean) -> Unit,
         ) = TileHost(
             tile = tile,
+            // Resolved when the tile or the default apps change, never per frame.
+            options = remember(tile.spec, defaults, onRemoveFromFolder != null) {
+                TileOptions.available(tile.spec, inFolder = onRemoveFromFolder != null, ownFace = drawsOwnFace(tile.spec, defaults))
+            },
             placement = placement,
             cellPx = cellPx,
             gapPx = gapPx,
@@ -771,8 +769,8 @@ fun StartScreen(
                         onResize = if (isWidget) null else ({ viewModel.resize(tiles[selectedIndex].spec.id) }),
                         onGroup = if (TileFolders.canGroup(selectedTile.spec)) ({ state.startGrouping(selectedTile.spec.id) }) else null,
                         groupLabel = if (selectedTile.spec.content is TileContent.Folder) "add to folder" else "group into folder",
-                        onStyle = if (offersTileColour(selectedTile.spec)) ({ state.stylingId = selectedTile.spec.id }) else null,
-                        centreStyle = isWidget,
+                        onCustomise = { state.stylingId = selectedTile.spec.id },
+                        customiseBesideHandle = isWidget,
                     )
                     WidgetEditBadges(
                         tile = tiles[selectedIndex],
@@ -794,7 +792,7 @@ fun StartScreen(
                             state.exitEdit()
                         },
                         onResize = { viewModel.resize(openChildren[selectedChild].spec.id) },
-                        onStyle = if (offersTileColour(openChildren[selectedChild].spec)) ({ state.stylingId = openChildren[selectedChild].spec.id }) else null,
+                        onCustomise = { state.stylingId = openChildren[selectedChild].spec.id },
                     )
                 }
             }
@@ -824,33 +822,47 @@ fun StartScreen(
             if (spec == null) {
                 state.stylingId = null
             } else {
-                TileStyleMenu(
+                val widget = spec.content as? TileContent.Widget
+                val widgetInfo = remember(widget?.appWidgetId) { widget?.let { WidgetTiles.providerInfo(context, it.appWidgetId) } }
+                val inFolder = openChildren.any { it.spec.id == id }
+                val options = remember(spec, defaults, inFolder, widgetInfo) {
+                    TileOptions.available(
+                        spec, inFolder = inFolder, ownFace = drawsOwnFace(spec, defaults),
+                        widgetSettings = widgetInfo != null && WidgetTiles.canReconfigure(widgetInfo),
+                    )
+                }
+                TileCustomise(
                     spec = spec,
-                    styleable = offersStyle(spec, defaults),
-                    onColour = { color -> viewModel.setColor(id, color) },
-                    onPick = { style, image -> viewModel.setStyle(id, style, image) },
-                    onDismiss = { state.stylingId = null },
-                    onChooseIcon = {
+                    options = options,
+                    startTransparency = (settings.transparencyFraction * 100).roundToInt(),
+                    viewModel = viewModel,
+                    onChooseIconPack = {
                         state.stylingId = null
                         state.iconPickerId = id
                     },
-                    onDefaultIcon = { viewModel.setIcon(id, null) },
+                    onWidgetSettings = widget?.let { { WidgetTiles.reconfigure(context, it.appWidgetId) } },
+                    onDismiss = { state.stylingId = null },
                 )
             }
         }
         state.iconPickerId?.let { id ->
+            // The picker is reached from the customise sheet, and goes back to it.
+            fun back() {
+                state.iconPickerId = null
+                state.stylingId = id
+            }
             IconPicker(
                 icons = viewModel.icons,
                 hasIcon = (tiles.map { it.spec } + openChildren.map { it.spec }).firstOrNull { it.id == id }?.icon != null,
                 onReset = {
-                    viewModel.setIcon(id, null)
-                    state.iconPickerId = null
+                    viewModel.updateTile(id, StartEdit.ICON) { TileOptions.withIcon(it, null) }
+                    back()
                 },
                 onPick = { icon ->
-                    viewModel.setIcon(id, icon)
-                    state.iconPickerId = null
+                    viewModel.updateTile(id, StartEdit.ICON) { TileOptions.withIcon(it, icon) }
+                    back()
                 },
-                onDismiss = { state.iconPickerId = null },
+                onDismiss = ::back,
             )
         }
         if (state.addMenuOpen) {
@@ -1000,6 +1012,8 @@ internal fun TileHost(
     modifier: Modifier = Modifier,
     /** Moves jump instead of gliding, e.g. while a layout switch fades in a grid of another size. */
     snapMoves: Boolean = false,
+    /** What the tile offers (see [TileOptions.available]): grouping and the customise sheet. */
+    options: Set<TileOption> = TileOptions.available(tile.spec, inFolder = onRemoveFromFolder != null),
 ) {
     val liveContent = liveOf?.invoke() ?: live
     val id = tile.spec.id
@@ -1109,7 +1123,7 @@ internal fun TileHost(
                 }
                 onLongClick("edit") { state.select(id); true }
                 customActions = buildList {
-                    if (onRemoveFromFolder == null && TileFolders.canGroup(tile.spec)) {
+                    if (TileOption.GROUP in options) {
                         add(CustomAccessibilityAction("Group into folder…") { state.startGrouping(id); true })
                     }
                     if (folder != null) {
@@ -1121,7 +1135,8 @@ internal fun TileHost(
                     onRemoveFromFolder?.let { add(CustomAccessibilityAction("Remove from folder") { it(); true }) }
                     add(CustomAccessibilityAction("Unpin from start") { onUnpin(); true })
                     if (onRemoveFromFolder == null && !isWidget) add(CustomAccessibilityAction("Resize") { onResize(); true })
-                    if (offersTileColour(tile.spec)) add(CustomAccessibilityAction("Tile colour…") { state.stylingId = id; true })
+                    // Everything the customise sheet offers (name, icon, photo, background, widget settings).
+                    if (options.any { it != TileOption.GROUP }) add(CustomAccessibilityAction("Customise…") { state.stylingId = id; true })
                     addAll(widgetActions)
                 }
             }
@@ -1199,6 +1214,12 @@ internal fun TileHost(
     }
 }
 
+/**
+ * The corner badges of the selected tile in edit mode, the same on every tile kind: unpin (top
+ * right), resize (bottom right; a widget has its drag handle there instead, see [WidgetEditBadges]),
+ * group into a folder (top left, where grouping is possible) and customise (bottom left; on a
+ * widget, beside its drag handle).
+ */
 @Composable
 internal fun EditBadges(
     placement: Placement,
@@ -1208,16 +1229,16 @@ internal fun EditBadges(
     onResize: (() -> Unit)?,
     onGroup: (() -> Unit)? = null,
     groupLabel: String = "group into folder",
-    onStyle: (() -> Unit)? = null,
-    /** Puts the style badge bottom centre, where a widget's own badges leave room. */
-    centreStyle: Boolean = false,
+    onCustomise: (() -> Unit)? = null,
+    /** Puts the customise badge on the bottom edge just left of a widget's drag handle. */
+    customiseBesideHandle: Boolean = false,
 ) {
     val badgePx = with(LocalDensity.current) { EditBadgeSize.toPx() }
     val right = (placement.x + placement.width) * cellPx - gapPx
     val bottom = (placement.y + placement.height) * cellPx - gapPx
     val top = placement.y * cellPx
     val left = placement.x * cellPx
-    // Group: top-left corner, where widgets (which can't be grouped) have their settings badge.
+    // Group: top-left corner.
     if (onGroup != null) EditBadge(
         label = groupLabel,
         onClick = onGroup,
@@ -1233,20 +1254,16 @@ internal fun EditBadges(
         drawLine(color, Offset(inset, inset), Offset(size.width - inset, size.height - inset), stroke, StrokeCap.Round)
         drawLine(color, Offset(size.width - inset, inset), Offset(inset, size.height - inset), stroke, StrokeCap.Round)
     }
-    // Style: bottom-left corner, a framed picture.
-    if (onStyle != null) EditBadge(
-        label = "tile style",
-        onClick = onStyle,
+    // Customise: bottom-left corner, a pencil.
+    if (onCustomise != null) EditBadge(
+        label = "customise",
+        onClick = onCustomise,
         modifier = Modifier.offset {
-            val x = if (centreStyle) (left + right - badgePx) / 2f else left - badgePx * 0.15f
+            // Beside the handle: one badge and a small gap to the left of where the handle sits.
+            val x = if (customiseBesideHandle) right - badgePx * 0.85f - badgePx * 1.15f else left - badgePx * 0.15f
             IntOffset(x.roundToInt(), (bottom - badgePx * 0.7f).roundToInt())
         },
-    ) { color, stroke ->
-        val inset = size.minDimension * 0.28f
-        drawRect(color, Offset(inset, inset), Size(size.width - inset * 2, size.height - inset * 2), style = Stroke(stroke))
-        drawLine(color, Offset(inset, size.height - inset * 1.6f), Offset(size.width * 0.45f, size.height * 0.5f), stroke, StrokeCap.Round)
-        drawLine(color, Offset(size.width * 0.45f, size.height * 0.5f), Offset(size.width - inset, size.height - inset * 1.4f), stroke, StrokeCap.Round)
-    }
+    ) { color, stroke -> drawPencil(color, stroke) }
     // Resize: bottom-right corner, arrow pointing to the next size.
     if (onResize != null) EditBadge(
         label = "resize",
@@ -1261,6 +1278,27 @@ internal fun EditBadges(
         drawLine(color, b, b - Offset(head, 0f), stroke, StrokeCap.Round)
         drawLine(color, b, b - Offset(0f, head), stroke, StrokeCap.Round)
     }
+}
+
+/** A pencil drawn diagonally, point at the bottom left: the customise badge. */
+internal fun DrawScope.drawPencil(color: Color, stroke: Float) {
+    val d = size.minDimension
+    // Along the pencil (towards the point) and across it.
+    val along = Offset(-0.7071f, 0.7071f)
+    val across = Offset(0.7071f, 0.7071f)
+    val half = d * 0.07f
+    val back = Offset(d * 0.68f, d * 0.32f)
+    val shoulder = back + along * (d * 0.36f)
+    val tip = back + along * (d * 0.5f)
+    val a1 = back + across * half
+    val a2 = back - across * half
+    val b1 = shoulder + across * half
+    val b2 = shoulder - across * half
+    drawLine(color, a1, b1, stroke, StrokeCap.Round)
+    drawLine(color, a2, b2, stroke, StrokeCap.Round)
+    drawLine(color, a1, a2, stroke, StrokeCap.Round)
+    drawLine(color, b1, tip, stroke, StrokeCap.Round)
+    drawLine(color, b2, tip, stroke, StrokeCap.Round)
 }
 
 internal val EditBadgeSize = 30.dp
@@ -1316,7 +1354,10 @@ private fun TileBody(
     onWidgetLongPress: () -> Unit,
 ) {
     when (tile.spec.content) {
-        is TileContent.App -> tile.app?.let { TileFace(it, tile.spec.size, live, flipped, monochromeIcons, icons, cell, tile.spec.style, tile.spec.image, tile.spec.icon) }
+        is TileContent.App -> tile.app?.let {
+            val look = remember(tile.spec) { TileLooks.shown(tile.spec) }
+            TileFace(it, tile.spec.size, live, flipped, monochromeIcons, icons, cell, look, tile.spec.image, tile.spec.icon)
+        }
         is TileContent.Shortcut -> ShortcutTile(tile, cell, icons, monochromeIcons)
         is TileContent.Widget -> WidgetTile(tile, cell, editing, onWidgetLongPress)
         TileContent.Weather -> WeatherTile(tile, cell, flipped)
@@ -1366,78 +1407,6 @@ private fun activateTile(
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
         TileContent.Me -> MeTiles.activate(context, bounds, launcher)
         is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, content)
-    }
-}
-
-/**
- * How an app tile draws itself. The photo styles ask for a photo the first time (or on "choose
- * another photo"); the system photo picker needs no storage permission, and the launcher keeps
- * read access to just the picked photo.
- */
-@Composable
-private fun TileStyleMenu(
-    spec: TileSpec,
-    styleable: Boolean,
-    onColour: (String?) -> Unit,
-    onPick: (TileStyle, String?) -> Unit,
-    onDismiss: () -> Unit,
-    onChooseIcon: () -> Unit,
-    onDefaultIcon: () -> Unit,
-) {
-    val context = LocalContext.current
-    var colouring by remember { mutableStateOf(false) }
-    var pending by remember { mutableStateOf<TileStyle?>(null) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        val style = pending
-        pending = null
-        if (uri != null && style != null) {
-            val resolver = context.contentResolver
-            runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-            spec.image?.takeIf { it != uri.toString() }?.let { old ->
-                runCatching { resolver.releasePersistableUriPermission(old.toUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-            }
-            onPick(style, uri.toString())
-            onDismiss()
-        }
-    }
-    fun choose(style: TileStyle, newPhoto: Boolean = false) {
-        if (style.needsImage && (newPhoto || spec.image == null)) {
-            pending = style
-            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-        } else {
-            if (!style.needsImage) {
-                spec.image?.let { old ->
-                    runCatching { context.contentResolver.releasePersistableUriPermission(old.toUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-                }
-            }
-            onPick(style, spec.image)
-            onDismiss()
-        }
-    }
-    val folder = spec.content is TileContent.Folder
-    if (colouring) {
-        TileColourMenu(spec, onColour, onDismiss)
-        return
-    }
-    val items = (if (styleable) {
-        TileStyles.styles(spec).map { style ->
-            val label = style.label
-            (if (style == spec.style) "• $label" else label) to { choose(style) }
-        } + listOfNotNull(
-            if (spec.style.needsImage) "choose another photo" to { choose(spec.style, newPhoto = true) } else null,
-            if (!folder) "choose icon" to onChooseIcon else null,
-            if (!folder && spec.icon != null) "reset to default" to { onDefaultIcon(); onDismiss() } else null,
-        )
-    } else {
-        emptyList()
-    }) + ("tile colour" to { colouring = true })
-    MetroFlyout(onDismiss) {
-        MetroMenu(
-            items = items,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
-        )
     }
 }
 

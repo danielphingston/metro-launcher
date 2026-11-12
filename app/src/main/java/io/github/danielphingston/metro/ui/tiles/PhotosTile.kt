@@ -45,6 +45,7 @@ import io.github.danielphingston.metro.ui.settings.Section
 import io.github.danielphingston.metro.ui.settings.SettingsActivity
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
+import io.github.danielphingston.metro.ui.theme.tileFill
 import io.github.danielphingston.metro.ui.theme.tileSurface
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.Dispatchers
@@ -145,7 +146,7 @@ private fun PhotoStack(
         forgetUnreadable(context, unreadable)
     }
 
-    Box(Modifier.fillMaxSize().background(Metro.colors.accent).clipToBounds()) {
+    Box(Modifier.fillMaxSize().tileFill(Metro.colors.accent).clipToBounds()) {
         current?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         incoming?.let {
             Image(

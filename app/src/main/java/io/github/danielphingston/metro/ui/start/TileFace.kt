@@ -38,7 +38,8 @@ import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileIcon
 import io.github.danielphingston.metro.data.TileSize
-import io.github.danielphingston.metro.data.TileStyle
+import io.github.danielphingston.metro.data.PhotoUse
+import io.github.danielphingston.metro.data.TileLook
 import io.github.danielphingston.metro.live.AppNotifications
 import io.github.danielphingston.metro.live.CalendarEvent
 import io.github.danielphingston.metro.live.ClockState
@@ -103,7 +104,8 @@ fun TileFace(
     monochromeIcons: Boolean,
     icons: IconCache,
     cellSize: Dp,
-    style: TileStyle = TileStyle.ICON,
+    /** As drawn: see [io.github.danielphingston.metro.data.TileLooks.shown]. */
+    look: TileLook = TileLook(),
     image: String? = null,
     icon: String? = null,
 ) {
@@ -111,7 +113,7 @@ fun TileFace(
     val metrics = remember(cellSize, density) { TileMetrics(cellSize, density) }
     FlipCard(
         showBack = flipped && live?.hasBack(size) == true,
-        front = { Front(app, size, live, monochromeIcons, icons, metrics, style, image, icon) },
+        front = { Front(app, size, live, monochromeIcons, icons, metrics, look, image, icon) },
         // The back face stays on screen while the card flips back, which can outlast the content
         // (a dismissed notification): the live content is null by then.
         back = { live?.let { Back(app, size, it, monochromeIcons, icons, metrics) } },
@@ -162,7 +164,7 @@ private fun Front(
     monochromeIcons: Boolean,
     icons: IconCache,
     m: TileMetrics,
-    style: TileStyle,
+    look: TileLook,
     image: String?,
     icon: String?,
 ) {
@@ -170,7 +172,7 @@ private fun Front(
         is LiveContent.Clock -> ClockFront(app, size, live, m)
         is LiveContent.Calendar -> CalendarFront(app, size, live, m)
         is LiveContent.NowPlaying -> NowPlayingFront(app, size, live.info, m)
-        else -> IconFront(app, size, (live as? LiveContent.Notifications)?.data?.count ?: 0, monochromeIcons, icons, m, style, image, icon)
+        else -> IconFront(app, size, (live as? LiveContent.Notifications)?.data?.count ?: 0, monochromeIcons, icons, m, look, image, icon)
     }
 }
 
@@ -231,6 +233,8 @@ internal fun AppIcon(app: AppInfo, icons: IconCache, size: Dp, monochrome: Boole
 
 @Composable
 internal fun TileLabel(text: String, m: TileMetrics, modifier: Modifier = Modifier) {
+    // "Show name" off: every tile kind's small name label goes, live faces included.
+    if (!io.github.danielphingston.metro.ui.theme.LocalTileDecor.current.showName) return
     MetroText(
         text,
         MetroType.style(m.text(12f)),
@@ -248,11 +252,11 @@ private fun IconFront(
     monochrome: Boolean,
     icons: IconCache,
     m: TileMetrics,
-    style: TileStyle = TileStyle.ICON,
+    look: TileLook = TileLook(),
     image: String? = null,
     icon: String? = null,
 ) {
-    StyledTileFace(app.label, size, count, m, style, image) { iconSize, modifier ->
+    StyledTileFace(app.label, size, count, m, look, image) { iconSize, modifier ->
         if (icon != null) CustomTileIcon(icon, iconSize, icons, modifier) else AppIcon(app, icons, iconSize, monochrome, modifier)
     }
 }
@@ -290,9 +294,9 @@ fun CustomTileIcon(icon: String, size: Dp, icons: IconCache, modifier: Modifier 
 }
 
 /**
- * The face of a tile that shows an icon and a name, drawn in [style]: the shared layout of app and
- * shortcut tiles. [icon] draws the tile's own icon at a size; [corner] adds extras on medium and
- * larger tiles (a shortcut's app badge).
+ * The face of a tile that shows an icon and a name, drawn in [look] (as [io.github.danielphingston.metro.data.TileLooks.shown]
+ * gives it): the shared layout of app and shortcut tiles. [appIcon] draws the tile's own icon at a
+ * size; [corner] adds extras on medium and larger tiles (a shortcut's app badge).
  */
 @Composable
 internal fun StyledTileFace(
@@ -300,27 +304,28 @@ internal fun StyledTileFace(
     size: TileSize,
     count: Int,
     m: TileMetrics,
-    style: TileStyle,
+    look: TileLook,
     image: String?,
     corner: (@Composable BoxScope.() -> Unit)? = null,
     appIcon: @Composable (Dp, Modifier) -> Unit,
 ) {
     val white = Metro.colors.onAccent
-    // A style whose photo is missing draws as the plain icon tile.
-    val shown = if (style.needsImage && image == null) TileStyle.ICON else style
-    val showIcon = shown != TileStyle.NAME_ONLY && shown != TileStyle.FULL_IMAGE
+    val photoFill = image != null && look.photo == PhotoUse.FILL
+    val showIcon = look.showIcon
+    // No icon and no photo: the name alone, large ("name only").
+    val nameOnly = !showIcon && !photoFill
     val icon: @Composable (Dp, Modifier) -> Unit = { iconSize, modifier ->
-        if (shown == TileStyle.CUSTOM_ICON && image != null) {
+        if (look.photo == PhotoUse.ICON && image != null) {
             TileImage(image, modifier.size(iconSize))
         } else {
             appIcon(iconSize, modifier)
         }
     }
     Box(Modifier.fillMaxSize()) {
-        if (image != null && (shown == TileStyle.FULL_IMAGE || shown == TileStyle.IMAGE_ICON)) {
-            TileImage(image, Modifier.fillMaxSize())
+        if (photoFill) {
+            TileImage(image!!, Modifier.fillMaxSize())
             // Keeps the name readable on light photos.
-            if (size != TileSize.SMALL) {
+            if (size != TileSize.SMALL && look.showName) {
                 Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(m.dp(28f))
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f)))),
@@ -330,7 +335,7 @@ internal fun StyledTileFace(
         if (size == TileSize.SMALL) {
             when {
                 showIcon -> icon(m.dp(40f), Modifier.align(Alignment.Center))
-                shown == TileStyle.NAME_ONLY -> MetroText(
+                nameOnly && look.showName -> MetroText(
                     label,
                     MetroType.style(m.text(11f), FontWeight.SemiBold),
                     color = white,
@@ -349,8 +354,8 @@ internal fun StyledTileFace(
             return@Box
         }
         val large = size == TileSize.LARGE
-        if (shown == TileStyle.NAME_ONLY) {
-            MetroText(
+        if (nameOnly) {
+            if (look.showName) MetroText(
                 label,
                 MetroType.style(m.text(if (large) 32f else 22f), FontWeight.Light),
                 color = white,
@@ -370,8 +375,8 @@ internal fun StyledTileFace(
                 }
             }
         }
-        if (shown != TileStyle.ICON_ONLY && shown != TileStyle.NAME_ONLY) TileLabel(label, m, Modifier.align(Alignment.BottomStart))
-        if (shown != TileStyle.NAME_ONLY) corner?.invoke(this)
+        if (look.showName && !nameOnly) TileLabel(label, m, Modifier.align(Alignment.BottomStart))
+        if (!nameOnly) corner?.invoke(this)
     }
 }
 

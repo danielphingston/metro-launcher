@@ -362,10 +362,6 @@ object WidgetTiles {
             val widget = spec.content as? TileContent.Widget
             if (spec.id == id && widget != null) spec.copy(content = widget.copy(transparent = transparent)) else spec
         }
-
-    internal fun setTransparent(context: Context, id: Long, transparent: Boolean) {
-        (context.applicationContext as MetroApplication).tiles.edit { withTransparency(it, id, transparent) }
-    }
 }
 
 /**
@@ -563,10 +559,9 @@ private fun widgetSpanLimits(
 }
 
 /**
- * The extra edit mode badges of the selected widget tile: on its left corners the widget's own
- * settings (when its provider has any) and whether it sits on the accent tile or draws alone;
- * on its bottom-right corner a handle that resizes it in whole cells, within what the provider
- * allows. While dragging, [state] holds the footprint to outline; the tile is only resized on
+ * The extra edit mode badge of the selected widget tile: on its bottom-right corner a handle that
+ * resizes it in whole cells, within what the provider allows. (Its settings and background are in
+ * the customise sheet, whose badge sits beside the handle; see [io.github.danielphingston.metro.ui.start.EditBadges].) While dragging, [state] holds the footprint to outline; the tile is only resized on
  * release, through [onSetSpan], because every size change is reported to the widget.
  */
 @Composable
@@ -584,22 +579,8 @@ internal fun WidgetEditBadges(
     val context = LocalContext.current
     val info = remember(widget.appWidgetId) { WidgetTiles.providerInfo(context, widget.appWidgetId) }
     val badgePx = with(LocalDensity.current) { EditBadgeSize.toPx() }
-    val left = placement.x * cellPx
-    val top = placement.y * cellPx
     val right = (placement.x + placement.width) * cellPx - gapPx
     val bottom = (placement.y + placement.height) * cellPx - gapPx
-    if (info != null && WidgetTiles.canReconfigure(info)) {
-        EditBadge(
-            label = "widget settings",
-            onClick = { WidgetTiles.reconfigure(context, widget.appWidgetId) },
-            modifier = Modifier.offset { IntOffset((left - badgePx * 0.15f).roundToInt(), (top - badgePx * 0.3f).roundToInt()) },
-        ) { color, stroke -> drawGear(color, stroke) }
-    }
-    EditBadge(
-        label = if (widget.transparent) "show on tile" else "hide tile background",
-        onClick = { WidgetTiles.setTransparent(context, tile.spec.id, !widget.transparent) },
-        modifier = Modifier.offset { IntOffset((left - badgePx * 0.15f).roundToInt(), (bottom - badgePx * 0.7f).roundToInt()) },
-    ) { color, stroke -> drawTileBackground(color, stroke, filled = !widget.transparent) }
     val limits = widgetSpanLimits(context, info, placement, columns, cellDp)
     if (limits != null && limits.resizable) {
         EditBadge(
@@ -660,7 +641,8 @@ private fun Modifier.resizeHandle(
 }
 
 /**
- * Screen reader alternatives to the badges in [WidgetEditBadges]; empty for any other tile.
+ * Screen reader alternatives to the handle in [WidgetEditBadges]; empty for any other tile. (The
+ * widget's settings and background are under "Customise…".)
  * Instead of the handle there are actions that grow or shrink the tile by a cell, offered only
  * while the widget can go that way.
  */
@@ -678,11 +660,6 @@ internal fun widgetCustomActions(
     val limits = widgetSpanLimits(context, info, placement, columns, cellDp)
     val (w, h) = placement.width to placement.height
     return buildList {
-        if (info != null && WidgetTiles.canReconfigure(info)) {
-            add(CustomAccessibilityAction("Widget settings") { WidgetTiles.reconfigure(context, widget.appWidgetId); true })
-        }
-        val label = if (widget.transparent) "Show on tile" else "Hide tile background"
-        add(CustomAccessibilityAction(label) { WidgetTiles.setTransparent(context, tile.spec.id, !widget.transparent); true })
         if (limits != null) {
             if (w < limits.maxWidth) add(CustomAccessibilityAction("Make wider") { onSetSpan(w + 1, h); true })
             if (w > limits.minWidth) add(CustomAccessibilityAction("Make narrower") { onSetSpan(w - 1, h); true })
@@ -690,25 +667,6 @@ internal fun widgetCustomActions(
             if (h > limits.minHeight) add(CustomAccessibilityAction("Make shorter") { onSetSpan(w, h - 1); true })
         }
     }
-}
-
-private fun DrawScope.drawGear(color: Color, stroke: Float) {
-    val c = center
-    val r = size.minDimension
-    drawCircle(color, r * 0.17f, c, style = Stroke(stroke))
-    repeat(8) { i ->
-        val angle = Math.toRadians(i * 45.0)
-        val dir = Offset(Math.cos(angle).toFloat(), Math.sin(angle).toFloat())
-        drawLine(color, c + dir * (r * 0.25f), c + dir * (r * 0.34f), stroke, StrokeCap.Round)
-    }
-}
-
-/** A square: solid while the widget sits on the tile, an outline while it draws alone. */
-private fun DrawScope.drawTileBackground(color: Color, stroke: Float, filled: Boolean) {
-    val inset = size.minDimension * 0.3f
-    val topLeft = Offset(inset, inset)
-    val square = androidx.compose.ui.geometry.Size(size.width - inset * 2, size.height - inset * 2)
-    if (filled) drawRect(color, topLeft, square) else drawRect(color, topLeft, square, style = Stroke(stroke))
 }
 
 /** A diagonal with an arrowhead at each end: drag to resize. */

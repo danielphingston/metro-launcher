@@ -1,5 +1,7 @@
 package io.github.danielphingston.metro.ui.theme
 
+import androidx.compose.foundation.background
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -53,7 +55,18 @@ class StartBackdrop(
 ) {
     /** Alpha of the accent layer on a tile. In SOLID mode transparency only blends lightly. */
     val tileAlpha: Float
-        get() = 1f - transparency * if (mode == StartBackground.SOLID) SOLID_BLEND else 1f
+        get() = alphaOf(transparency)
+
+    private fun alphaOf(fraction: Float): Float = 1f - fraction * if (mode == StartBackground.SOLID) SOLID_BLEND else 1f
+
+    /**
+     * Alpha of the accent layer on a tile with its own transparency [percent] (0..100), by the
+     * same rule as [tileAlpha]; null follows the start screen's setting.
+     */
+    fun tileAlphaFor(percent: Int?): Float = if (percent == null) tileAlpha else alphaOf(percent.coerceIn(0, 100) / 100f)
+
+    /** Alpha of the accent layer on a tile drawn with [decor]: none without a background. */
+    fun surfaceAlpha(decor: TileDecor): Float = if (!decor.background) 0f else tileAlphaFor(decor.transparency)
 
     /** The parallax offset for a screen [rootHeight] px tall. */
     fun offsetFor(rootHeight: Float): Float = min(parallax(), rootHeight * BackgroundPhoto.HEADROOM).coerceAtLeast(0f)
@@ -80,6 +93,21 @@ class StartBackdrop(
 }
 
 val LocalStartBackdrop = staticCompositionLocalOf { StartBackdrop.Solid }
+
+/**
+ * One tile's own surface and label settings, from its [io.github.danielphingston.metro.data.TileSpec],
+ * provided to everything the tile draws: [showName] false hides the small name label
+ * ([io.github.danielphingston.metro.ui.start.TileLabel]), [background] false drops the surface
+ * ([tileSurface] draws nothing), [transparency] (0..100) replaces the start screen's.
+ */
+@Immutable
+data class TileDecor(val showName: Boolean = true, val background: Boolean = true, val transparency: Int? = null) {
+    companion object {
+        val Default = TileDecor()
+    }
+}
+
+val LocalTileDecor = staticCompositionLocalOf { TileDecor.Default }
 
 /**
  * Draws the photo as it sits behind a screen of [rootW] x [rootH] px, moved up by [offset].
@@ -158,31 +186,52 @@ private const val FULL_PHOTO_SCRIM = 0.4f
 fun Modifier.tileSurface(): Modifier = composed {
     val backdrop = LocalStartBackdrop.current
     val accent = Metro.colors.accent
-    this.then(TileSurfaceElement(backdrop, accent))
+    val decor = LocalTileDecor.current
+    this.then(TileSurfaceElement(backdrop, accent, decor))
 }
 
-private data class TileSurfaceElement(val backdrop: StartBackdrop, val color: Color) :
+/**
+ * An opaque fill in [color] for tiles that draw photos over it (photos, people), following the
+ * tile's [TileDecor]: none without a background, faded by the tile's own transparency when it has one.
+ */
+fun Modifier.tileFill(color: Color): Modifier = composed {
+    val decor = LocalTileDecor.current
+    val backdrop = LocalStartBackdrop.current
+    when {
+        !decor.background -> Modifier
+        decor.transparency == null -> Modifier.background(color)
+        else -> Modifier.background(color.copy(alpha = color.alpha * backdrop.tileAlphaFor(decor.transparency)))
+    }
+}
+
+private data class TileSurfaceElement(val backdrop: StartBackdrop, val color: Color, val decor: TileDecor) :
     ModifierNodeElement<TileSurfaceNode>() {
-    override fun create() = TileSurfaceNode(backdrop, color)
+    override fun create() = TileSurfaceNode(backdrop, color, decor)
 
     override fun update(node: TileSurfaceNode) {
         node.backdrop = backdrop
         node.color = color
+        node.decor = decor
         node.invalidateDraw()
     }
 }
 
-private class TileSurfaceNode(var backdrop: StartBackdrop, var color: Color) :
+private class TileSurfaceNode(var backdrop: StartBackdrop, var color: Color, var decor: TileDecor) :
     Modifier.Node(), DrawModifierNode, GlobalPositionAwareModifierNode {
     private var coordinates: LayoutCoordinates? = null
 
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
         this.coordinates = coordinates
         // Only the photo depends on where the tile is.
-        if (backdrop.mode == StartBackground.PHOTO_TILES) invalidateDraw()
+        if (backdrop.mode == StartBackground.PHOTO_TILES && decor.background) invalidateDraw()
     }
 
     override fun ContentDrawScope.draw() {
+        // No background: neither the accent nor the photo slice, only what the tile draws itself.
+        if (!decor.background) {
+            drawContent()
+            return
+        }
         val image = backdrop.image
         val coordinates = coordinates
         if (backdrop.mode == StartBackground.PHOTO_TILES && image != null && coordinates?.isAttached == true) {
@@ -208,7 +257,7 @@ private class TileSurfaceNode(var backdrop: StartBackdrop, var color: Color) :
                 }
             }
         }
-        drawRect(color, alpha = backdrop.tileAlpha)
+        drawRect(color, alpha = if (decor.transparency == null) backdrop.tileAlpha else backdrop.tileAlphaFor(decor.transparency))
         drawContent()
     }
 }

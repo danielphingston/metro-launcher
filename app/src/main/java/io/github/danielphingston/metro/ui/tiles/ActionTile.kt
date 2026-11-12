@@ -24,7 +24,8 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.TileSize
-import io.github.danielphingston.metro.data.TileStyle
+import io.github.danielphingston.metro.data.TileLook
+import io.github.danielphingston.metro.data.TileLooks
 import io.github.danielphingston.metro.live.PeopleSource
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.search.SearchGlyphs
@@ -47,10 +48,12 @@ private val PhotoScrim = Brush.verticalGradient(0.6f to Color.Transparent, 1f to
 @Composable
 fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: Boolean) {
     val action = tile.spec.content as? TileContent.Action ?: return PlaceholderTile(tile, cellSize)
-    val style = tile.spec.style
+    val look = TileLooks.shown(tile.spec)
+    // The plain face: the icon and the name (which "show name" may hide, see [TileLabel]).
+    val plain = look.copy(showName = true) == TileLook()
     val contact = action.icon as? ActionIcon.Contact
-    // A contact's photo is its default face; any other style replaces it.
-    if (contact != null && style == TileStyle.ICON && tile.spec.icon == null) {
+    // A contact's photo is its default face; any other look replaces it.
+    if (contact != null && plain && tile.spec.icon == null) {
         val photo = rememberContactPhoto(contact, cellSize * maxOf(tile.spec.width, tile.spec.height))
         if (photo != null) return PhotoTile(tile, cellSize, photo)
     }
@@ -62,7 +65,7 @@ fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
     }
     val custom0 = tile.spec.icon
     val app = tile.app?.takeIf { action.icon is ActionIcon.App }
-    if (glyph == null && app == null && custom0 == null && style == TileStyle.ICON) return PlaceholderTile(tile, cellSize)
+    if (glyph == null && app == null && custom0 == null && plain) return PlaceholderTile(tile, cellSize)
     val m = rememberTileMetrics(cellSize)
     val size = tile.spec.size
     val white = Metro.colors.onAccent
@@ -77,8 +80,8 @@ fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
         }
     }
     Box(Modifier.fillMaxSize().tileSurface()) {
-        if (style != TileStyle.ICON || custom != null) {
-            StyledTileFace(tile.label, size, 0, m, style, tile.spec.image, appIcon = picture)
+        if (!plain || custom != null) {
+            StyledTileFace(tile.label, size, 0, m, look, tile.spec.image, appIcon = picture)
             return@Box
         }
         val iconSize = when (size) {
