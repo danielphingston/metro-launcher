@@ -42,6 +42,12 @@ class StartBackdrop(
     val image: ImageBitmap?,
     /** 0..1: how much of the background shows through the tiles' accent layer. */
     val transparency: Float,
+    /**
+     * How far (px) the start page has slid sideways from its resting place, negative toward the
+     * app list. In PHOTO_TILES mode the photo slides with it, so each tile keeps its piece of the
+     * picture instead of wiping across a photo that stays behind.
+     */
+    val pageShift: () -> Float = { 0f },
     /** The image's upward offset in px, before it is limited to the headroom. */
     val parallax: () -> Float,
 ) {
@@ -59,11 +65,16 @@ class StartBackdrop(
         val Solid = StartBackdrop(StartBackground.SOLID, null, 0f) { 0f }
 
         /** The backdrop for [settings]; photo modes look like SOLID until [image] has loaded. */
-        fun of(settings: LauncherSettings, image: ImageBitmap?, parallax: () -> Float): StartBackdrop =
+        fun of(
+            settings: LauncherSettings,
+            image: ImageBitmap?,
+            pageShift: () -> Float = { 0f },
+            parallax: () -> Float,
+        ): StartBackdrop =
             if (settings.showsPhoto && image == null) {
-                StartBackdrop(StartBackground.SOLID, null, 0f, parallax)
+                StartBackdrop(StartBackground.SOLID, null, 0f, parallax = parallax)
             } else {
-                StartBackdrop(settings.background, image, settings.transparencyFraction, parallax)
+                StartBackdrop(settings.background, image, settings.transparencyFraction, pageShift, parallax)
             }
     }
 }
@@ -183,7 +194,8 @@ private class TileSurfaceNode(var backdrop: StartBackdrop, var color: Color) :
             val slice = photoSlice(
                 imageW = image.width, imageH = image.height,
                 rootW = root.width.toFloat(), rootH = root.height.toFloat(),
-                offset = offset, tileX = origin.x, tileY = origin.y,
+                // Where the tile sits on the start page, not on the screen: see [StartBackdrop.pageShift].
+                offset = offset, tileX = origin.x - backdrop.pageShift(), tileY = origin.y,
                 tileW = size.width, tileH = size.height,
             )
             if (slice != null) {

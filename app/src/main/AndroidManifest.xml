@@ -19,6 +19,9 @@
     <uses-permission android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- Gestures: opens the notification shade and quick settings directly (a normal permission,
+         granted at install); the optional accessibility service is the fallback. -->
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
 
     <!-- Package visibility: only launchable apps and the default apps we pin on first run.
          Deliberately avoids QUERY_ALL_PACKAGES. -->
@@ -205,6 +208,22 @@
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- Switches the start layout for an app shortcut or a metro://layout/<name> link, so
+             automation apps (Samsung Modes and Routines, Tasker...) can do it. Shows nothing. -->
+        <activity
+            android:name=".ui.SwitchLayoutActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="metro" android:host="layout" />
+            </intent-filter>
+        </activity>
+
         <!-- WorkManager starts on first use instead of at every process start; see
              MetroApplication.workManagerConfiguration. -->
         <provider
@@ -226,6 +245,21 @@
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
+        </service>
+
+        <!-- Optional: locks the screen and opens the shade or recent apps for Metro's gestures. Requests no
+             events and no window content. -->
+        <service
+            android:name=".live.MetroAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
         </service>
     </application>
 </manifest>

@@ -11,7 +11,9 @@ import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.SearchHistory
 import io.github.danielphingston.metro.data.SettingsRepository
+import io.github.danielphingston.metro.data.StartLayoutRepository
 import io.github.danielphingston.metro.data.TileRepository
+import io.github.danielphingston.metro.data.TileUndo
 import io.github.danielphingston.metro.data.WidgetReclaim
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.live.PeopleSource
@@ -57,6 +59,24 @@ class MetroApplication : Application(), Configuration.Provider {
     lateinit var lastAsked: LastAskedStore
         private set
 
+    /** Undo for start screen edits; widget ids and shortcuts it may bring back stay held. See [TileUndo]. */
+    val undo: TileUndo by lazy {
+        TileUndo(
+            current = { tiles.tiles.value },
+            // Not a bound reference: the first load can finish, and ask for this, before `tiles` is assigned.
+            restore = { tiles.restore(it) },
+            alsoHeld = { if (::layouts.isInitialized) layouts.heldTiles() else emptyList() },
+            release = { removed -> appScope.launch { releaseTileResources(this@MetroApplication, removed) } },
+        )
+    }
+
+    /** Completed once [tiles] and [layouts] both exist; work started while they are being built waits for it. */
+    private val wired = kotlinx.coroutines.CompletableDeferred<Unit>()
+
+    /** The saved start layouts and switching between them; see [StartLayoutRepository]. */
+    lateinit var layouts: StartLayoutRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
         // First, so a crash anywhere below is recorded too.
@@ -66,8 +86,28 @@ class MetroApplication : Application(), Configuration.Provider {
         purchases = Purchases(this, appScope)
         tiles = TileRepository(
             this, appScope, settings.settings.map { it.columns }.distinctUntilChanged(),
-            onLoaded = { referenced, undecoded -> appScope.launch { reclaimWidgetIds(referenced, undecoded) } },
+            onLoaded = { referenced, undecoded ->
+                // A restored backup replaced the layout the undo steps were taken from.
+                undo.clear()
+                appScope.launch {
+                    // The first load can finish inside the constructor above, before the rest is wired up.
+                    wired.await()
+                    reclaimWidgetIds(referenced, undecoded)
+                }
+            },
         )
+        layouts = StartLayoutRepository(this, appScope, tiles, undo = { undo }, unlocked = { purchases.quickTilesUnlocked.value })
+        wired.complete(Unit)
+        // One app shortcut per saved layout, for automation apps; rewritten only when the layouts change.
+        appScope.launch {
+            // No shortcuts while Metro Plus is locked: they could not switch anything.
+            kotlinx.coroutines.flow.combine(layouts.layouts, purchases.quickTilesUnlocked) { set, unlocked ->
+                if (unlocked) set else null
+            }.map { set -> set?.layouts?.map { it.id to it.name } }.distinctUntilChanged().collect {
+                val set = layouts.layouts.value.takeIf { purchases.quickTilesUnlocked.value }
+                withContext(Dispatchers.Default) { io.github.danielphingston.metro.data.LayoutShortcuts.sync(this@MetroApplication, set) }
+            }
+        }
         icons = IconCache(this)
         apps = AppRepository(this, appScope, onPackageRemoved = { pkg, serial ->
             val removed = tiles.removePackage(pkg, serial)
@@ -114,7 +154,9 @@ class MetroApplication : Application(), Configuration.Provider {
      * activity recreated while a widget was being bound. Any failure of the widget service frees nothing.
      */
     private suspend fun reclaimWidgetIds(referenced: Set<Int>, undecoded: Boolean) {
-        if (undecoded) return
+        // Widgets of the saved layouts that are not on screen keep their ids too.
+        layouts.awaitLoaded()
+        if (undecoded || layouts.hasUndecoded()) return
         val held = withContext(Dispatchers.Default) {
             try {
                 WidgetTiles.host(this@MetroApplication).appWidgetIds.toSet()
@@ -123,7 +165,8 @@ class MetroApplication : Application(), Configuration.Provider {
             }
         } ?: return
         // Read again now: a tile may have been added while the ids were fetched.
-        val used = referenced + WidgetReclaim.referencedIds(tiles.tiles.value.orEmpty())
+        val used = referenced + WidgetReclaim.referencedIds(tiles.tiles.value.orEmpty()) +
+            (undo.snapshots() + layouts.heldTiles()).flatMap(WidgetReclaim::referencedIds)
         val stale = WidgetReclaim.toDelete(held, used, undecoded)
         if (stale.isEmpty()) return
         withContext(Dispatchers.Default) { stale.forEach { WidgetTiles.release(this@MetroApplication, it) } }

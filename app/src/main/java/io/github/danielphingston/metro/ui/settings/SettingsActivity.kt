@@ -129,13 +129,16 @@ internal enum class SettingsPage(val title: String, val summary: String, val par
     APPEARANCE("appearance", "theme, accent colour, icon pack"),
     ANIMATIONS("animations", "launch animation, speed, tilt, live tile flips"),
     TILES("tiles", "weather, photos, people, calendar, notifications"),
-    METRO_PLUS("metro plus", "quick settings tiles, assistant, smart search"),
+    METRO_PLUS("metro plus", "quick settings tiles, assistant, smart search, layouts, gestures"),
     ABOUT("about", "default home app, app info, crash log, version"),
 
     // Long lists of the search settings, each on a page of its own (reached from the search page, not listed in the menu).
     SEARCH_IN_APPS("search in apps", "which apps the results can search, and their order", SEARCH),
     SEARCH_KEYWORDS("search keywords", "short words that search one app or site", SEARCH),
     SEARCH_HELP("what can I type?", "the phrases smart search understands", SEARCH),
+
+    GESTURES("gestures", "double tap, two-finger swipes, sleep"),
+    LAYOUTS("layouts", "save and switch start layouts"),
 }
 
 @Composable
@@ -178,6 +181,16 @@ internal fun SettingsScreen(
                     SettingsPage.TILES -> TilesPage(settings, repository)
                     SettingsPage.METRO_PLUS -> MetroPlusSettingsSection(settings, repository, onOpenSearchSettings = { page = SettingsPage.SEARCH.name })
                     SettingsPage.ABOUT -> AboutPage()
+                    SettingsPage.GESTURES -> PlusGate(
+                        "Double tap, two-finger swipes and a pinch on the start screen can open search, the app list, an app, " +
+                            "the notification shade or turn the screen off, once Metro Plus is unlocked, a one-time purchase.",
+                        onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
+                    ) { GesturesPage(settings, repository) }
+                    SettingsPage.LAYOUTS -> PlusGate(
+                        "Keep more than one start screen, such as work and weekend, and switch between them with a tile, " +
+                            "from search or from a routine, once Metro Plus is unlocked, a one-time purchase.",
+                        onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
+                    ) { LayoutsPage() }
                 }
             }
         }

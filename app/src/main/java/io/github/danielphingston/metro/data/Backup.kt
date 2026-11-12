@@ -60,6 +60,8 @@ object Backup {
         "weather_fetched_at",
         "assistant_last_question",
         "assistant_last_asked_at",
+        // Whether this install has been through the first-run setup says nothing about another one.
+        "onboarding_done",
     )
 
     fun encode(prefs: Preferences, appVersion: String, now: Long): String {
@@ -211,6 +213,7 @@ object Backup {
         "tiles" to String::class.java,
         "tiles_backup" to String::class.java,
         "tile_photos" to String::class.java,
+        "layouts" to String::class.java,
         "weather_name" to String::class.java,
         "weather_detail" to String::class.java,
         "weather_latitude" to Double::class.javaObjectType,

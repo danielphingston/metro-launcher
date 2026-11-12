@@ -99,6 +99,8 @@ data class LauncherSettings(
     val tileTransparency: Int? = null,
     /** Use [backgroundAccent] instead of [accent] while a photo background is on. */
     val accentFromBackground: Boolean = false,
+    /** In PHOTO_TILES mode the photo slides sideways with the tiles when paging to the app list, instead of staying fixed to the screen. */
+    val photoMovesWithTiles: Boolean = false,
     /** Where the search overlay's "web" row searches. */
     val searchEngine: SearchEngine = SearchEngine.GOOGLE,
     /** How far (dp) the start screen must be pulled down, then released, to open search. */
@@ -146,6 +148,12 @@ data class LauncherSettings(
     val searchInOrder: SearchInOrder = SearchInOrder.default,
     /** The custom order of the strip: target ids (see [SearchInOrdering]); targets not listed come last. */
     val searchInCustomOrder: List<String> = emptyList(),
+    /** What tiles without a colour of their own use; see [TileColors]. */
+    val tileColourMode: TileColourMode = TileColourMode.ACCENT,
+    /** 0..100: how strongly a colour taken from an icon is made vivid; see [IconColor.adjust]. */
+    val tileIconVividness: Int = IconColor.DEFAULT_VIVIDNESS,
+    /** What each start screen gesture does; none until chosen. */
+    val gestures: GestureSettings = GestureSettings(),
 ) {
     /** Whether [feature]'s own switch is on (it still needs Metro Plus to show anything). */
     fun smartOn(feature: SmartFeature): Boolean = feature in smartFeatures
@@ -262,6 +270,7 @@ class SettingsRepository(private val context: Context) {
         val backgroundAccent = intPreferencesKey("background_accent")
         val tileTransparency = intPreferencesKey("tile_transparency")
         val accentFromBackground = booleanPreferencesKey("accent_from_background")
+        val photoMovesWithTiles = booleanPreferencesKey("photo_moves_with_tiles")
         val searchEngine = stringPreferencesKey("search_engine")
         val pullDistance = intPreferencesKey("pull_distance")
         val startTopPadding = intPreferencesKey("start_top_padding")
@@ -295,9 +304,19 @@ class SettingsRepository(private val context: Context) {
 
         val searchInOrder = stringPreferencesKey("search_in_order")
         val searchInCustomOrder = stringPreferencesKey("search_in_custom_order")
+
+        /** Unset until the first-run setup was finished or skipped; false asks for it to run again. */
+        val onboardingDone = booleanPreferencesKey("onboarding_done")
+        val tileColourMode = stringPreferencesKey("tile_colour_mode")
+        val tileIconVividness = intPreferencesKey("tile_icon_colour_vividness")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
+
+    /** The first-run setup's flag: null while unset; see [io.github.danielphingston.metro.ui.onboarding.Onboarding]. */
+    val onboardingDone: Flow<Boolean?> = context.metroDataStore.data.map { it[Keys.onboardingDone] }
+
+    suspend fun setOnboardingDone(done: Boolean) = context.metroDataStore.edit { it[Keys.onboardingDone] = done }
 
     /** The settings stored in [prefs]; also used to check a backup before it is restored. */
     internal fun settingsOf(prefs: Preferences): LauncherSettings = prefs.toSettings()
@@ -325,6 +344,7 @@ class SettingsRepository(private val context: Context) {
             backgroundAccent = this[Keys.backgroundAccent]?.let(LauncherSettings::opaque),
             tileTransparency = this[Keys.tileTransparency]?.let(LauncherSettings::clampTransparency),
             accentFromBackground = this[Keys.accentFromBackground] ?: defaults.accentFromBackground,
+            photoMovesWithTiles = this[Keys.photoMovesWithTiles] ?: defaults.photoMovesWithTiles,
             searchEngine = this[Keys.searchEngine]?.let { runCatching { SearchEngine.valueOf(it) }.getOrNull() }
                 ?: defaults.searchEngine,
             pullDistance = this[Keys.pullDistance]?.let(LauncherSettings::clampPullDistance) ?: defaults.pullDistance,
@@ -358,6 +378,10 @@ class SettingsRepository(private val context: Context) {
             searchKeywords = SearchKeywords.decode(this[Keys.searchKeywords]),
             searchInOrder = SearchInOrder.fromId(this[Keys.searchInOrder]),
             searchInCustomOrder = SearchInOrdering.decode(this[Keys.searchInCustomOrder]),
+            tileColourMode = this[Keys.tileColourMode]?.let { runCatching { TileColourMode.valueOf(it) }.getOrNull() }
+                ?: defaults.tileColourMode,
+            tileIconVividness = this[Keys.tileIconVividness]?.let(IconColor::clampVividness) ?: defaults.tileIconVividness,
+            gestures = GestureSettings.from(this),
         )
     }
 
@@ -397,6 +421,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAccentFromBackground(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.accentFromBackground] = enabled }
+
+    suspend fun setPhotoMovesWithTiles(enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.photoMovesWithTiles] = enabled }
 
     suspend fun setSearchEngine(engine: SearchEngine) =
         context.metroDataStore.edit { it[Keys.searchEngine] = engine.name }
@@ -507,7 +534,18 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun resetSearchKeywords() = context.metroDataStore.edit { it.remove(Keys.searchKeywords) }
 
+    suspend fun setTileColourMode(mode: TileColourMode) = context.metroDataStore.edit { it[Keys.tileColourMode] = mode.name }
+
+    suspend fun setTileIconVividness(percent: Int) =
+        context.metroDataStore.edit { it[Keys.tileIconVividness] = IconColor.clampVividness(percent) }
+
     suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }
+
+    /** Sets what [gesture] does; [app] is only kept for [GestureAction.OPEN_APP]. */
+    suspend fun setGesture(gesture: Gesture, action: GestureAction, app: AppKey? = null) = context.metroDataStore.edit {
+        if (action == GestureAction.NONE) it.remove(gesture.actionKey) else it[gesture.actionKey] = action.id
+        if (action == GestureAction.OPEN_APP && app != null) it[gesture.appKey] = app.serialize() else it.remove(gesture.appKey)
+    }
 
     /** The photo can't be read any more: forget it and go back to the plain background. */
     suspend fun clearUnreadablePhoto() = context.metroDataStore.edit {

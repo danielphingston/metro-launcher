@@ -24,6 +24,11 @@ import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.HistoryData
 import io.github.danielphingston.metro.data.Purchases
 import io.github.danielphingston.metro.data.SmartFeature
+import io.github.danielphingston.metro.data.StartEdit
+import io.github.danielphingston.metro.data.LayoutSet
+import io.github.danielphingston.metro.data.StartLayoutRepository
+import io.github.danielphingston.metro.ui.start.TileKeys
+import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.TileRepository
@@ -31,8 +36,9 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.tiles.acquireTileResources
-import io.github.danielphingston.metro.ui.tiles.releaseTileResources
 import io.github.danielphingston.metro.live.AppNotifications
+import io.github.danielphingston.metro.live.MeFeed
+import io.github.danielphingston.metro.live.MeSnapshot
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.NotificationHub
 import io.github.danielphingston.metro.live.UserSerials
@@ -56,6 +62,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import io.github.danielphingston.metro.ui.onboarding.OnboardingState
 import java.io.FileNotFoundException
 
 /**
@@ -73,6 +80,9 @@ data class ResolvedTile(
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
     private val metro = application as MetroApplication
     val icons: IconCache = metro.icons
+
+    /** The first-run setup; created before the default layout is saved, which it tells apart. */
+    internal val onboarding = OnboardingState(application, metro.settings, viewModelScope)
 
     /** The Metro Plus pack: whether it is unlocked, its Play price, and how to buy it. */
     val quickTilesUnlocked: StateFlow<Boolean> = metro.purchases.quickTilesUnlocked
@@ -132,6 +142,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     val notifications: StateFlow<Map<String, AppNotifications>> = NotificationHub.byApp
 
+    /** What the me tile shows: every counted notification, updated only by listener callbacks. */
+    val meFeed: StateFlow<MeSnapshot> = MeFeed.snapshot
+
     /** The assistant tile's saved last reply, shown when its notification is gone. */
     val assistantReply: StateFlow<SavedReply?> = metro.assistantReply.reply
     val lastAsked: StateFlow<LastAsked?> = metro.lastAsked.asked
@@ -140,7 +153,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val assistantStored: Flow<String?> = metro.settings.settings.map { it.assistant }.distinctUntilChanged()
 
     /** Null while loading, so the start screen can tell "empty" from "not ready yet". */
-    val tiles: StateFlow<List<ResolvedTile>?> = combine(metro.tiles.tiles, metro.apps.apps, assistantStored) { specs, apps, assistantSetting ->
+    val tiles: StateFlow<List<ResolvedTile>?> = combine(metro.tiles.tiles, metro.apps.apps, assistantStored, metro.layouts.layouts) { specs, apps, assistantSetting, layouts ->
         if (specs == null || apps == null) return@combine null
         val byKey = apps.associateBy { it.key }
         // An app update can rename its launcher activity; fall back to the package's main entry.
@@ -173,6 +186,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             is TileContent.Folder -> ResolvedTile(
                 spec, null, c.name.ifBlank { "folder" }, c.children.mapNotNull(::resolve),
             )
+            TileContent.Me -> ResolvedTile(spec, null, "me")
+            is TileContent.LayoutSwitch -> ResolvedTile(spec, null, LayoutSwitchTiles.label(c, layouts))
         }
         specs.mapNotNull(::resolve)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -269,29 +284,80 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun unpin(id: Long) {
-        val removed = metro.tiles.unpin(id) ?: return
-        // Also frees the children of a removed folder; shortcut binder calls run off the main thread.
-        metro.appScope.launch { releaseTileResources(getApplication(), listOf(removed)) }
+        var removed: TileSpec? = null
+        metro.undo.record(StartEdit.UNPIN.label(labelOf(id))) { removed = metro.tiles.unpin(id) }
+        // Also frees the children of a removed folder, unless an undo step can still bring them back.
+        removed?.let { metro.undo.releaseUnreferenced(listOf(it)) }
     }
 
-    fun resize(id: Long) = metro.tiles.resize(id)
-    fun setSpan(id: Long, width: Int, height: Int) = metro.tiles.setSpan(id, width, height)
+    fun resize(id: Long) = undoable(StartEdit.RESIZE) {
+        val spec = metro.tiles.tiles.value.orEmpty().firstOrNull { it.id == id }
+        // A layout switch tile has no large size: wide goes back to small.
+        if (spec?.content is TileContent.LayoutSwitch && spec.size == TileSize.WIDE) {
+            metro.tiles.edit { list -> list.map { if (it.id == id) it.copy(size = TileSize.SMALL, span = null) else it } }
+        } else {
+            metro.tiles.resize(id)
+        }
+    }
+    fun setSpan(id: Long, width: Int, height: Int) = undoable(StartEdit.RESIZE) { metro.tiles.setSpan(id, width, height) }
 
     /** Sets the picked icon of tile [id]; null restores its own. */
-    fun setIcon(id: Long, icon: String?) = metro.tiles.setIcon(id, icon)
+    fun setIcon(id: Long, icon: String?) = undoable(StartEdit.ICON) { metro.tiles.setIcon(id, icon) }
 
     /** Sets how tile [id] draws itself; see [io.github.danielphingston.metro.data.TileRepository.setStyle]. */
-    fun setStyle(id: Long, style: io.github.danielphingston.metro.data.TileStyle, image: String?) = metro.tiles.setStyle(id, style, image)
+    fun setStyle(id: Long, style: io.github.danielphingston.metro.data.TileStyle, image: String?) =
+        undoable(StartEdit.STYLE) { metro.tiles.setStyle(id, style, image) }
+
+    /** Sets the colour of tile [id]; see [io.github.danielphingston.metro.data.TileColors]. */
+    fun setColor(id: Long, color: String?) = undoable(StartEdit.COLOUR) { metro.tiles.setColor(id, color) }
 
     /** Drops tile [id] with its top-left corner on the grid cell [x], [y]. */
-    fun moveTo(id: Long, x: Int, y: Int) = metro.tiles.moveTo(id, x, y)
+    fun moveTo(id: Long, x: Int, y: Int) = undoable(StartEdit.MOVE) { metro.tiles.moveTo(id, x, y) }
 
     /** The start screen now shows [count] columns; see [io.github.danielphingston.metro.data.TileRepository.setColumns]. */
     fun setColumns(count: Int) = metro.tiles.setColumns(count)
 
     /** Groups tiles [ids] with [anchorId] into a new folder or the anchor folder; returns the folder's id, or null if nothing was grouped. */
-    fun groupIntoFolder(anchorId: Long, ids: List<Long>): Long? = metro.tiles.groupIntoFolder(anchorId, ids)
-    fun removeFromFolder(folderId: Long, childId: Long) = metro.tiles.removeFromFolder(folderId, childId)
-    fun renameFolder(id: Long, name: String) = metro.tiles.renameFolder(id, name)
+    fun groupIntoFolder(anchorId: Long, ids: List<Long>): Long? {
+        val intoFolder = metro.tiles.tiles.value.orEmpty().any { it.id == anchorId && it.content is TileContent.Folder }
+        var folderId: Long? = null
+        undoable(if (intoFolder) StartEdit.FOLDER_ADDED else StartEdit.FOLDER_CREATED) { folderId = metro.tiles.groupIntoFolder(anchorId, ids) }
+        return folderId
+    }
+    fun removeFromFolder(folderId: Long, childId: Long) = undoable(StartEdit.FOLDER_REMOVED_FROM) { metro.tiles.removeFromFolder(folderId, childId) }
+    fun renameFolder(id: Long, name: String) = undoable(StartEdit.FOLDER_RENAMED) { metro.tiles.renameFolder(id, name) }
     fun moveInFolder(folderId: Long, id: Long, targetId: Long) = metro.tiles.moveInFolder(folderId, id, targetId)
+
+    /** What the next undo takes back (the bar's text), or null when there is nothing to undo. */
+    val undoNext: StateFlow<String?> = metro.undo.next
+
+    /** Each undoable edit's label as it happens, for the bar along the bottom of start. */
+    val undoRecorded: SharedFlow<String> = metro.undo.recorded
+
+    /** Takes back the latest start screen edit; see [io.github.danielphingston.metro.data.TileUndo]. */
+    fun undo() {
+        metro.undo.undo()
+    }
+
+    /** The saved start layouts, null while there are none; see [StartLayoutRepository]. */
+    val layouts: StateFlow<LayoutSet?> = metro.layouts.layouts
+
+    /** Each layout switch, wherever it came from (a tile, search, settings), for the bar that offers to go back. */
+    val layoutSwitches: SharedFlow<StartLayoutRepository.Switched> = metro.layouts.switches
+
+    /** Composition keys of the start tiles, kept across a layout switch so shared tiles glide; see [TileKeys]. */
+    val tileKeys: TileKeys get() = metro.layouts.keys
+
+    fun switchLayout(id: Long) {
+        metro.appScope.launch { metro.layouts.switchTo(id) }
+    }
+
+    private fun undoable(edit: StartEdit, apply: () -> Unit) {
+        metro.undo.record(edit.label(), apply)
+    }
+
+    /** The shown name of tile [id], also inside a folder. */
+    private fun labelOf(id: Long): String? = tiles.value.orEmpty()
+        .flatMap { listOf(it) + it.children }
+        .firstOrNull { it.spec.id == id }?.label
 }

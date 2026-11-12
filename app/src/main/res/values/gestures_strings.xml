@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_label">Metro gestures</string>
+    <string name="accessibility_service_description">Optional. Only used to lock the screen, open the notification shade, quick settings or recent apps when you perform a Metro gesture you set up. It does not observe or read anything on your screen.</string>
+</resources>

@@ -47,7 +47,8 @@ fun MetroPlusSettingsSection(
 
     MetroText(
         "Metro Plus: quick settings tiles that toggle the flashlight, ringer and more, an " +
-            "assistant tile and smart search. A one-time purchase, no subscription.",
+            "assistant tile, smart search, start layouts you can switch between, and gestures. " +
+            "A one-time purchase, no subscription.",
         MetroType.caption,
         color = Metro.colors.subtle,
     )

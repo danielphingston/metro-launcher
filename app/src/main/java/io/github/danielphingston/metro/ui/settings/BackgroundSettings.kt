@@ -106,6 +106,19 @@ fun BackgroundSettingsSection(settings: LauncherSettings, repository: SettingsRe
             color = colors.subtle,
         )
     }
+    if (settings.background == StartBackground.PHOTO_TILES) {
+        Spacer(Modifier.height(8.dp))
+        MetroToggle(
+            "Photo moves with the tiles",
+            settings.photoMovesWithTiles,
+            { scope.launch { repository.setPhotoMovesWithTiles(it) } },
+            description = if (settings.photoMovesWithTiles) {
+                "The photo slides away with the tiles when you swipe to the app list"
+            } else {
+                "The photo stays put while the tiles slide over it"
+            },
+        )
+    }
 
     Spacer(Modifier.height(16.dp))
     LabeledSlider(
