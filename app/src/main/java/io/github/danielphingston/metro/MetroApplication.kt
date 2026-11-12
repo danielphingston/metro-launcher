@@ -63,11 +63,15 @@ class MetroApplication : Application(), Configuration.Provider {
     val undo: TileUndo by lazy {
         TileUndo(
             current = { tiles.tiles.value },
-            restore = tiles::restore,
-            alsoHeld = { layouts.heldTiles() },
+            // Not a bound reference: the first load can finish, and ask for this, before `tiles` is assigned.
+            restore = { tiles.restore(it) },
+            alsoHeld = { if (::layouts.isInitialized) layouts.heldTiles() else emptyList() },
             release = { removed -> appScope.launch { releaseTileResources(this@MetroApplication, removed) } },
         )
     }
+
+    /** Completed once [tiles] and [layouts] both exist; work started while they are being built waits for it. */
+    private val wired = kotlinx.coroutines.CompletableDeferred<Unit>()
 
     /** The saved start layouts and switching between them; see [StartLayoutRepository]. */
     lateinit var layouts: StartLayoutRepository
@@ -85,10 +89,15 @@ class MetroApplication : Application(), Configuration.Provider {
             onLoaded = { referenced, undecoded ->
                 // A restored backup replaced the layout the undo steps were taken from.
                 undo.clear()
-                appScope.launch { reclaimWidgetIds(referenced, undecoded) }
+                appScope.launch {
+                    // The first load can finish inside the constructor above, before the rest is wired up.
+                    wired.await()
+                    reclaimWidgetIds(referenced, undecoded)
+                }
             },
         )
         layouts = StartLayoutRepository(this, appScope, tiles, undo = { undo })
+        wired.complete(Unit)
         // One app shortcut per saved layout, for automation apps; rewritten only when the layouts change.
         appScope.launch {
             layouts.layouts.map { set -> set?.layouts?.map { it.id to it.name } }.distinctUntilChanged().collect {
