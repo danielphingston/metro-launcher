@@ -346,6 +346,21 @@ class StartLayoutsTest {
     }
 
     @Test
+    fun whetherALayoutIsEmptyIsWorkedOutOnceWhileDecoding() {
+        val set = LayoutsJson.decode(LayoutsJson.encode(LayoutSet(1, listOf(SavedLayout(1, "start", "[]"), SavedLayout(2, "work", json(app(1, "a")))))))!!
+        // Known after decoding (which runs off the main thread): the layouts page only reads it.
+        assertTrue(set.layouts.all { it.knowsWhetherEmpty })
+        assertTrue(set.byId(1)!!.hasNoTiles)
+        assertFalse(set.byId(2)!!.hasNoTiles)
+        // Computed once per layout, and not part of what makes two layouts equal.
+        val fresh = SavedLayout(3, "x", "[]")
+        assertFalse(fresh.knowsWhetherEmpty)
+        assertTrue(fresh.hasNoTiles)
+        assertTrue(fresh.knowsWhetherEmpty)
+        assertEquals(SavedLayout(3, "x", "[]"), fresh)
+    }
+
+    @Test
     fun searchAndTilesSwitchLayoutsTheSameWay() {
         val tiles = LayoutSwitchTiles
         val set = LayoutSet(1, listOf(SavedLayout(1, "start", "[]"), SavedLayout(2, "work", "[]")))

@@ -12,11 +12,18 @@ import org.json.JSONObject
  * is set; null for an entry saved before layouts kept settings, which leaves the live ones alone.
  */
 data class SavedLayout(val id: Long, val name: String, val tiles: String, val settings: Map<String, Any>? = null) {
-    /** Whether this layout holds no tiles at all (entries this version can't read count as tiles). */
-    val hasNoTiles: Boolean
-        get() = TileJson.read(tiles)?.let { read ->
+    // Reading the tile JSON is real work: once per layout (decoding warms it, off the main thread).
+    private val noTiles = lazy(LazyThreadSafetyMode.PUBLICATION) {
+        TileJson.read(tiles)?.let { read ->
             read.tiles.isEmpty() && read.unread.top.isEmpty() && read.unread.children.values.all { it.isEmpty() }
         } == true
+    }
+
+    /** Whether this layout holds no tiles at all (entries this version can't read count as tiles). */
+    val hasNoTiles: Boolean get() = noTiles.value
+
+    /** Whether [hasNoTiles] is already known, so reading it does no work. */
+    internal val knowsWhetherEmpty: Boolean get() = noTiles.isInitialized()
 }
 
 /**
@@ -104,6 +111,8 @@ internal object LayoutsJson {
             )
         }
         if (layouts.isEmpty()) return null
+        // Known here, off the main thread, so the layouts page doesn't read every layout's tiles as it draws.
+        layouts.forEach { it.hasNoTiles }
         val active = root.optLong("active", layouts.first().id).takeIf { id -> layouts.any { it.id == id } } ?: layouts.first().id
         return LayoutSet(active, layouts)
     }
