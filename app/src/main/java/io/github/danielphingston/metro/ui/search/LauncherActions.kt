@@ -81,8 +81,8 @@ internal object LauncherActions {
 
     /**
      * The search row for [layout]: tapping it asks the launcher to switch (see
-     * [LauncherCommands.switchLayout]: search goes at once and the switch runs as from a switch
-     * tile), and it pins as the real layout switch tile, the same as one added from the add menu.
+     * [LauncherCommands.switchLayout], the same switch a switch tile makes), and it pins as the
+     * real layout switch tile, the same as one added from the add menu.
      */
     fun layoutItem(layout: SavedLayout, activeId: Long): SearchItem = SearchItem(
         "layout:${layout.id}", "layout: ${layout.name}",

@@ -159,10 +159,6 @@ interface LauncherCommands {
     /** Remembers [question] as the last one asked, for the assistant tile. */
     fun recordAssistantQuestion(question: String)
 
-    /**
-     * Puts saved layout [id] on start the way a switch tile does: search is taken away at once
-     * (no fade) and the switch starts on the next frame, so its glide plays in full view instead
-     * of underneath the closing panel and keyboard.
-     */
+    /** Closes search and puts saved layout [id] on start, the same switch a switch tile makes. */
     fun switchLayout(id: Long)
 }

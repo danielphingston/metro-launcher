@@ -41,13 +41,8 @@ class SearchState {
     /** The row whose long-press menu is open. */
     internal var menu by mutableStateOf<SearchRow?>(null)
 
-    /** When set, the next close skips the fade: see [closeNow]. */
-    internal var instantExit by mutableStateOf(false)
-        private set
-
     /** Opens the overlay with an empty field. */
     fun open() {
-        instantExit = false
         query = ""
         queryCursor = null
         menu = null
@@ -60,12 +55,6 @@ class SearchState {
         isOpen = false
         menu = null
         return was
-    }
-
-    /** Closes the overlay without its fade, for an action that changes start itself (a layout switch). */
-    fun closeNow(): Boolean {
-        instantExit = true
-        return close()
     }
 
     /** Back closes the app menu first, then the overlay; returns true if back was consumed. */
