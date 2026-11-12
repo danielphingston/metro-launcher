@@ -44,9 +44,36 @@ export ANDROID_HOME=/opt/android-sdk
   files and CI are unchanged by it.
 - No SDK at `/opt/android-sdk`? Install the command-line tools there, then
   `sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"`.
+  The "Full Network" cloud environment's setup script does this at session start and sets `ANDROID_HOME`.
+- Several Gradle builds at once (worktrees, subagents) run out of memory: take turns with
+  `flock /tmp/metro-gradle.lock ./gradlew ...`.
 - Roborazzi screenshot tests compare against goldens in `app/src/test/screenshots`. Do not re-record
   them unless the visual change is intended; a changed settings page fails its golden on purpose.
 - Do not run `assembleDebug` just to check; unit tests and lint are the gate.
+
+## Trying the app on an emulator (cloud sessions)
+
+Cloud containers have no KVM, so the emulator runs in software: it works, but slowly. What makes it usable:
+
+- Install on demand (about 1.5 GB): `sdkmanager "emulator" "system-images;android-33;default;x86_64"`, then
+  `avdmanager create avd -n dog -k "system-images;android-33;default;x86_64" -d pixel_5`.
+- Start: `emulator -avd dog -no-window -accel off -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -memory 4096 -cores 3`.
+  Boot takes 10 to 15 minutes; wait for `adb shell getprop sys.boot_completed` to print 1, then another minute.
+- Stop the Gradle and Kotlin daemons first (`./gradlew --stop`). With them holding 6 GB the emulator's
+  system_server starves and shows "System UI isn't responding" forever; a reboot does not cure it while they run.
+  Never start a second emulator on the same AVD.
+- After `adb install`, run `adb shell cmd package compile -m speed -f io.github.danielphingston.metro`.
+  The unoptimised debug build otherwise takes minutes to draw its first frame.
+- `adb shell cmd package set-home-activity` fails there and `cmd role add-role-holder` can time out; start
+  `.ui.MainActivity` with `am start` instead.
+- Drive it with touches, not keys. `input swipe` needs 1200 ms or more or it lands as a tap; use the on-screen
+  nav bar (back about 260,2270, home 540,2270 on 1080x2340) rather than `input keyevent`. Key events and
+  `input text` put the window in keyboard mode, where focus moves to the app list's search box and the pager
+  follows it (a real bug for hardware keyboards, but not what a touch user sees).
+- Each step takes 10 to 60 seconds: batch several actions per command, and read `uiautomator dump` text for
+  layout instead of a screenshot when that is enough.
+- No network reaches the emulator (weather and city search cannot be tried) and there is no photo to pick.
+- A fresh look at first run needs `adb shell pm clear io.github.danielphingston.metro`.
 
 ## Release flow
 
