@@ -343,7 +343,7 @@ fun StartScreen(
     // Read lazily by the me tile's own composition, so a notification does not recompose the screen.
     val meFeed = viewModel.meFeed.collectAsStateWithLifecycle()
     val meApps = viewModel.apps.collectAsStateWithLifecycle()
-    val notices = rememberStartNotices(viewModel, isCurrentPage) { state.scroll.isScrollInProgress }
+    val notices = rememberStartNotices(viewModel, isCurrentPage, state.editing)
     val undoNext by viewModel.undoNext.collectAsStateWithLifecycle()
     val tileKeys = viewModel.tileKeys
     val switchMotion = remember { SwitchMotion() }
@@ -434,7 +434,7 @@ fun StartScreen(
 
     val isLarge = LocalConfiguration.current.smallestScreenWidthDp >= LARGE_SCREEN_DP
 
-    BoxWithConstraints(Modifier.fillMaxSize().hideNoticesOnTouch(notices)) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
         val sidesPx = sideInsets.getLeft(density, layoutDirection) + sideInsets.getRight(density, layoutDirection)
         val sides = with(density) { sidesPx.toDp() }
         // Cells grow with the width up to about a phone's. The automatic column count (see
@@ -916,7 +916,7 @@ fun StartScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
-        if (!state.grouping) UndoPill(notices, viewModel, state.editing, Modifier.align(Alignment.TopCenter))
+        if (!state.grouping) UndoPill(notices, viewModel, Modifier.align(Alignment.TopCenter))
         tiles.firstOrNull { it.spec.id == state.renamingFolderId }?.let { folder ->
             FolderRename((folder.spec.content as? TileContent.Folder)?.name.orEmpty()) { name ->
                 viewModel.renameFolder(folder.spec.id, name)

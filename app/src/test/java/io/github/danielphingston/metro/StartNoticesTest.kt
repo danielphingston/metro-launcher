@@ -25,49 +25,70 @@ class StartNoticesTest {
     }
 
     @Test
-    fun aDestructiveEditShowsTheBarAndAHarmlessOneHidesIt() {
-        val shown = NoticeState().reduce(NoticeEvent.Edit("phone unpinned", destructive = true))
-        assertEquals(StartNotice.Edited("phone unpinned", 1), shown.current)
-        assertNull(NoticeState().reduce(NoticeEvent.Edit("tile moved", destructive = false)).current)
-        // A harmless edit takes the older bar away: its undo would no longer be the latest step.
-        assertNull(shown.reduce(NoticeEvent.Edit("tile moved", destructive = false)).current)
+    fun everyEditShowsThePill() {
+        val shown = NoticeState().reduce(NoticeEvent.Edit("tile moved"))
+        assertEquals(StartNotice.Edited("tile moved", 1), shown.current)
+        assertEquals("phone unpinned", shown.reduce(NoticeEvent.Edit("phone unpinned")).current?.message)
     }
 
     @Test
-    fun aNewEditReplacesTheBarAndRestartsItsTimer() {
-        val first = NoticeState().reduce(NoticeEvent.Edit("a unpinned", true))
-        val second = first.reduce(NoticeEvent.Edit("a unpinned", true))
+    fun aNewEditReplacesThePillAndRestartsItsTimer() {
+        val first = NoticeState().reduce(NoticeEvent.Edit("a unpinned"))
+        val second = first.reduce(NoticeEvent.Edit("a unpinned"))
         assertEquals("a unpinned", second.current?.message)
         assertTrue(second.current!!.serial > first.current!!.serial)
     }
 
     @Test
-    fun layoutSwitchesShowTheBackBar() {
+    fun layoutSwitchesShowTheBackPill() {
         val s = NoticeState().reduce(NoticeEvent.Switched("work", previous = 7))
         assertEquals(StartNotice.Switched("work", 7, 1), s.current)
         assertEquals("back", s.current!!.action)
     }
 
     @Test
-    fun touchScrollPageLeavingTimeoutAndUndoAllHideIt() {
-        val hiding = listOf(
-            NoticeEvent.Touch, NoticeEvent.Scroll, NoticeEvent.PageChanged,
-            NoticeEvent.Left, NoticeEvent.Timeout, NoticeEvent.UndoTapped,
-        )
-        val bars = listOf(
-            NoticeState().reduce(NoticeEvent.Edit("x unpinned", true)),
+    fun leavingEditModeOffersTheLatestStepOnceMore() {
+        val hidden = NoticeState().reduce(NoticeEvent.Edit("tile moved")).reduce(NoticeEvent.Timeout)
+        assertNull(hidden.current)
+        val again = hidden.reduce(NoticeEvent.EditModeLeft("tile moved"))
+        assertEquals("tile moved", again.current?.message)
+        assertTrue(again.current!!.serial > 1)
+        // Nothing to undo: leaving edit mode shows nothing.
+        assertNull(NoticeState().reduce(NoticeEvent.EditModeLeft(null)).current)
+    }
+
+    @Test
+    fun undoKeepsThePillWhileStepsAreLeft() {
+        val shown = NoticeState().reduce(NoticeEvent.Edit("tile resized"))
+        val more = shown.reduce(NoticeEvent.UndoTapped("tile moved"))
+        assertEquals("tile moved", more.current?.message)
+        assertTrue(more.current!!.serial > shown.current!!.serial)
+        assertNull(more.reduce(NoticeEvent.UndoTapped(null)).current)
+    }
+
+    @Test
+    fun timeoutPageAndLeavingHideIt() {
+        val hiding = listOf(NoticeEvent.PageChanged, NoticeEvent.Left, NoticeEvent.Timeout)
+        val pills = listOf(
+            NoticeState().reduce(NoticeEvent.Edit("x unpinned")),
             NoticeState().reduce(NoticeEvent.Switched("work", 1)),
         )
-        for (bar in bars) for (event in hiding) {
-            assertNull("$event should hide ${bar.current}", bar.reduce(event).current)
+        for (pill in pills) for (event in hiding) {
+            assertNull("$event should hide ${pill.current}", pill.reduce(event).current)
         }
     }
 
     @Test
-    fun hidingKeepsTheSerialSoTheNextBarStillRestartsItsTimer() {
-        val hidden = NoticeState().reduce(NoticeEvent.Edit("a", true)).reduce(NoticeEvent.Touch)
+    fun stepsGoOnceThePillIsGoneOutsideEditModeOnly() {
+        assertTrue(NoticeState.clearsUndoWhenHidden(editing = false))
+        assertFalse(NoticeState.clearsUndoWhenHidden(editing = true))
+    }
+
+    @Test
+    fun hidingKeepsTheSerialSoTheNextPillStillRestartsItsTimer() {
+        val hidden = NoticeState().reduce(NoticeEvent.Edit("a")).reduce(NoticeEvent.Timeout)
         assertEquals(1L, hidden.serial)
-        assertEquals(2L, hidden.reduce(NoticeEvent.Edit("a", true)).current?.serial)
+        assertEquals(2L, hidden.reduce(NoticeEvent.Edit("a")).current?.serial)
     }
 
     @Test
@@ -87,15 +108,5 @@ class StartNoticesTest {
         assertEquals("undo tile moved", editUndoDescription(undo.next.value))
         undo.undo()
         assertNull(editUndoDescription(undo.next.value))
-    }
-
-    @Test
-    fun barReservesRoomOnlyWhenSomethingCoversTheBottom() {
-        val notices = StartNotices()
-        assertFalse(notices.pillShown(editing = false, undoNext = "tile moved"))
-        assertFalse(notices.pillShown(editing = true, undoNext = null))
-        assertTrue(notices.pillShown(editing = true, undoNext = "tile moved"))
-        notices.send(NoticeEvent.Edit("x unpinned", true))
-        assertTrue(notices.pillShown(editing = false, undoNext = null))
     }
 }
