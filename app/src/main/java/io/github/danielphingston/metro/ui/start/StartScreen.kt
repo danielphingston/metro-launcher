@@ -1,6 +1,7 @@
 package io.github.danielphingston.metro.ui.start
 
 import android.content.Intent
+import android.os.SystemClock
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -109,6 +110,8 @@ import io.github.danielphingston.metro.live.MediaSource
 import io.github.danielphingston.metro.live.NotificationHub
 import io.github.danielphingston.metro.ui.applist.drawMagnifier
 import io.github.danielphingston.metro.ui.components.MetroFlyout
+import io.github.danielphingston.metro.ui.gestures.DoubleTapRecognizer
+import io.github.danielphingston.metro.ui.gestures.GestureDistances
 import io.github.danielphingston.metro.ui.components.MetroMenu
 import io.github.danielphingston.metro.ui.components.StatusBarScrim
 import io.github.danielphingston.metro.ui.tiles.FolderTile
@@ -316,6 +319,8 @@ fun StartScreen(
     launcher: AppLauncher,
     onShowApps: () -> Unit,
     onSearch: () -> Unit = {},
+    /** Runs on a double tap of empty space; null when the gesture is off or must not fire now (search open). */
+    onDoubleTap: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -408,6 +413,8 @@ fun StartScreen(
     val flipped = remember { mutableStateMapOf<Long, Boolean>() }
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
+    val currentDoubleTap by rememberUpdatedState(onDoubleTap)
+    val doubleTaps = remember(density) { DoubleTapRecognizer(with(density) { GestureDistances.DoubleTapSlop.toPx() }) }
 
     val layoutDirection = LocalLayoutDirection.current
     // In landscape a camera cutout or the navigation bar can sit at the side.
@@ -595,12 +602,18 @@ fun StartScreen(
                 .fillMaxSize()
                 .verticalScroll(state.scroll)
                 .pointerInput(Unit) {
-                    detectTapGestures {
+                    var downAt = 0L
+                    // Taps act at once (a double tap is told apart afterwards, never waited for); the
+                    // pair only counts when nothing was open or in edit mode at either tap.
+                    detectTapGestures(onPress = { downAt = SystemClock.uptimeMillis() }) { position ->
+                        val plain = !state.editing && !state.flyoutOpen && state.openFolderId == null
                         when {
                             state.grouping -> state.endGrouping()
                             state.editing -> state.exitEdit()
                             else -> state.openFolderId = null
                         }
+                        val action = currentDoubleTap
+                        if (doubleTaps.onTap(downAt, SystemClock.uptimeMillis(), position.x, position.y, plain && action != null)) action?.invoke()
                     }
                 }
                 .windowInsetsPadding(sideInsets),

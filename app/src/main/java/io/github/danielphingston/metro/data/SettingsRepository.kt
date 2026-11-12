@@ -152,6 +152,8 @@ data class LauncherSettings(
     val tileColourMode: TileColourMode = TileColourMode.ACCENT,
     /** 0..100: how strongly a colour taken from an icon is made vivid; see [IconColor.adjust]. */
     val tileIconVividness: Int = IconColor.DEFAULT_VIVIDNESS,
+    /** What each start screen gesture does; none until chosen. */
+    val gestures: GestureSettings = GestureSettings(),
 ) {
     /** Whether [feature]'s own switch is on (it still needs Metro Plus to show anything). */
     fun smartOn(feature: SmartFeature): Boolean = feature in smartFeatures
@@ -379,6 +381,7 @@ class SettingsRepository(private val context: Context) {
             tileColourMode = this[Keys.tileColourMode]?.let { runCatching { TileColourMode.valueOf(it) }.getOrNull() }
                 ?: defaults.tileColourMode,
             tileIconVividness = this[Keys.tileIconVividness]?.let(IconColor::clampVividness) ?: defaults.tileIconVividness,
+            gestures = GestureSettings.from(this),
         )
     }
 
@@ -537,6 +540,12 @@ class SettingsRepository(private val context: Context) {
         context.metroDataStore.edit { it[Keys.tileIconVividness] = IconColor.clampVividness(percent) }
 
     suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }
+
+    /** Sets what [gesture] does; [app] is only kept for [GestureAction.OPEN_APP]. */
+    suspend fun setGesture(gesture: Gesture, action: GestureAction, app: AppKey? = null) = context.metroDataStore.edit {
+        if (action == GestureAction.NONE) it.remove(gesture.actionKey) else it[gesture.actionKey] = action.id
+        if (action == GestureAction.OPEN_APP && app != null) it[gesture.appKey] = app.serialize() else it.remove(gesture.appKey)
+    }
 
     /** The photo can't be read any more: forget it and go back to the plain background. */
     suspend fun clearUnreadablePhoto() = context.metroDataStore.edit {

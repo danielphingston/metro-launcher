@@ -20,7 +20,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect as ComposeRect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -29,11 +31,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.R
 import io.github.danielphingston.metro.data.BackgroundPhoto
+import io.github.danielphingston.metro.data.AppKey
+import io.github.danielphingston.metro.data.Gesture
 import io.github.danielphingston.metro.ui.applist.AppListScreen
 import io.github.danielphingston.metro.ui.applist.AppListState
 import io.github.danielphingston.metro.ui.components.LocalMotion
 import io.github.danielphingston.metro.ui.components.Motion
 import io.github.danielphingston.metro.ui.onboarding.OnboardingScreen
+import io.github.danielphingston.metro.ui.gestures.GestureDispatcher
+import io.github.danielphingston.metro.ui.gestures.GestureHost
+import io.github.danielphingston.metro.ui.gestures.TwoFingerGesture
+import io.github.danielphingston.metro.ui.gestures.twoFingerGestures
 import io.github.danielphingston.metro.ui.search.LauncherCommands
 import io.github.danielphingston.metro.ui.search.SearchOverlay
 import io.github.danielphingston.metro.ui.search.SearchState
@@ -231,6 +239,42 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
         ) { startState.scroll.value * BackgroundPhoto.PARALLAX }
     }
 
+    // What the start screen gestures do (double tap, two-finger swipes, pinch): none until set in settings.
+    val haptics = LocalHapticFeedback.current
+    val gestureDispatcher = remember(context, viewModel, startState, launcher, pager, scope, searchState) {
+        GestureDispatcher(
+            context,
+            object : GestureHost {
+                override fun openSearch() = searchState.open()
+                override fun showApps() {
+                    startState.exitEdit()
+                    scope.launch { pager.animateScrollToPage(1) }
+                }
+                override fun editTiles() = startState.startEditing()
+                override fun openApp(app: AppKey) {
+                    viewModel.apps.value.firstOrNull { it.key == app }?.let { launcher.launch(it, null) }
+                }
+            },
+            tick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+        )
+    }
+    val gestureSettings by rememberUpdatedState(settings.gestures)
+    val gesturesIdle = startState.editing || startState.flyoutOpen || startState.openFolderId != null ||
+        searchState.isOpen || pager.currentPage != 0
+    val twoFingerGestures = Modifier.twoFingerGestures(
+        enabled = !gesturesIdle && listOf(Gesture.TWO_FINGER_DOWN, Gesture.TWO_FINGER_UP, Gesture.PINCH_IN).any { settings.gestures[it].active },
+    ) { gesture ->
+        gestureDispatcher.perform(
+            gestureSettings[
+                when (gesture) {
+                    TwoFingerGesture.SWIPE_DOWN -> Gesture.TWO_FINGER_DOWN
+                    TwoFingerGesture.SWIPE_UP -> Gesture.TWO_FINGER_UP
+                    TwoFingerGesture.PINCH_IN -> Gesture.PINCH_IN
+                },
+            ],
+        )
+    }
+
     // Pulling the start screen down past its top and letting go opens search.
     val pullToSearch = Modifier.pullToSearch(
         scroll = startState.scroll,
@@ -253,7 +297,8 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
                         Modifier
                             .fillMaxSize()
                             .continuum(pager, page, enabled = motion.swingPages)
-                            .then(if (page == 0) pullToSearch else Modifier),
+                            .then(if (page == 0) pullToSearch else Modifier)
+                            .then(if (page == 0) twoFingerGestures else Modifier),
                     ) {
                         when (page) {
                             0 -> StartScreen(
@@ -267,6 +312,8 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
                                     scope.launch { pager.animateScrollToPage(1) }
                                 },
                                 onSearch = searchState::open,
+                                onDoubleTap = if (searchState.isOpen) null else settings.gestures[Gesture.DOUBLE_TAP].takeIf { it.active }
+                                    ?.let { binding -> { gestureDispatcher.perform(binding) } },
                             )
                             else -> AppListScreen(viewModel, appListState, launcher)
                         }
