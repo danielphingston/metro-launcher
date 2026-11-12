@@ -8,6 +8,7 @@ import io.github.danielphingston.metro.ui.start.NoticeState
 import io.github.danielphingston.metro.ui.start.StartNotice
 import io.github.danielphingston.metro.ui.start.StartNotices
 import io.github.danielphingston.metro.ui.start.editUndoDescription
+import io.github.danielphingston.metro.ui.start.pillContent
 import org.junit.Test
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -108,5 +109,17 @@ class StartNoticesTest {
         assertEquals("undo tile moved", editUndoDescription(undo.next.value))
         undo.undo()
         assertNull(editUndoDescription(undo.next.value))
+    }
+
+    @Test
+    fun inEditModeThePillStaysWhileSomethingCanBeUndone() {
+        assertEquals("undo tile moved", pillContent(null, editing = true, undoNext = "tile moved")?.description)
+        assertNull(pillContent(null, editing = true, undoNext = null))
+        // Outside edit mode only a notice brings it up.
+        assertNull(pillContent(null, editing = false, undoNext = "tile moved"))
+        assertEquals("undo", pillContent(StartNotice.Edited("tile moved", 1), editing = false, undoNext = "tile moved")?.label)
+        // Its step already gone: nothing to offer.
+        assertNull(pillContent(StartNotice.Edited("tile moved", 1), editing = false, undoNext = null))
+        assertEquals("back", pillContent(StartNotice.Switched("work", 3, 1), editing = false, undoNext = null)?.label)
     }
 }

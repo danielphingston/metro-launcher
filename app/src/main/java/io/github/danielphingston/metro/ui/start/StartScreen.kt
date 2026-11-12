@@ -916,7 +916,7 @@ fun StartScreen(
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
-        if (!state.grouping) UndoPill(notices, viewModel, Modifier.align(Alignment.TopCenter))
+        if (!state.grouping) UndoPill(notices, viewModel, state.editing, Modifier.align(Alignment.TopCenter))
         tiles.firstOrNull { it.spec.id == state.renamingFolderId }?.let { folder ->
             FolderRename((folder.spec.content as? TileContent.Folder)?.name.orEmpty()) { name ->
                 viewModel.renameFolder(folder.spec.id, name)

@@ -171,8 +171,9 @@ internal fun rememberStartNotices(
 
 /**
  * The one undo control: a small floating pill near the top of start, over the tiles, with an
- * undo arrow and the word. It shows for a few seconds after each edit, after leaving edit mode
- * while something can be undone, and after a layout switch ("back"); see [NoticeState].
+ * undo arrow and the word. In edit mode it stays while something can be undone. Outside it, it
+ * shows for a few seconds after an edit, after leaving edit mode with something left to undo,
+ * and after a layout switch ("back"); see [NoticeState] and [pillContent].
  * Each tap takes back one step and, while more are left, keeps it up a few seconds longer.
  * TalkBack hears what the tap takes back.
  */
@@ -180,15 +181,11 @@ internal fun rememberStartNotices(
 internal fun UndoPill(
     notices: StartNotices,
     viewModel: LauncherViewModel,
+    editing: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val undoNext by viewModel.undoNext.collectAsStateWithLifecycle()
-    val shown: PillContent? = when (val notice = notices.current) {
-        is StartNotice.Switched -> PillContent("back", "back to the previous layout", notice)
-        // An edit notice whose step is gone (undone, or the steps were dropped) has nothing left to offer.
-        is StartNotice.Edited -> undoNext?.let { PillContent("undo", editUndoDescription(it)!!, notice) }
-        null -> null
-    }
+    val shown = pillContent(notices.current, editing, undoNext)
     var last by remember { mutableStateOf(shown) }
     if (shown != null) last = shown
     AnimatedVisibility(
@@ -231,7 +228,18 @@ internal fun UndoPill(
 }
 
 /** What the pill says ([label]), what TalkBack says ([description]), and the notice it stands for, if any. */
-private data class PillContent(val label: String, val description: String, val notice: StartNotice?)
+internal data class PillContent(val label: String, val description: String, val notice: StartNotice?)
+
+/**
+ * What the pill shows, or null for no pill: "back" for a layout switch notice; "undo" while
+ * editing with a step to take back ([undoNext]), or for an edit notice whose step is still there.
+ */
+internal fun pillContent(notice: StartNotice?, editing: Boolean, undoNext: String?): PillContent? = when {
+    notice is StartNotice.Switched -> PillContent("back", "back to the previous layout", notice)
+    undoNext == null -> null
+    editing || notice is StartNotice.Edited -> PillContent("undo", editUndoDescription(undoNext)!!, notice)
+    else -> null
+}
 
 /** A hairline arrow curving back to the left, like the other round buttons' glyphs. */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawUndoArrow(color: androidx.compose.ui.graphics.Color, stroke: Float) {
