@@ -515,16 +515,21 @@ private const val CONTINUUM_DEGREES = 12f
 
 /**
  * A subtle swing for [page] while the pager is dragged or settling: the page leans away as it
- * comes in and toward you as it leaves, hinged on its left edge. Draw phase only, flat at rest,
- * and flat always when [enabled] is off.
+ * comes in and toward you as it leaves. Each page is hinged on the edge it shares with the other
+ * page (its right edge while it is off to the left, its left edge while it is off to the right),
+ * so its far side swings and nothing of it ever reaches past that edge into the other page.
+ * Draw phase only, flat at rest, and flat always when [enabled] is off.
  */
 fun Modifier.continuum(pager: PagerState, page: Int, enabled: Boolean = true): Modifier = graphicsLayer {
     if (!enabled) return@graphicsLayer
     val offset = (page - pager.currentPage - pager.currentPageOffsetFraction).coerceIn(-1f, 1f)
-    // A page entirely off screen stays flat too: tilted about its far edge, the start page's other
-    // edge came toward the camera and showed as a strip down the side of the app list.
+    // A page entirely off screen stays flat too.
     if (offset == 0f || abs(offset) >= 1f) return@graphicsLayer
-    rotationY = offset * CONTINUUM_DEGREES
-    transformOrigin = TransformOrigin(0f, 0.5f)
+    // Mirrored for the left page, now hinged on its right edge, so it still leans toward you as it leaves.
+    rotationY = abs(offset) * CONTINUUM_DEGREES
+    // The projection is centred on the pivot, so every point of the page stays on its own side of
+    // the hinge. Hinged on its far edge instead, the start page's near edge came toward the camera
+    // and showed as a flickering strip down the side of the app list.
+    transformOrigin = TransformOrigin(if (offset < 0f) 1f else 0f, 0.5f)
     cameraDistance = 24f * density
 }
