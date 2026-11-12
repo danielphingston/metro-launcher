@@ -633,7 +633,7 @@ class StoreShowcaseTest {
                         ) { item.content(cell) }
                     }
                     if (editing != null) {
-                        EditBadges(placements[editing], with(density) { cell.toPx() }, with(density) { gap.toPx() }, {}, {}, onGroup = {})
+                        EditBadges(placements[editing], with(density) { cell.toPx() }, with(density) { gap.toPx() }, {}, {}, onGroup = {}, onCustomise = {})
                     }
                 }
             }

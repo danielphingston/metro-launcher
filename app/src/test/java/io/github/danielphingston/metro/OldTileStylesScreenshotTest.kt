@@ -210,7 +210,7 @@ class OldTileStylesScreenshotTest {
  * an icon can ask for; the photo is a sunset-coloured gradient with a sun.
  */
 internal object TilePhotoStub {
-    fun install(uri: String): String {
+    fun install(uri: String, sizes: IntRange = 20..300): String {
         val side = 96
         val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -225,7 +225,7 @@ internal object TilePhotoStub {
         val field = owner.getDeclaredField("cache").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         val cache = field.get(null) as android.util.LruCache<String, androidx.compose.ui.graphics.ImageBitmap>
-        for (px in 20..300) cache.put("$uri@${px}x$px", image)
+        for (px in sizes) cache.put("$uri@${px}x$px", image)
         return uri
     }
 }
