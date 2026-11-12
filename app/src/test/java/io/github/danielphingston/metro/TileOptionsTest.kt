@@ -476,6 +476,22 @@ class TileOptionsTest {
     }
 
     @Test
+    fun aLiveFacesHiddenNameSurvivesARestartWhateverItsStyle() {
+        fun roundTrip(spec: TileSpec) = TileJson.decode(TileJson.encode(listOf(spec))).single()
+        // A clock or calendar app tile draws its own face; its style is whatever it was set to before.
+        for (style in TileStyle.entries) {
+            val clock = TileSpec(1, TileSize.MEDIUM, TileContent.App(AppKey("com.example.clock", "Main", 0)), 0, 0, style = style)
+            val hidden = TileOptions.withNameShown(clock, shown = false, hasLook = false)
+            assertTrue(style.name, hidden.hideName)
+            val back = roundTrip(hidden)
+            assertEquals(style.name, hidden, back)
+            assertTrue(style.name, back.hideName)
+            // And shown again.
+            assertFalse(style.name, roundTrip(TileOptions.withNameShown(back, shown = true, hasLook = false)).hideName)
+        }
+    }
+
+    @Test
     fun aPickedIconInPlaceOfMyPhotoLetsThePhotoGoWhenNothingElseUsesIt() {
         val photo = "content://media/picked/1"
         val mine = TileSpec(1, TileSize.MEDIUM, TileContent.App(AppKey("com.example.a", "Main", 0)), 0, 0)

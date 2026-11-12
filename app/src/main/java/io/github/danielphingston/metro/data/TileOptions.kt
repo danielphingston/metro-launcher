@@ -204,13 +204,27 @@ object TileOptions {
 
     /**
      * [spec] with its name shown or hidden. A tile with the icon-and-name look changes its look; any
-     * other (a live face) only its flag, so its style, and what older versions show, stays. A
+     * other (a live face) only its flag, so its style, and what older versions show, stays (except
+     * where that flag could not be read back; see [styleKeepingHiddenName]). A
      * contact's photo face also keeps its style and only drops the name strip: the plain style with
      * the hidden name, which no older style means, so an old "icon only" contact stays the drawing.
      */
     fun withNameShown(spec: TileSpec, shown: Boolean, hasLook: Boolean): TileSpec = when {
-        !hasLook || isContactPhotoFace(spec) -> spec.copy(hideName = !shown)
-        else -> withLook(spec, spec.look.copy(showName = shown), spec.image)
+        hasLook && !isContactPhotoFace(spec) -> withLook(spec, spec.look.copy(showName = shown), spec.image)
+        shown -> spec.copy(hideName = false)
+        else -> styleKeepingHiddenName(spec).let { style -> spec.copy(style = style, hideName = true, hideIcon = spec.hideIcon && style == spec.style) }
+    }
+
+    /**
+     * The style a live face with its name hidden is stored with: its own, unless that style with the
+     * name hidden would read as a blank tile (a clock app tile left "name only"), whose flag reading
+     * it back drops; then the nearest style that keeps the hidden name ("icon only").
+     */
+    private fun styleKeepingHiddenName(spec: TileSpec): TileStyle {
+        val folder = spec.content is TileContent.Folder
+        val base = TileLooks.base(spec.style, folder)
+        val hidden = base.copy(showName = false, showIcon = base.showIcon && !spec.hideIcon)
+        return if (hidden.isValid) spec.style else TileLooks.stored(base.copy(showName = false), folder).style
     }
 
     /** A contact search tile in the plain style without a picked icon: its photo fills it. */
