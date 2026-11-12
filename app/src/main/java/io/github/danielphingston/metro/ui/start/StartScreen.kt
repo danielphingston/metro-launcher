@@ -642,18 +642,19 @@ fun StartScreen(
                     .absolutePadding(left = leftPadding, right = rightPadding)
                     .size(width = gridWidth, height = cell * rows),
             ) {
-                tiles.forEachIndexed { index, tile ->
-                    val key = tileKeys.keyOf(tile.spec.id)
-                    androidx.compose.runtime.key(key) {
-                        val placement = placements[index]
+                // With the tiles a layout switch just took away, fading where they were (same call site, so they keep their composition).
+                switchMotion.onScreen(tiles, placements, tileKeys::keyOf).forEach { shown ->
+                    val tile = shown.tile
+                    androidx.compose.runtime.key(shown.key) {
+                        val placement = shown.placement
                         host(
                             tile, placement,
-                            appearFrom = if (switchMotion.isEntering(key)) IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt()) else null,
-                            motionModifier = switchMotion.modifier(key, placement),
+                            appearFrom = if (switchMotion.isEntering(shown.key)) IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt()) else null,
+                            motionModifier = switchMotion.modifier(shown.key, placement, shown.leaving),
                             onDrop = { completed ->
                                 val cell = state.dragCell
                                 state.preview = null
-                                if (completed && cell != null) {
+                                if (completed && cell != null && !shown.leaving) {
                                     // Keep showing the drop until the stored layout catches up, unless it changes nothing.
                                     if (TilePlacement.moveTo(specs, tile.spec.id, cell, columns) != specs) {
                                         state.preview = TileMove(tile.spec.id, cell)
@@ -662,12 +663,6 @@ fun StartScreen(
                                 }
                             },
                         )
-                    }
-                }
-                // Tiles the last layout switch took away, fading where they were.
-                switchMotion.leaving.forEach { gone ->
-                    androidx.compose.runtime.key(gone.key) {
-                        host(gone.tile, gone.placement, motionModifier = switchMotion.modifier(gone.key, gone.placement, isLeaving = true), onDrop = {})
                     }
                 }
                 val folderPlacement = openIndex?.let { placements[it] }

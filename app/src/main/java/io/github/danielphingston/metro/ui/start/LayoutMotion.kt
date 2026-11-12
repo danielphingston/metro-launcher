@@ -1,10 +1,11 @@
 package io.github.danielphingston.metro.ui.start
 
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -106,6 +107,9 @@ internal class SwitchMotion {
     /** A tile that left with the switch, drawn where it was until it has faded. */
     class Leaving(val key: Long, val tile: ResolvedTile, val placement: Placement)
 
+    /** A tile to draw on start under composition key [key]; [leaving] ones are on their way out. */
+    class Shown(val key: Long, val tile: ResolvedTile, val placement: Placement, val leaving: Boolean)
+
     private var seenGeneration = -1
     private var shown: Map<Long, Pair<ResolvedTile, Placement>> = emptyMap()
 
@@ -114,8 +118,8 @@ internal class SwitchMotion {
     private var entering: Set<Long> = emptySet()
     private var resized: Map<Long, Placement> = emptyMap()
 
-    /** 0 when a switch has just happened, 1 once its extras are done. */
-    val progress = Animatable(1f)
+    /** 0 when a switch has just happened, 1 once its extras are done. Only read while drawing. */
+    private var progress by mutableFloatStateOf(1f)
 
     /** Recomposes start when the extras of a switch are over and the leaving tiles can go. */
     var ended by mutableIntStateOf(0)
@@ -134,6 +138,8 @@ internal class SwitchMotion {
         pending = true
         // Animations off (the system's animator scale): the new layout just appears.
         if (!animate()) return true
+        // Set here, so the frame that first shows the new layout already draws its start.
+        progress = 0f
         leaving = before.filterKeys { it !in now }.map { (key, value) -> Leaving(key, value.first, value.second) }
         entering = now.keys - before.keys
         resized = now.mapNotNull { (key, value) ->
@@ -145,18 +151,26 @@ internal class SwitchMotion {
 
     fun isEntering(key: Long): Boolean = key in entering
 
+    /** [tiles] at [placements] under their keys, then the tiles still leaving. */
+    fun onScreen(tiles: List<ResolvedTile>, placements: List<Placement>, keyOf: (Long) -> Long): List<Shown> =
+        tiles.indices.map { Shown(keyOf(tiles[it].spec.id), tiles[it], placements[it], leaving = false) } +
+            leaving.map { Shown(it.key, it.tile, it.placement, leaving = true) }
+
     private var pending = false
 
     /** Whether a switch happened that the screen hasn't reacted to yet; true once per switch. */
     fun takeSwitch(): Boolean = pending.also { pending = false }
 
     suspend fun play(durationMillis: Int) {
-        progress.snapTo(0f)
-        progress.animateTo(1f, tween(durationMillis, easing = FastOutSlowInEasing))
-        finish()
+        try {
+            animate(progress, 1f, animationSpec = tween(durationMillis, easing = FastOutSlowInEasing)) { value, _ -> progress = value }
+        } finally {
+            finish()
+        }
     }
 
     private fun finish() {
+        progress = 1f
         leaving = emptyList()
         entering = emptySet()
         resized = emptyMap()
@@ -168,7 +182,7 @@ internal class SwitchMotion {
         val old = resized[key]
         if (!isLeaving && old == null) return Modifier
         return Modifier.graphicsLayer {
-            val p = progress.value
+            val p = progress
             if (isLeaving) {
                 alpha = 1f - p
                 scaleX = lerp(1f, 0.8f, p)
