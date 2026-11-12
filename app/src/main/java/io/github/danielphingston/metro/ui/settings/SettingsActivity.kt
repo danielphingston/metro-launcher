@@ -138,6 +138,7 @@ internal enum class SettingsPage(val title: String, val summary: String, val par
     SEARCH_HELP("what can I type?", "the phrases smart search understands", SEARCH),
 
     GESTURES("gestures", "double tap, two-finger swipes, sleep"),
+    LAYOUTS("layouts", "save and switch start layouts"),
 }
 
 @Composable
@@ -181,6 +182,7 @@ internal fun SettingsScreen(
                     SettingsPage.METRO_PLUS -> MetroPlusSettingsSection(settings, repository, onOpenSearchSettings = { page = SettingsPage.SEARCH.name })
                     SettingsPage.ABOUT -> AboutPage()
                     SettingsPage.GESTURES -> GesturesPage(settings, repository)
+                    SettingsPage.LAYOUTS -> LayoutsPage()
                 }
             }
         }

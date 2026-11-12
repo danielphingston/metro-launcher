@@ -138,6 +138,8 @@ import io.github.danielphingston.metro.ui.tiles.WidgetEditBadges
 import io.github.danielphingston.metro.ui.tiles.WidgetPicker
 import io.github.danielphingston.metro.ui.tiles.WidgetTile
 import io.github.danielphingston.metro.ui.tiles.WidgetTiles
+import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTile
+import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles
 import io.github.danielphingston.metro.ui.tiles.widgetCustomActions
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.ClockSource
@@ -154,6 +156,7 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
@@ -218,6 +221,9 @@ class StartState(val scroll: ScrollState) {
     var widgetPickerOpen by mutableStateOf(false)
     var quickPickerOpen by mutableStateOf(false)
 
+    /** The "layouts" submenu of the add menu: switch tiles to pin. */
+    var layoutsMenuOpen by mutableStateOf(false)
+
     /** Folder whose name is being edited. */
     var renamingFolderId by mutableStateOf<Long?>(null)
 
@@ -268,7 +274,7 @@ class StartState(val scroll: ScrollState) {
     }
 
     /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || grouping
+    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || grouping || layoutsMenuOpen
 
     /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
@@ -281,6 +287,7 @@ class StartState(val scroll: ScrollState) {
         quickPickerOpen = false
         renamingFolderId = null
         endGrouping()
+        layoutsMenuOpen = false
         return any
     }
 
@@ -335,6 +342,10 @@ fun StartScreen(
     // Read lazily by the me tile's own composition, so a notification does not recompose the screen.
     val meFeed = viewModel.meFeed.collectAsStateWithLifecycle()
     val meApps = viewModel.apps.collectAsStateWithLifecycle()
+    val notices = rememberStartNotices(viewModel, isCurrentPage)
+    val undoNext by viewModel.undoNext.collectAsStateWithLifecycle()
+    val tileKeys = viewModel.tileKeys
+    val switchMotion = remember { SwitchMotion() }
 
     // Live sources run only when a tile needs them and only while the launcher is visible
     // (collectAsStateWithLifecycle stops collecting below STARTED).
@@ -462,6 +473,13 @@ fun StartScreen(
             FolderLayout.compute(settled, openIndex, openChildren.map { it.spec.size }, columns)
         }
         val placements = layout.tiles
+        // A layout switch: what left, what is new and what changed size, for the extras of its animation.
+        switchMotion.ended
+        val switchGeneration = tileKeys.generation
+        switchMotion.update(
+            switchGeneration,
+            tiles.indices.associate { tileKeys.keyOf(tiles[it].spec.id) to (tiles[it] to placements[it]) },
+        ) { Turnstile.animationsEnabled(context.contentResolver) }
         // Where the tile being resized would land, snapped to the grid.
         val resizeSpan = state.resizeSpan
         val resizeId = state.resizeId
@@ -564,6 +582,19 @@ fun StartScreen(
 
         DragTracking(state, tiles, cellPx, columns)
 
+        LaunchedEffect(switchGeneration) {
+            if (!switchMotion.takeSwitch()) return@LaunchedEffect
+            // The new layout starts from its top, with nothing of the old one's edit mode or open folder.
+            state.exitEdit()
+            state.dismissOverlays()
+            if (!Turnstile.animationsEnabled(context.contentResolver)) {
+                state.scroll.scrollTo(0)
+            } else {
+                launch { state.scroll.animateScrollTo(0) }
+                switchMotion.play(motion.duration(SWITCH_MILLIS))
+            }
+        }
+
         // A top-level tile and a folder child differ only in the drag callbacks and where they appear from.
         @Composable
         fun host(
@@ -572,6 +603,7 @@ fun StartScreen(
             appearFrom: IntOffset? = null,
             onRemoveFromFolder: (() -> Unit)? = null,
             onDragMove: () -> Unit = {},
+            motionModifier: Modifier = Modifier,
             onDrop: (completed: Boolean) -> Unit,
         ) = TileHost(
             tile = tile,
@@ -595,6 +627,7 @@ fun StartScreen(
             onRemoveFromFolder = onRemoveFromFolder,
             onDragMove = onDragMove,
             onDrop = onDrop,
+            modifier = motionModifier,
         )
 
         Column(
@@ -635,14 +668,19 @@ fun StartScreen(
                     .absolutePadding(left = leftPadding, right = rightPadding)
                     .size(width = gridWidth, height = cell * rows),
             ) {
-                tiles.forEachIndexed { index, tile ->
-                    androidx.compose.runtime.key(tile.spec.id) {
+                // With the tiles a layout switch just took away, fading where they were (same call site, so they keep their composition).
+                switchMotion.onScreen(tiles, placements, tileKeys::keyOf).forEach { shown ->
+                    val tile = shown.tile
+                    androidx.compose.runtime.key(shown.key) {
+                        val placement = shown.placement
                         host(
-                            tile, placements[index],
+                            tile, placement,
+                            appearFrom = if (switchMotion.isEntering(shown.key)) IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt()) else null,
+                            motionModifier = switchMotion.modifier(shown.key, placement, shown.leaving),
                             onDrop = { completed ->
                                 val cell = state.dragCell
                                 state.preview = null
-                                if (completed && cell != null) {
+                                if (completed && cell != null && !shown.leaving) {
                                     // Keep showing the drop until the stored layout catches up, unless it changes nothing.
                                     if (TilePlacement.moveTo(specs, tile.spec.id, cell, columns) != specs) {
                                         state.preview = TileMove(tile.spec.id, cell)
@@ -662,7 +700,7 @@ fun StartScreen(
                 }
                 openChildren.forEachIndexed { index, child ->
                     val placement = layout.children[index]
-                    androidx.compose.runtime.key(child.spec.id) {
+                    androidx.compose.runtime.key(tileKeys.keyOf(child.spec.id)) {
                         host(
                             child, placement,
                             appearFrom = appearFrom,
@@ -746,7 +784,7 @@ fun StartScreen(
             }
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
             // Room to scroll the last tiles above the grouping bar.
-            if (state.grouping) Spacer(Modifier.height(GroupingBarHeight))
+            if (state.grouping || notices.barShown(state.editing, undoNext)) Spacer(Modifier.height(GroupingBarHeight))
         }
 
         // Tiles scroll up under the status bar; keep its clock and icons legible.
@@ -803,6 +841,26 @@ fun StartScreen(
                     state.quickPickerOpen = true
                 },
                 onDismiss = { state.addMenuOpen = false },
+                onLayouts = {
+                    state.addMenuOpen = false
+                    // Switch tiles need two layouts to switch between; until then the entry leads to where they are made.
+                    if ((viewModel.layouts.value?.layouts?.size ?: 0) < 2) {
+                        context.startActivity(SettingsActivity.intent(context, SettingsPage.LAYOUTS))
+                    } else {
+                        state.layoutsMenuOpen = true
+                    }
+                },
+            )
+        }
+        if (state.layoutsMenuOpen) {
+            val layouts by viewModel.layouts.collectAsStateWithLifecycle()
+            LayoutSwitchMenu(
+                layouts = layouts,
+                onAdd = { content ->
+                    state.layoutsMenuOpen = false
+                    viewModel.addTile(content, TileSize.MEDIUM)
+                },
+                onDismiss = { state.layoutsMenuOpen = false },
             )
         }
         if (state.liveTilesOpen) {
@@ -840,6 +898,8 @@ fun StartScreen(
                 onCancel = state::endGrouping,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
+        } else {
+            StartNoticeBar(notices, state.editing, viewModel, Modifier.align(Alignment.BottomCenter))
         }
         tiles.firstOrNull { it.spec.id == state.renamingFolderId }?.let { folder ->
             FolderRename((folder.spec.content as? TileContent.Folder)?.name.orEmpty()) { name ->
@@ -907,6 +967,8 @@ internal fun TileHost(
      * When set it replaces [live].
      */
     liveOf: (() -> LiveContent?)? = null,
+    /** Draw-only extras applied to the laid-out tile, e.g. a layout switch's size glide or fade; see [SwitchMotion]. */
+    modifier: Modifier = Modifier,
 ) {
     val liveContent = liveOf?.invoke() ?: live
     val id = tile.spec.id
@@ -980,6 +1042,7 @@ internal fun TileHost(
                 }
             }
             .size(widthDp, heightDp)
+            .then(modifier)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -1230,6 +1293,7 @@ private fun TileBody(
         TileContent.Assistant -> AssistantTile(tile, live as? LiveContent.Assistant, flipped, monochromeIcons, icons, cell)
         is TileContent.Folder -> FolderTile(tile, cell, icons, monochromeIcons, folderOpen)
         TileContent.Me -> MeTile(tile, live as? LiveContent.Me, flipped, monochromeIcons, icons, cell)
+        is TileContent.LayoutSwitch -> LayoutSwitchTile(tile, cell)
     }
 }
 
@@ -1263,6 +1327,7 @@ private fun activateTile(
         }
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
         TileContent.Me -> MeTiles.activate(context, bounds, launcher)
+        is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, content)
     }
 }
 
@@ -1345,6 +1410,7 @@ private fun AddTileMenu(
     onWidgets: () -> Unit,
     onQuickSettings: () -> Unit,
     onDismiss: () -> Unit,
+    onLayouts: () -> Unit,
 ) {
     MetroFlyout(onDismiss) {
         MetroMenu(
@@ -1352,6 +1418,7 @@ private fun AddTileMenu(
                 "live tiles" to onLiveTiles,
                 "metro plus" to onQuickSettings,
                 "widgets" to onWidgets,
+                "layouts" to onLayouts,
             ),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
