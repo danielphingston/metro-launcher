@@ -285,7 +285,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun unpin(id: Long) {
         var removed: TileSpec? = null
-        metro.undo.record(StartEdit.UNPIN.label(labelOf(id))) { removed = metro.tiles.unpin(id) }
+        metro.undo.record(StartEdit.UNPIN.label(labelOf(id)), destructive = true) { removed = metro.tiles.unpin(id) }
         // Also frees the children of a removed folder, unless an undo step can still bring them back.
         removed?.let { metro.undo.releaseUnreferenced(listOf(it)) }
     }
@@ -324,15 +324,19 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         undoable(if (intoFolder) StartEdit.FOLDER_ADDED else StartEdit.FOLDER_CREATED) { folderId = metro.tiles.groupIntoFolder(anchorId, ids) }
         return folderId
     }
-    fun removeFromFolder(folderId: Long, childId: Long) = undoable(StartEdit.FOLDER_REMOVED_FROM) { metro.tiles.removeFromFolder(folderId, childId) }
+    fun removeFromFolder(folderId: Long, childId: Long) {
+        val folder = metro.tiles.tiles.value.orEmpty().firstOrNull { it.id == folderId }?.content as? TileContent.Folder
+        val dissolves = folder != null && folder.children.size <= 2
+        undoable(StartEdit.FOLDER_REMOVED_FROM, dissolves) { metro.tiles.removeFromFolder(folderId, childId) }
+    }
     fun renameFolder(id: Long, name: String) = undoable(StartEdit.FOLDER_RENAMED) { metro.tiles.renameFolder(id, name) }
     fun moveInFolder(folderId: Long, id: Long, targetId: Long) = metro.tiles.moveInFolder(folderId, id, targetId)
 
     /** What the next undo takes back (the bar's text), or null when there is nothing to undo. */
     val undoNext: StateFlow<String?> = metro.undo.next
 
-    /** Each undoable edit's label as it happens, for the bar along the bottom of start. */
-    val undoRecorded: SharedFlow<String> = metro.undo.recorded
+    /** Each undoable edit as it happens, for the brief bar along the bottom of start. */
+    val undoRecorded: SharedFlow<io.github.danielphingston.metro.data.UndoRecord> = metro.undo.recorded
 
     /** Takes back the latest start screen edit; see [io.github.danielphingston.metro.data.TileUndo]. */
     fun undo() {
@@ -352,8 +356,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         metro.appScope.launch { metro.layouts.switchTo(id) }
     }
 
-    private fun undoable(edit: StartEdit, apply: () -> Unit) {
-        metro.undo.record(edit.label(), apply)
+    private fun undoable(edit: StartEdit, dissolvedFolder: Boolean = false, apply: () -> Unit) {
+        metro.undo.record(edit.label(), edit.offersUndoBar(dissolvedFolder), apply)
     }
 
     /** The shown name of tile [id], also inside a folder. */

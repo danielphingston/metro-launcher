@@ -48,7 +48,21 @@ enum class StartEdit {
         ICON -> "tile icon changed"
         COLOUR -> "tile colour changed"
     }.lowercase()
+
+    /**
+     * Whether this edit takes something off start, so the brief bar offers to bring it back:
+     * unpinning, and taking a child out when that [dissolvedFolder] (left with fewer than two
+     * children). Moves, resizes, styling and creating, filling or renaming folders show none.
+     */
+    fun offersUndoBar(dissolvedFolder: Boolean = false): Boolean = when (this) {
+        UNPIN -> true
+        FOLDER_REMOVED_FROM -> dissolvedFolder
+        else -> false
+    }
 }
+
+/** An edit as it was recorded: its bar text, and whether it [destructive]ly removed something. */
+data class UndoRecord(val label: String, val destructive: Boolean)
 
 /**
  * What the system holds on behalf of tiles (app widget ids, pinned shortcuts) and which of it is
@@ -123,26 +137,27 @@ class TileUndo(
     /** What the next undo takes back (its bar text), or null when there is nothing to undo. */
     val next: StateFlow<String?> = _next.asStateFlow()
 
-    private val _recorded = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    private val _recorded = MutableSharedFlow<UndoRecord>(extraBufferCapacity = 1)
 
-    /** The label of each edit as it is recorded, for the bar that offers to take it back. */
-    val recorded: SharedFlow<String> = _recorded.asSharedFlow()
+    /** Each edit as it is recorded, for the brief bar that offers to take back a destructive one. */
+    val recorded: SharedFlow<UndoRecord> = _recorded.asSharedFlow()
 
     /** The layouts the undo steps hold, newest last; their resources count as used. */
     fun snapshots(): List<List<TileSpec>> = synchronized(stack) { stack.toList().map { it.tiles } }
 
     /**
      * Runs [edit] and keeps the layout from before it as an undo step labelled [label], if the
-     * edit changed anything. Returns whether a step was kept.
+     * edit changed anything. Returns whether a step was kept. [destructive] edits (they removed a
+     * tile) are the ones the start screen's bar offers to undo.
      */
-    fun record(label: String, edit: () -> Unit): Boolean {
+    fun record(label: String, destructive: Boolean = false, edit: () -> Unit): Boolean {
         val before = current()
         edit()
         val after = current()
         if (before == null || after == null || after == before) return false
         val dropped = synchronized(stack) { stack.push(Step(before, label)) }
         publish()
-        _recorded.tryEmit(label)
+        _recorded.tryEmit(UndoRecord(label, destructive))
         if (dropped.isNotEmpty()) releaseUnreferenced(dropped.flatMap { it.tiles })
         return true
     }
