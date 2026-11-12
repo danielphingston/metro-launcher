@@ -218,10 +218,16 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val image by viewModel.backdropImage.collectAsStateWithLifecycle()
     // Read in the draw phase only, so scrolling the start screen never recomposes.
-    val backdrop = remember(settings.background, settings.backgroundPhoto, settings.transparencyFraction, image, startState, pager) {
+    val backdrop = remember(settings.background, settings.backgroundPhoto, settings.transparencyFraction, image, startState, pager, settings.photoMovesWithTiles) {
         StartBackdrop.of(
             settings, image,
-            pageShift = { -(pager.currentPage + pager.currentPageOffsetFraction) * pager.layoutInfo.run { pageSize + pageSpacing } },
+            pageShift = {
+                if (settings.photoMovesWithTiles) {
+                    -(pager.currentPage + pager.currentPageOffsetFraction) * pager.layoutInfo.run { pageSize + pageSpacing }
+                } else {
+                    0f
+                }
+            },
         ) { startState.scroll.value * BackgroundPhoto.PARALLAX }
     }
 

@@ -99,6 +99,8 @@ data class LauncherSettings(
     val tileTransparency: Int? = null,
     /** Use [backgroundAccent] instead of [accent] while a photo background is on. */
     val accentFromBackground: Boolean = false,
+    /** In PHOTO_TILES mode the photo slides sideways with the tiles when paging to the app list, instead of staying fixed to the screen. */
+    val photoMovesWithTiles: Boolean = false,
     /** Where the search overlay's "web" row searches. */
     val searchEngine: SearchEngine = SearchEngine.GOOGLE,
     /** How far (dp) the start screen must be pulled down, then released, to open search. */
@@ -262,6 +264,7 @@ class SettingsRepository(private val context: Context) {
         val backgroundAccent = intPreferencesKey("background_accent")
         val tileTransparency = intPreferencesKey("tile_transparency")
         val accentFromBackground = booleanPreferencesKey("accent_from_background")
+        val photoMovesWithTiles = booleanPreferencesKey("photo_moves_with_tiles")
         val searchEngine = stringPreferencesKey("search_engine")
         val pullDistance = intPreferencesKey("pull_distance")
         val startTopPadding = intPreferencesKey("start_top_padding")
@@ -333,6 +336,7 @@ class SettingsRepository(private val context: Context) {
             backgroundAccent = this[Keys.backgroundAccent]?.let(LauncherSettings::opaque),
             tileTransparency = this[Keys.tileTransparency]?.let(LauncherSettings::clampTransparency),
             accentFromBackground = this[Keys.accentFromBackground] ?: defaults.accentFromBackground,
+            photoMovesWithTiles = this[Keys.photoMovesWithTiles] ?: defaults.photoMovesWithTiles,
             searchEngine = this[Keys.searchEngine]?.let { runCatching { SearchEngine.valueOf(it) }.getOrNull() }
                 ?: defaults.searchEngine,
             pullDistance = this[Keys.pullDistance]?.let(LauncherSettings::clampPullDistance) ?: defaults.pullDistance,
@@ -405,6 +409,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setAccentFromBackground(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.accentFromBackground] = enabled }
+
+    suspend fun setPhotoMovesWithTiles(enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.photoMovesWithTiles] = enabled }
 
     suspend fun setSearchEngine(engine: SearchEngine) =
         context.metroDataStore.edit { it[Keys.searchEngine] = engine.name }
