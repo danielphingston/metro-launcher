@@ -124,6 +124,13 @@ class MeTileTest {
         assertNull(MeModel.humanLabel("  ", "x"))
         assertEquals("System UI", MeModel.humanLabel("System UI", "com.android.systemui"))
         assertEquals("Mail", MeModel.humanLabel("Mail", "com.mail"))
+        // Real names that look like a domain stay; only a package-like name (two dots, no spaces) goes.
+        assertEquals("mobile.de", MeModel.humanLabel("mobile.de", "de.mobile.android.app"))
+        assertEquals("wetter.com", MeModel.humanLabel("wetter.com", "com.wetter.androidclient"))
+        assertEquals("Web.de Mail", MeModel.humanLabel("Web.de Mail", "de.web.mobile.android.mail"))
+        assertNull(MeModel.humanLabel("com.example.app", "other.pkg"))
+        assertNull(MeModel.humanLabel("DE.MOBILE.ANDROID", "de.mobile.android"))
+        assertNull(MeModel.humanLabel("Com.Example", "com.example"))
     }
 
     @Test

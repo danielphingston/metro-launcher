@@ -39,13 +39,13 @@ data class MeModel(val state: State, val count: Int, val icons: List<String>, va
 
         /**
          * The label to show for [packageName], or null when [label] is missing or just the package name
-         * (or looks like one), so a name like "com.android.systemui" never reaches the tile or TalkBack.
+         * (or looks like one: two or more dots and no spaces), so a name like "com.android.systemui"
+         * never reaches the tile or TalkBack. Real names like "mobile.de" or "wetter.com" stay.
          */
         fun humanLabel(label: CharSequence?, packageName: String): String? {
             val text = label?.toString()?.trim().orEmpty()
             if (text.isEmpty() || text.equals(packageName, ignoreCase = true)) return null
-            val packageLike = !text.any { it.isWhitespace() } && text.contains('.') &&
-                text.all { it.isLetterOrDigit() || it == '.' || it == '_' } && text.first().isLowerCase()
+            val packageLike = text.none { it.isWhitespace() } && text.count { it == '.' } >= 2
             return if (packageLike) null else text
         }
 
