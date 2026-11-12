@@ -27,6 +27,7 @@ internal fun liveTileEntries(defaults: DefaultApps, appKeys: List<AppKey>): List
         LiveTileEntry("weather", TileContent.Weather, TileSize.WIDE),
         LiveTileEntry("photos", TileContent.Photos, TileSize.WIDE),
         LiveTileEntry("people", TileContent.People, TileSize.MEDIUM),
+        LiveTileEntry("me", TileContent.Me, TileSize.WIDE),
     )
 }
 

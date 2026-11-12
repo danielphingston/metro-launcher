@@ -61,6 +61,7 @@ class MetroNotificationListener : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         NotificationHub.setConnected(false)
+        MeFeed.clear()
         // Access taken away (not just a rebind): the saved assistant reply goes with it.
         if (!NotificationAccess.isGranted(this)) (application as? MetroApplication)?.assistantReply?.clear()
     }
@@ -83,8 +84,8 @@ class MetroNotificationListener : NotificationListenerService() {
         }
         // Disconnected while the rebuild was pending: don't resurrect what setConnected(false) cleared.
         if (!NotificationHub.connected.value) return
-        val grouped = active
-            .filter(::countsTowardTile)
+        val counted = active.filter(::countsTowardTile)
+        val grouped = counted
             .groupBy { AppKey.notificationKey(it.packageName, UserSerials.of(this, it.user)) }
         val published = grouped.mapValues { (_, list) ->
                 // Lazily, so only as many notifications as the (at most 3) previews need get parsed.
@@ -96,6 +97,16 @@ class MetroNotificationListener : NotificationListenerService() {
                 AppNotifications(count = list.size, previews = previews)
             }
         NotificationHub.publish(published)
+        MeFeed.publish(
+            MeFeed.build(
+                counted.map {
+                    MeInput(
+                        it.key, AppKey.notificationKey(it.packageName, UserSerials.of(this, it.user)), it.packageName,
+                        it.postTime, it.notification.contentIntent, { preview(it) },
+                    )
+                },
+            ),
+        )
         saveAssistantReply(published)
     }
 
