@@ -26,7 +26,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import io.github.danielphingston.metro.data.decodeLatest
+import kotlinx.coroutines.flow.toList
 import org.junit.Test
+import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles.Outcome
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -271,5 +274,106 @@ class StartLayoutsTest {
         assertEquals(LauncherAction.Command(LauncherActions.Cmd.LAYOUTS), LauncherActions.parse("layouts").first())
         val layouts = listOf(SavedLayout(1, "start", "[]"), SavedLayout(2, "work", "[]"), SavedLayout(3, "weekend", "[]"))
         assertEquals(listOf(3L), LauncherActions.layoutsFor("week", layouts).map { it.id })
+    }
+
+    @Test
+    fun newEmptyLayoutHasNoTilesKeepsTheCurrentSettingsAndStaysOff() {
+        val live = json(app(1, "a"), widget(2, 70, 2, 0))
+        val settings = mapOf<String, Any>("start_columns" to 6)
+        // First time: the current start becomes "start", the empty layout is added after it.
+        val first = LayoutOps.newEmpty(null, live, " quiet ", settings)!!
+        assertEquals(1L, first.active)
+        assertEquals(listOf("start", "quiet"), first.layouts.map { it.name })
+        assertEquals(live, first.byId(1)!!.tiles)
+        assertEquals("[]", first.byId(2)!!.tiles)
+        assertTrue(first.byId(2)!!.hasNoTiles)
+        assertFalse(first.byId(1)!!.hasNoTiles)
+        assertEquals(settings, first.byId(2)!!.settings)
+        // Nothing of the empty layout holds a widget; the live one is not an inactive layout.
+        assertTrue(first.inactiveTiles().flatMap(WidgetReclaim::referencedIds).isEmpty())
+        assertNull(LayoutOps.newEmpty(null, live, "Start"))
+        assertNull(LayoutOps.newEmpty(first, live, "QUIET"))
+        // Later: the active layout is written back and keeps its tiles, ids don't clash.
+        val edited = json(app(1, "a"))
+        val more = LayoutOps.newEmpty(first, edited, "empty two", mapOf("start_columns" to 4))!!
+        assertEquals(1L, more.active)
+        assertEquals(edited, more.byId(1)!!.tiles)
+        assertEquals(3L, more.layouts.last().id)
+        assertEquals(mapOf<String, Any>("start_columns" to 4), more.layouts.last().settings)
+        assertTrue(LayoutsJson.decode(LayoutsJson.encode(more))!!.layouts.last().hasNoTiles)
+        // Switching to it leaves the live tiles in the layout it leaves.
+        val toEmpty = LayoutOps.switch(more, edited, 3)!!
+        assertEquals("[]", toEmpty.activeLayout.tiles)
+    }
+
+    @Test
+    fun aLayoutSearchRowRunsInPlaceAndPinsTheRealSwitchTile() {
+        val row = LauncherActions.layoutItem(SavedLayout(2, "work", "[]"), activeId = 1)
+        // Nothing is launched (no turnstile): the row runs in place.
+        assertTrue(row.action is io.github.danielphingston.metro.ui.search.ItemAction.Run)
+        // It pins the same tile the add menu's "layouts" entry adds, not an action tile.
+        assertEquals(TileContent.LayoutSwitch(2), row.pin)
+        assertEquals(layoutSwitchEntries(LayoutSet(1, listOf(SavedLayout(2, "work", "[]")))).last().second, row.pin)
+        assertEquals("switch the start screen to it", row.subtitle)
+        assertEquals("on start now", LauncherActions.layoutItem(SavedLayout(1, "start", "[]"), 1).subtitle)
+        // Running it asks the launcher to switch, the same way a switch tile does.
+        val asked = mutableListOf<Long>()
+        val commands = object : io.github.danielphingston.metro.ui.search.LauncherCommands {
+            override fun editStart() = Unit
+            override fun appInfo(app: io.github.danielphingston.metro.data.AppInfo) = Unit
+            override fun uninstall(app: io.github.danielphingston.metro.data.AppInfo) = Unit
+            override fun recordAssistantQuestion(question: String) = Unit
+            override fun switchLayout(id: Long) { asked += id }
+        }
+        (row.action as io.github.danielphingston.metro.ui.search.ItemAction.Run)
+            .run(io.github.danielphingston.metro.ui.search.ActionEnv(org.robolectric.RuntimeEnvironment.getApplication(), null, null, commands))
+        assertEquals(listOf(2L), asked)
+    }
+
+    @Test
+    fun aDecodeOvertakenByANewerWriteDoesNotPutTheOlderSetBack() = kotlinx.coroutines.runBlocking {
+        // The store holds "new" (this repository wrote it) by the time "old" is decoded: "old" is dropped.
+        var store = "old"
+        val decoded = kotlinx.coroutines.flow.flowOf("old", "new")
+            .decodeLatest(latest = { store }, decode = { s -> store = "new"; "decoded $s" })
+            .toList()
+        assertEquals(listOf("decoded new"), decoded)
+        // An outside change (a backup import) that is the store's latest value comes through.
+        val imported = kotlinx.coroutines.flow.flowOf<String?>("imported")
+            .decodeLatest(latest = { "imported" }, decode = { "decoded $it" })
+            .toList()
+        assertEquals(listOf("decoded imported"), imported)
+    }
+
+    @Test
+    fun whetherALayoutIsEmptyIsWorkedOutOnceWhileDecoding() {
+        val set = LayoutsJson.decode(LayoutsJson.encode(LayoutSet(1, listOf(SavedLayout(1, "start", "[]"), SavedLayout(2, "work", json(app(1, "a")))))))!!
+        // Known after decoding (which runs off the main thread): the layouts page only reads it.
+        assertTrue(set.layouts.all { it.knowsWhetherEmpty })
+        assertTrue(set.byId(1)!!.hasNoTiles)
+        assertFalse(set.byId(2)!!.hasNoTiles)
+        // Computed once per layout, and not part of what makes two layouts equal.
+        val fresh = SavedLayout(3, "x", "[]")
+        assertFalse(fresh.knowsWhetherEmpty)
+        assertTrue(fresh.hasNoTiles)
+        assertTrue(fresh.knowsWhetherEmpty)
+        assertEquals(SavedLayout(3, "x", "[]"), fresh)
+    }
+
+    @Test
+    fun searchAndTilesSwitchLayoutsTheSameWay() {
+        val tiles = LayoutSwitchTiles
+        val set = LayoutSet(1, listOf(SavedLayout(1, "start", "[]"), SavedLayout(2, "work", "[]")))
+        // Locked: "unlock to use" and the Metro Plus page, whatever the layout.
+        assertEquals(Outcome.Locked, tiles.outcome(TileContent.LayoutSwitch(2), unlocked = false, set))
+        // Gone: the layouts page.
+        assertEquals(Outcome.Missing, tiles.outcome(TileContent.LayoutSwitch(9), unlocked = true, set))
+        assertEquals(Outcome.Missing, tiles.outcome(TileContent.LayoutSwitch(2), unlocked = true, null))
+        // Already on start: nothing (search just closes).
+        assertEquals(Outcome.AlreadyActive, tiles.outcome(TileContent.LayoutSwitch(1), unlocked = true, set))
+        assertEquals(Outcome.Switch(2), tiles.outcome(TileContent.LayoutSwitch(2), unlocked = true, set))
+        // "Next layout" goes round.
+        assertEquals(Outcome.Switch(2), tiles.outcome(TileContent.LayoutSwitch(null), unlocked = true, set))
+        assertEquals(Outcome.Missing, tiles.outcome(TileContent.LayoutSwitch(null), unlocked = true, LayoutSet(1, listOf(SavedLayout(1, "start", "[]")))))
     }
 }

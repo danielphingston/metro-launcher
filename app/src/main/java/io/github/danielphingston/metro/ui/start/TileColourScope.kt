@@ -15,6 +15,8 @@ import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.theme.LocalMetroColors
 import io.github.danielphingston.metro.ui.theme.LocalStartBackdrop
+import io.github.danielphingston.metro.ui.theme.LocalTileDecor
+import io.github.danielphingston.metro.ui.theme.TileDecor
 import io.github.danielphingston.metro.ui.theme.LocalTileColourSettings
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.readableOn
@@ -63,9 +65,18 @@ internal fun TileColourScope(tile: ResolvedTile, icons: IconCache, content: @Com
         raw?.let { IconColor.adjust(it, settings.vividness) }.takeIf { usesIcon },
     )
     val base = Metro.colors
-    val tileAlpha = LocalStartBackdrop.current.tileAlpha
+    val spec = tile.spec
+    val decor = remember(spec.hideName, spec.showsBackground, spec.transparency) { tileDecor(spec) }
+    // The tile's own alpha (its transparency, or none without a background) decides the ink.
+    val tileAlpha = LocalStartBackdrop.current.surfaceAlpha(decor)
     val colors = remember(base, colour, tileAlpha) {
         colour?.let { c -> base.copy(accent = Color(c), tileInk = tileInk(Color(c), tileAlpha)) } ?: base
     }
-    CompositionLocalProvider(LocalMetroColors provides colors, content = content)
+    CompositionLocalProvider(LocalMetroColors provides colors, LocalTileDecor provides decor, content = content)
+}
+
+/** The surface and label settings of [spec] that every part of the tile follows; see [TileDecor]. */
+internal fun tileDecor(spec: TileSpec): TileDecor {
+    val decor = TileDecor(showName = !spec.hideName, background = spec.showsBackground, transparency = spec.transparency)
+    return if (decor == TileDecor.Default) TileDecor.Default else decor
 }

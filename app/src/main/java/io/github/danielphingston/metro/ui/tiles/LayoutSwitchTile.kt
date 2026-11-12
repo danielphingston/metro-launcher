@@ -57,24 +57,48 @@ object LayoutSwitchTiles {
     fun label(content: TileContent.LayoutSwitch, set: LayoutSet?): String =
         face(content, set).let { face -> face.target?.let { "${face.title}, $it" } ?: face.title }
 
+    /** What a tap on a switch to [content] does; see [activate]. */
+    sealed interface Outcome {
+        /** Metro Plus is locked: say so and open its settings page. */
+        data object Locked : Outcome
+
+        /** The layout is gone, or there is no other to go to: open the layouts settings page. */
+        data object Missing : Outcome
+
+        /** The layout is already on start: nothing to do. */
+        data object AlreadyActive : Outcome
+
+        data class Switch(val id: Long) : Outcome
+    }
+
+    /** What activating [content] does, with Metro Plus [unlocked] and the layouts [set]. */
+    fun outcome(content: TileContent.LayoutSwitch, unlocked: Boolean, set: LayoutSet?): Outcome {
+        if (!unlocked) return Outcome.Locked
+        val target = content.layoutId?.let { set?.byId(it) } ?: if (content.layoutId == null) set?.next() else null
+        return when {
+            target == null -> Outcome.Missing
+            target.id == set?.active -> Outcome.AlreadyActive
+            else -> Outcome.Switch(target.id)
+        }
+    }
+
     /**
-     * Switches to the tile's layout, or the next one. A layout that is gone, or no other layout
-     * to go to, opens the layouts settings page instead.
+     * Switches to the tile's layout, or the next one: the switch tile, the search row for a layout
+     * and Metro's own layout shortcut all come here. A layout that is gone, or no other layout
+     * to go to, opens the layouts settings page instead; while Metro Plus is locked, its page.
      */
     fun activate(context: Context, content: TileContent.LayoutSwitch) {
         val app = context.applicationContext as MetroApplication
-        if (!app.layouts.isUnlocked) {
-            android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
-            context.startActivity(SettingsActivity.intent(context, SettingsPage.METRO_PLUS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            return
+        when (val outcome = outcome(content, app.layouts.isUnlocked, app.layouts.layouts.value)) {
+            Outcome.Locked -> {
+                android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
+                context.startActivity(SettingsActivity.intent(context, SettingsPage.METRO_PLUS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            Outcome.Missing ->
+                context.startActivity(SettingsActivity.intent(context, SettingsPage.LAYOUTS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+            Outcome.AlreadyActive -> Unit
+            is Outcome.Switch -> app.appScope.launch { app.layouts.switchTo(outcome.id) }
         }
-        val set = app.layouts.layouts.value
-        val target = content.layoutId?.let { set?.byId(it) } ?: if (content.layoutId == null) set?.next() else null
-        if (target == null) {
-            context.startActivity(SettingsActivity.intent(context, SettingsPage.LAYOUTS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-            return
-        }
-        app.appScope.launch { app.layouts.switchTo(target.id) }
     }
 }
 

@@ -146,7 +146,21 @@ data class TileSpec(
     val icon: String? = null,
     /** This tile's colour (see [TileColors]); null follows [TileColourMode]. */
     val color: String? = null,
+    /** Hides the name that [style] would show (see [TileLooks]); on live tiles, their small label. */
+    val hideName: Boolean = false,
+    /** Hides the icon that [style] would show (see [TileLooks]). */
+    val hideIcon: Boolean = false,
+    /** False: no tile background, only the content's own look. A widget keeps this in [TileContent.Widget.transparent]. */
+    val background: Boolean = true,
+    /** How much of the start background shows through this tile, 0..100 percent; null follows the start setting. */
+    val transparency: Int? = null,
 ) {
+    /** How the tile's name, icon and photo are stored; [TileLooks.shown] is how it is drawn. */
+    val look: TileLook get() = TileLooks.of(style, hideName, hideIcon, content is TileContent.Folder)
+
+    /** Whether the tile draws its background surface. */
+    val showsBackground: Boolean get() = background && (content as? TileContent.Widget)?.transparent != true
+
     /** The app key for app tiles, else null. */
     val appKey: AppKey? get() = (content as? TileContent.App)?.app
 
@@ -367,6 +381,9 @@ class TileRepository(
 
     /** Pins a tile at the bottom of the start screen unless an identical one (same app or shortcut) is already pinned. A [span] replaces the footprint of [size]. */
     fun add(content: TileContent, size: TileSize, span: TileSpan? = null): Long? {
+        // Whatever pins one of Metro's own layout shortcuts (an app's pin request, the app list) gets a switch tile.
+        @Suppress("NAME_SHADOWING")
+        val content = LayoutShortcuts.asLayoutSwitch(context, content)
         var newId: Long? = null
         synchronized(loadLock) {
             if (_tiles.value == null) {
@@ -431,6 +448,9 @@ class TileRepository(
     fun setStyle(id: Long, style: TileStyle, image: String?) = _tiles.update { list ->
         list?.let { TileStyles.set(it, id, style, image) }
     }
+
+    /** Replaces tile [id] (top level or in a folder) with [change] of it; for the customise sheet (see [TileOptions]). */
+    fun update(id: Long, change: (TileSpec) -> TileSpec) = _tiles.update { list -> list?.let { TileOptions.update(it, id, change) } }
 
     /** Sets the picked icon of tile [id] (top level or in a folder); null restores its own icon. */
     fun setIcon(id: Long, icon: String?) = _tiles.update { list ->
@@ -546,7 +566,7 @@ internal object TileStyles {
 
     fun set(tiles: List<TileSpec>, id: Long, style: TileStyle, image: String?): List<TileSpec> = tiles.map { tile ->
         when {
-            tile.id == id -> tile.copy(style = style, image = image.takeIf { style.needsImage })
+            tile.id == id -> tile.copy(style = style, image = image.takeIf { style.needsImage }, hideName = false, hideIcon = false)
             tile.content is TileContent.Folder -> tile.copy(content = tile.content.copy(children = set(tile.content.children, id, style, image)))
             else -> tile
         }
@@ -665,6 +685,12 @@ internal object TileJson {
         tile.image?.let { obj.put("image", it) }
         tile.icon?.let { obj.put("icon", it) }
         tile.color?.let { obj.put("color", it) }
+        // Only what [style] alone doesn't say; see [TileLooks]. Older versions ignore these fields.
+        if (tile.hideName) obj.put("hideName", true)
+        if (tile.hideIcon) obj.put("hideIcon", true)
+        // A widget's hidden background is its "transparent" flag, as it always was.
+        if (!tile.background && tile.content !is TileContent.Widget) obj.put("background", false)
+        tile.transparency?.let { obj.put("transparency", it) }
         when (val c = tile.content) {
             is TileContent.App -> obj.put("type", "app").put("app", c.app.serialize())
             is TileContent.Shortcut -> obj.put("type", "shortcut").put("package", c.packageName)
@@ -701,7 +727,8 @@ internal object TileJson {
                 obj.getString("package"), obj.getString("shortcut"), obj.getLong("serial"), obj.optString("label"),
             )
             "widget" -> TileContent.Widget(
-                obj.getInt("widgetId"), obj.getString("provider"), obj.getLong("serial"), obj.optBoolean("transparent"),
+                obj.getInt("widgetId"), obj.getString("provider"), obj.getLong("serial"),
+                obj.optBoolean("transparent") || obj.opt("background") == false,
             )
             "weather" -> TileContent.Weather
             "photos" -> TileContent.Photos
@@ -737,15 +764,34 @@ internal object TileJson {
         val x = obj.optInt("x", TileSpec.UNPLACED)
         val y = obj.optInt("y", TileSpec.UNPLACED)
         val placed = x >= 0 && y >= 0
+        val style = TileStyle.fromId(obj.optString("style").ifEmpty { null })
+        // Strictly true, else the default; flags that would leave the tile blank are dropped.
+        var hideName = obj.opt("hideName") == true
+        var hideIcon = obj.opt("hideIcon") == true
+        val base = TileLooks.base(style, content is TileContent.Folder)
+        if (!base.copy(showName = base.showName && !hideName, showIcon = base.showIcon && !hideIcon).isValid) {
+            hideName = false
+            hideIcon = false
+        }
         return TileSpec(
             obj.getLong("id"), size, content,
             x = if (placed) x.coerceAtMost(MAX_X) else TileSpec.UNPLACED,
             y = if (placed) y.coerceAtMost(MAX_Y) else TileSpec.UNPLACED,
             span = span,
-            style = TileStyle.fromId(obj.optString("style").ifEmpty { null }),
+            style = style,
             image = obj.optString("image").ifEmpty { null },
             icon = obj.optString("icon").ifEmpty { null },
             color = TileColors.parse(obj.optString("color").ifEmpty { null }),
+            hideName = hideName,
+            hideIcon = hideIcon,
+            background = content is TileContent.Widget || obj.opt("background") != false,
+            transparency = percent(obj.opt("transparency")),
         )
+    }
+
+    /** A whole number 0..100, else null (the start screen setting). */
+    private fun percent(raw: Any?): Int? {
+        val n = (raw as? Number)?.toDouble() ?: return null
+        return if (n in 0.0..100.0 && n == Math.floor(n)) n.toInt() else null
     }
 }

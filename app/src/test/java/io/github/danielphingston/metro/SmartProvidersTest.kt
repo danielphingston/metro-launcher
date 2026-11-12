@@ -75,6 +75,7 @@ class SmartProvidersTest {
         override fun appInfo(app: AppInfo) { calls += "info ${app.label}" }
         override fun uninstall(app: AppInfo) { calls += "uninstall ${app.label}" }
         override fun recordAssistantQuestion(question: String) { calls += "asked $question" }
+        override fun switchLayout(id: Long) { calls += "layout $id" }
     }
 
     private fun env(commands: LauncherCommands = Commands()) = ActionEnv(RuntimeEnvironment.getApplication(), null, null, commands)

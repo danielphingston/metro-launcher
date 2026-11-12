@@ -85,6 +85,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.danielphingston.metro.data.LayoutShortcuts
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.HistoryRules
 import io.github.danielphingston.metro.data.IconCache
@@ -139,6 +140,7 @@ internal sealed interface SearchRow {
     /** An app shortcut; [app] is the app it belongs to, for the icon and the subtitle. */
     data class Shortcut(val hit: ShortcutHit, val app: AppInfo?) : SearchRow {
         override val key get() = "s:${hit.packageName}/${hit.id}#${hit.userSerial}"
+        // Metro's own layout shortcut pins as a switch tile: the view model turns it into one.
         override val pin get() = TileContent.Shortcut(hit.packageName, hit.id, hit.userSerial, hit.shortLabel)
     }
 
@@ -410,10 +412,12 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
         val onStarted = { if (recordsSearch(row)) viewModel.recordSearch(query) }
         val accepted = when (row) {
             is SearchRow.App -> launcher.launch(row.app, bounds, onStarted)
-            is SearchRow.Shortcut -> launcher.open(bounds) { screenBounds, options ->
-                val content = TileContent.Shortcut(row.hit.packageName, row.hit.id, row.hit.userSerial, row.hit.shortLabel)
-                ShortcutTiles.launch(context, content, screenBounds, options)
-            }
+            is SearchRow.Shortcut -> LayoutShortcuts.layoutIdOf(row.hit.packageName, row.hit.id, row.hit.userSerial, LayoutShortcuts.ownSerial(context))
+                ?.let { commands.switchLayout(it); true }
+                ?: launcher.open(bounds) { screenBounds, options ->
+                    val content = TileContent.Shortcut(row.hit.packageName, row.hit.id, row.hit.userSerial, row.hit.shortLabel)
+                    ShortcutTiles.launch(context, content, screenBounds, options)
+                }
             is SearchRow.OpenUrl -> launcher.open(bounds, onStarted) { screenBounds, options ->
                 WebSearch.open(context, row.url, screenBounds, options)
             }

@@ -110,4 +110,59 @@ class MeTileTest {
         // One per layout is enforced by TileRepository.add (identical content is refused); data objects compare equal.
         assertEquals(TileContent.Me, TileContent.Me)
     }
+
+    @Test
+    fun packageNamesNeverShowOnTheTile() {
+        val feed = MeFeed.build(listOf(input("s1", "com.android.systemui", 50), input("a1", "mail", 10)))
+        val model = MeModel.of(feed, true, true, TileSize.WIDE) { app -> MeModel.humanLabel(null, app.packageName) }
+        assertTrue(model.faces.all { it.appName == null })
+        assertFalse(model.description().contains("com.android"))
+        assertEquals("me, 2 notifications, latest: t-s1", model.description())
+        val off = MeModel.of(feed, true, false, TileSize.WIDE) { app -> MeModel.humanLabel(app.packageName, app.packageName) }
+        assertTrue(off.faces.all { it.appName == null })
+        assertNull(MeModel.humanLabel("com.android.systemui", "other.pkg"))
+        assertNull(MeModel.humanLabel("  ", "x"))
+        assertEquals("System UI", MeModel.humanLabel("System UI", "com.android.systemui"))
+        assertEquals("Mail", MeModel.humanLabel("Mail", "com.mail"))
+        // Real names that look like a domain stay; only a package-like name (two dots, no spaces) goes.
+        assertEquals("mobile.de", MeModel.humanLabel("mobile.de", "de.mobile.android.app"))
+        assertEquals("wetter.com", MeModel.humanLabel("wetter.com", "com.wetter.androidclient"))
+        assertEquals("Web.de Mail", MeModel.humanLabel("Web.de Mail", "de.web.mobile.android.mail"))
+        assertNull(MeModel.humanLabel("com.example.app", "other.pkg"))
+        assertNull(MeModel.humanLabel("DE.MOBILE.ANDROID", "de.mobile.android"))
+        assertNull(MeModel.humanLabel("Com.Example", "com.example"))
+    }
+
+    @Test
+    fun systemUiAndGroupSummariesAreFiltered() {
+        val own = "io.github.danielphingston.metro"
+        fun counts(pkg: String, flags: Int = 0, system: Boolean = false, launchable: Boolean = true) =
+            io.github.danielphingston.metro.live.NotificationFilter.counts(pkg, own, false, true, flags, null, system, launchable)
+        assertTrue(counts("com.example.mail"))
+        assertFalse(counts("com.android.systemui"))
+        assertFalse(counts("android"))
+        assertFalse(counts("com.google.android.gms", system = true, launchable = false))
+        assertTrue(counts("com.android.dialer", system = true, launchable = true))
+        assertFalse(counts("com.example.mail", flags = android.app.Notification.FLAG_GROUP_SUMMARY))
+        assertFalse(counts(own))
+    }
+
+    @Test
+    fun appTileCountsKeepTheSystemsOwnNotifications() {
+        val own = "io.github.danielphingston.metro"
+        fun counts(pkg: String, flags: Int = 0, ongoing: Boolean = false, category: String? = null) =
+            io.github.danielphingston.metro.live.NotificationFilter.countsForAppTile(pkg, own, ongoing, true, flags, category)
+        // As before the me tile: a system app's or the system UI's entries count on their app tile.
+        assertTrue(counts("com.google.android.gms"))
+        assertTrue(counts("com.android.systemui"))
+        assertTrue(counts("android"))
+        assertTrue(counts("com.example.mail"))
+        assertFalse(counts(own))
+        assertFalse(counts("com.example.mail", flags = android.app.Notification.FLAG_GROUP_SUMMARY))
+        assertFalse(counts("com.example.mail", ongoing = true))
+        assertFalse(counts("com.example.mail", category = android.app.Notification.CATEGORY_PROGRESS))
+        // The me tile leaves those out.
+        assertFalse(io.github.danielphingston.metro.live.NotificationFilter.counts("com.google.android.gms", own, false, true, 0, null, true, false))
+        assertTrue(io.github.danielphingston.metro.live.NotificationFilter.counts("com.google.android.gms", own, false, true, 0, null, true, true))
+    }
 }

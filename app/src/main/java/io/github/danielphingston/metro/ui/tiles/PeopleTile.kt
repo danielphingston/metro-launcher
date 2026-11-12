@@ -46,6 +46,7 @@ import io.github.danielphingston.metro.ui.settings.SettingsActivity
 import io.github.danielphingston.metro.ui.start.FlipCard
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
+import io.github.danielphingston.metro.ui.theme.tileFill
 import io.github.danielphingston.metro.ui.theme.tileSurface
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlin.random.Random
@@ -139,7 +140,7 @@ private fun MosaicTile(
     }
 
     val gap = m.dp(1f)
-    Box(Modifier.fillMaxSize().background(Metro.colors.accent)) {
+    Box(Modifier.fillMaxSize().tileFill(Metro.colors.accent)) {
         Column(Modifier.fillMaxSize()) {
             repeat(grid.rows) { row ->
                 Row(Modifier.weight(1f).fillMaxWidth()) {

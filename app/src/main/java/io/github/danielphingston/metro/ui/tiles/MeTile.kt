@@ -122,7 +122,7 @@ private fun MeFront(size: TileSize, model: MeModel, apps: Map<String, AppInfo>, 
                 }
                 Spacer(Modifier.weight(1f))
                 model.latest?.let { f ->
-                    MetroText(f.appName, MetroType.style(m.text(12f)), color = white.copy(alpha = 0.8f), maxLines = 1)
+                    f.appName?.let { MetroText(it, MetroType.style(m.text(12f)), color = white.copy(alpha = 0.8f), maxLines = 1) }
                     f.title?.let { MetroText(it, MetroType.style(m.text(if (large) 20f else 15f), FontWeight.SemiBold), color = white, maxLines = if (large) 2 else 1) }
                     f.text?.let {
                         MetroText(it, MetroType.style(m.text(if (large) 16f else 13f)), color = white.copy(alpha = 0.92f), maxLines = if (large) 4 else if (size == TileSize.MEDIUM) 1 else 2)
@@ -145,7 +145,7 @@ private fun MeBack(face: MeFace, size: TileSize, apps: Map<String, AppInfo>, mon
                 AppIcon(it, icons, m.dp(if (size == TileSize.MEDIUM) 24f else 28f), monochrome)
                 Spacer(Modifier.width(m.dp(8f)))
             }
-            MetroText(face.appName, MetroType.style(m.text(14f), FontWeight.SemiBold), color = white, maxLines = 1, modifier = Modifier.weight(1f))
+            face.appName?.let { MetroText(it, MetroType.style(m.text(14f), FontWeight.SemiBold), color = white, maxLines = 1, modifier = Modifier.weight(1f)) }
         }
         Spacer(Modifier.height(m.dp(6f)))
         face.title?.let {

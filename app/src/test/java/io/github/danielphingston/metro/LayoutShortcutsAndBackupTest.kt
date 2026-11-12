@@ -133,4 +133,55 @@ class LayoutShortcutsAndBackupTest {
         } catch (_: BackupException) {
         }
     }
+
+    @Test
+    fun metrosOwnLayoutShortcutsAreSwitchedInPlace() {
+        val own = "io.github.danielphingston.metro"
+        assertEquals(20L, LayoutShortcuts.layoutIdOf(own, "layout_20", 0, 0, own))
+        assertNull(LayoutShortcuts.layoutIdOf(own, "layout_x", 0, 0, own))
+        assertNull(LayoutShortcuts.layoutIdOf(own, "settings", 0, 0, own))
+        assertNull(LayoutShortcuts.layoutIdOf("com.example.other", "layout_20", 0, 0, own))
+        // Pinning one gives the real switch tile; any other shortcut stays a shortcut.
+        assertEquals(
+            TileContent.LayoutSwitch(20),
+            LayoutShortcuts.asLayoutSwitch(TileContent.Shortcut(own, "layout_20", 0, "work"), 0, own),
+        )
+        val other = TileContent.Shortcut("com.example.other", "layout_20", 0, "x")
+        assertEquals(other, LayoutShortcuts.asLayoutSwitch(other, 0, own))
+        assertEquals(TileContent.Weather, LayoutShortcuts.asLayoutSwitch(TileContent.Weather, 0, own))
+    }
+
+    @Test
+    fun anAppsPinRequestForMetrosOwnLayoutShortcutAddsTheSwitchTileWithoutASystemPin() {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val mine = LayoutShortcuts.ownSerial(context)
+        val own = io.github.danielphingston.metro.BuildConfig.APPLICATION_ID
+        // Not a shortcut: PinShortcutActivity adds it without accepting the request (no system pin).
+        assertEquals(
+            TileContent.LayoutSwitch(20),
+            io.github.danielphingston.metro.ui.tileForPinRequest(context, TileContent.Shortcut(own, "layout_20", mine, "work")),
+        )
+        // Any other shortcut is accepted (pinned with the system) and added as itself.
+        val other = TileContent.Shortcut("com.example.chat", "c1", mine, "Ann")
+        assertEquals(other, io.github.danielphingston.metro.ui.tileForPinRequest(context, other))
+    }
+
+    @Test
+    fun aWorkProfileMetrosLayoutShortcutsAreNotOurs() {
+        val own = "io.github.danielphingston.metro"
+        // Metro in the work profile (serial 10) publishes layout_<id> for its own layouts.
+        assertNull(LayoutShortcuts.layoutIdOf(own, "layout_20", 10, 0, own))
+        val work = TileContent.Shortcut(own, "layout_20", 10, "work")
+        assertEquals(work, LayoutShortcuts.asLayoutSwitch(work, 0, own))
+        // From inside the work profile, it is the personal one's that are not.
+        assertEquals(20L, LayoutShortcuts.layoutIdOf(own, "layout_20", 10, 10, own))
+        assertNull(LayoutShortcuts.layoutIdOf(own, "layout_20", 0, 10, own))
+        // The launcher's own user, by its serial.
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val mine = LayoutShortcuts.ownSerial(context)
+        assertEquals(TileContent.LayoutSwitch(20), LayoutShortcuts.asLayoutSwitch(TileContent.Shortcut(io.github.danielphingston.metro.BuildConfig.APPLICATION_ID, "layout_20", mine, "w"), mine))
+        assertEquals(TileContent.Shortcut(io.github.danielphingston.metro.BuildConfig.APPLICATION_ID, "layout_20", mine + 1, "w"),
+            LayoutShortcuts.asLayoutSwitch(context, TileContent.Shortcut(io.github.danielphingston.metro.BuildConfig.APPLICATION_ID, "layout_20", mine + 1, "w")))
+        assertEquals(TileContent.LayoutSwitch(20), LayoutShortcuts.asLayoutSwitch(context, TileContent.Shortcut(io.github.danielphingston.metro.BuildConfig.APPLICATION_ID, "layout_20", mine, "w")))
+    }
 }

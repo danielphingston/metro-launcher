@@ -1,5 +1,6 @@
 package io.github.danielphingston.metro.ui
 
+import android.content.Context
 import android.content.pm.LauncherApps
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.LayoutShortcuts
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.ui.components.MetroButton
@@ -50,6 +52,7 @@ class PinShortcutActivity : ComponentActivity() {
         }
         val metro = application as MetroApplication
         val label = info.shortLabel?.toString()?.takeIf { it.isNotBlank() } ?: info.id
+        val tile = tileForPinRequest(this, TileContent.Shortcut(info.`package`, info.id, ShortcutTiles.serialOf(this, info.userHandle), label))
 
         setContent {
             val settings by metro.settings.settings.collectAsState(LauncherSettings())
@@ -57,17 +60,21 @@ class PinShortcutActivity : ComponentActivity() {
                 PinDialog(
                     label = label,
                     onAdd = {
-                        // accept() also pins the shortcut with the system, so it stays valid.
-                        val accepted = try {
-                            request.isValid && request.accept()
-                        } catch (_: SecurityException) {
-                            false
-                        } catch (_: IllegalStateException) {
-                            false
-                        }
-                        if (accepted) {
-                            val serial = ShortcutTiles.serialOf(this, info.userHandle)
-                            metro.tiles.add(TileContent.Shortcut(info.`package`, info.id, serial, label), TileSize.MEDIUM)
+                        if (tile !is TileContent.Shortcut) {
+                            // Metro's own layout shortcut: the switch tile needs no shortcut, so the
+                            // request is left unaccepted (it ends with this activity) and nothing
+                            // is pinned with the system that no tile would ever release.
+                            metro.tiles.add(tile, TileSize.MEDIUM)
+                        } else {
+                            // accept() also pins the shortcut with the system, so it stays valid.
+                            val accepted = try {
+                                request.isValid && request.accept()
+                            } catch (_: SecurityException) {
+                                false
+                            } catch (_: IllegalStateException) {
+                                false
+                            }
+                            if (accepted) metro.tiles.add(tile, TileSize.MEDIUM)
                         }
                         finish()
                     },
@@ -77,6 +84,13 @@ class PinShortcutActivity : ComponentActivity() {
         }
     }
 }
+
+/**
+ * The tile an app's pin request for [shortcut] adds: the shortcut, or for one of Metro's own layout
+ * shortcuts the layout switch tile, which is not pinned with the system (see [PinShortcutActivity]).
+ */
+internal fun tileForPinRequest(context: Context, shortcut: TileContent.Shortcut): TileContent =
+    LayoutShortcuts.asLayoutSwitch(context, shortcut)
 
 @Composable
 private fun PinDialog(label: String, onAdd: () -> Unit, onCancel: () -> Unit) {

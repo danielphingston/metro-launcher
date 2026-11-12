@@ -40,6 +40,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -51,6 +52,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -90,15 +92,29 @@ fun MetroText(
  * the thumb on the left; on is filled with the accent and the thumb on the right.
  */
 @Composable
-fun MetroToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit, description: String? = null) {
+fun MetroToggle(
+    label: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+    description: String? = null,
+    /** False: shown faded and can't be switched; [description] should say why. */
+    enabled: Boolean = true,
+) {
     val colors = Metro.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(remember { MutableInteractionSource() }, null) { onChange(!checked) }
+            .then(
+                if (enabled) {
+                    Modifier.clickable(remember { MutableInteractionSource() }, null) { onChange(!checked) }
+                } else {
+                    Modifier.alpha(0.4f)
+                },
+            )
             .semantics(mergeDescendants = true) {
                 role = Role.Switch
                 stateDescription = if (checked) "on" else "off"
+                if (!enabled) disabled()
             }
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

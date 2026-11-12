@@ -10,6 +10,8 @@ import io.github.danielphingston.metro.live.PhotoSource
 import io.github.danielphingston.metro.ui.start.TileKeys
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -17,12 +19,25 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.IOException
+
+/**
+ * [decode]s each stored value off the main thread, and passes on only those still [latest] once
+ * decoded: an older value, overtaken while it was decoded (by a write that already published its
+ * own result), is dropped; any newer one, a backup import too, comes through as its own emission.
+ */
+internal fun <T> Flow<String?>.decodeLatest(latest: suspend () -> String?, decode: (String?) -> T): Flow<T> =
+    map { it to decode(it) }
+        .flowOn(Dispatchers.Default)
+        .filter { (source, _) -> source == latest() }
+        .map { it.second }
 
 /**
  * The saved start layouts (see [LayoutSet], stored under [LayoutsJson.KEY] beside the tiles) and
@@ -63,10 +78,14 @@ class StartLayoutRepository(
 
     init {
         scope.launch {
-            context.metroDataStore.data.map(::stored).distinctUntilChanged().collect {
-                _layouts.value = LayoutsJson.decode(it)
-                loaded.complete(Unit)
-            }
+            // Decoding every saved layout is real work (all their tile JSON): off the main thread, which a switch would stall.
+            // A decode that finishes after this repository wrote a newer set must not put the older one back.
+            context.metroDataStore.data.map(::stored).distinctUntilChanged()
+                .decodeLatest(latest = { stored(context.metroDataStore.data.first()) }, decode = LayoutsJson::decode)
+                .collect {
+                    _layouts.value = it
+                    loaded.complete(Unit)
+                }
         }
     }
 
@@ -121,6 +140,13 @@ class StartLayoutRepository(
         return if (update { set, live, settings -> LayoutOps.saveAs(set, live, name, settings) }) null else "couldn't save the layout"
     }
 
+    /** Adds a layout with no tiles and the current start settings, without switching to it; returns why not, or null when it was added. */
+    suspend fun createEmpty(name: String): String? {
+        if (!unlocked()) return LOCKED
+        LayoutNames.problem(LayoutNames.clean(name), _layouts.value)?.let { return it }
+        return if (update { set, live, settings -> LayoutOps.newEmpty(set, live, name, settings) }) null else "couldn't add the layout"
+    }
+
     /** Renames layout [id]; returns why not, or null when it was renamed. */
     suspend fun rename(id: Long, name: String): String? {
         LayoutNames.problem(LayoutNames.clean(name), _layouts.value, exceptId = id)?.let { return it }
@@ -150,14 +176,16 @@ class StartLayoutRepository(
     }
 
     /**
-     * Lets go of the persisted read grant of each of [uris] that no layout, the live background
-     * and the photos tile use any more (see [LayoutStartSettings.photosInUse]).
+     * Lets go of the persisted read grant of each of [uris] that no layout's background, the live
+     * background, the photos tile and no tile photo (on start or in a saved layout) use any more
+     * (see [LayoutStartSettings.photosInUse], [TileOptions.photosIn]).
      */
     suspend fun releasePhotosIfUnused(uris: Collection<String>) {
         val candidates = uris.filter { it.isNotEmpty() }
         if (candidates.isEmpty()) return
         val livePhoto = context.metroDataStore.data.first().let { LayoutStartSettings.read(it)[LayoutStartSettings.PHOTO] as? String }
-        val inUse = LayoutStartSettings.photosInUse(_layouts.value, livePhoto) + PhotoSource.current(context)
+        val inUse = LayoutStartSettings.photosInUse(_layouts.value, livePhoto) + PhotoSource.current(context) +
+            TileOptions.photosIn(listOfNotNull(tiles.tiles.value) + heldTiles())
         candidates.filter { it !in inUse }.forEach { uri ->
             runCatching {
                 context.contentResolver.releasePersistableUriPermission(Uri.parse(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION)

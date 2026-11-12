@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.danielphingston.metro.MetroApplication
+import io.github.danielphingston.metro.data.LayoutShortcuts
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.AssistantChoice
 import io.github.danielphingston.metro.data.LastAsked
@@ -267,10 +268,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun pin(app: AppInfo) = pin(TileContent.App(app.key))
 
-    fun isPinned(content: TileContent): Boolean = metro.tiles.isPinned(content)
+    fun isPinned(content: TileContent): Boolean = metro.tiles.isPinned(LayoutShortcuts.asLayoutSwitch(getApplication(), content))
 
     /** Pins [content] at medium size once the system holds what it needs (a shortcut must be pinned with it first). */
     fun pin(content: TileContent) {
+        // Metro's own layout shortcuts become real switch tiles (no shortcut to pin with the system).
+        val content = LayoutShortcuts.asLayoutSwitch(getApplication(), content)
         viewModelScope.launch {
             acquireTileResources(getApplication(), content)
             addTile(content, TileSize.MEDIUM)
@@ -307,6 +310,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Sets how tile [id] draws itself; see [io.github.danielphingston.metro.data.TileRepository.setStyle]. */
     fun setStyle(id: Long, style: io.github.danielphingston.metro.data.TileStyle, image: String?) =
         undoable(StartEdit.STYLE) { metro.tiles.setStyle(id, style, image) }
+
+    /** Changes tile [id] through [change] as one undoable [edit]; see [io.github.danielphingston.metro.data.TileOptions]. */
+    fun updateTile(id: Long, edit: StartEdit, change: (io.github.danielphingston.metro.data.TileSpec) -> io.github.danielphingston.metro.data.TileSpec) =
+        undoable(edit) { metro.tiles.update(id, change) }
+
+    /** Lets go of the read grant on the tile photo [uri] once nothing (tile, layout, background) uses it. */
+    fun releasePhotoIfUnused(uri: String?) {
+        uri ?: return
+        metro.appScope.launch { metro.layouts.releasePhotosIfUnused(listOf(uri)) }
+    }
 
     /** Sets the colour of tile [id]; see [io.github.danielphingston.metro.data.TileColors]. */
     fun setColor(id: Long, color: String?) = undoable(StartEdit.COLOUR) { metro.tiles.setColor(id, color) }

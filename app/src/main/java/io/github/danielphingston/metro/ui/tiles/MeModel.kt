@@ -6,7 +6,7 @@ import io.github.danielphingston.metro.live.MeApp
 import io.github.danielphingston.metro.live.MeSnapshot
 
 /** One notification (or, with notification text off, one app) the me tile flips to. [key] is the system key a tap opens. */
-data class MeFace(val key: String, val appKey: String, val appName: String, val title: String?, val text: String?)
+data class MeFace(val key: String, val appKey: String, val appName: String?, val title: String?, val text: String?)
 
 /** What the me tile draws, decided from the feed, the access state and the "show message text on tiles" setting. */
 data class MeModel(val state: State, val count: Int, val icons: List<String>, val faces: List<MeFace>) {
@@ -24,14 +24,30 @@ data class MeModel(val state: State, val count: Int, val icons: List<String>, va
         State.ACTIVE -> buildString {
             append("me, ").append(count).append(if (count == 1) " notification" else " notifications")
             latest?.let { f ->
-                append(", latest from ").append(f.appName)
-                f.title?.let { append(": ").append(it) }
+                if (f.appName != null) {
+                    append(", latest from ").append(f.appName)
+                    f.title?.let { append(": ").append(it) }
+                } else {
+                    f.title?.let { append(", latest: ").append(it) }
+                }
             }
         }
     }
 
     companion object {
         const val MAX_FACES = 5
+
+        /**
+         * The label to show for [packageName], or null when [label] is missing or just the package name
+         * (or looks like one: two or more dots and no spaces), so a name like "com.android.systemui"
+         * never reaches the tile or TalkBack. Real names like "mobile.de" or "wetter.com" stay.
+         */
+        fun humanLabel(label: CharSequence?, packageName: String): String? {
+            val text = label?.toString()?.trim().orEmpty()
+            if (text.isEmpty() || text.equals(packageName, ignoreCase = true)) return null
+            val packageLike = text.none { it.isWhitespace() } && text.count { it == '.' } >= 2
+            return if (packageLike) null else text
+        }
 
         /** How many app icons the front shows at [size]. */
         fun iconSlots(size: TileSize): Int = when (size) {
@@ -42,7 +58,7 @@ data class MeModel(val state: State, val count: Int, val icons: List<String>, va
         }
 
         /**
-         * [nameOf] gives an app's display name. With [showContent] off the faces are apps and counts only;
+         * [nameOf] gives an app's human label, or null when there is none (a package name is never shown). With [showContent] off the faces are apps and counts only;
          * a notification whose text is withheld (SECRET) shows its app name and nothing else.
          */
         fun of(
@@ -50,7 +66,7 @@ data class MeModel(val state: State, val count: Int, val icons: List<String>, va
             hasAccess: Boolean,
             showContent: Boolean,
             size: TileSize,
-            nameOf: (MeApp) -> String,
+            nameOf: (MeApp) -> String?,
         ): MeModel {
             if (!hasAccess) return MeModel(State.NO_ACCESS, 0, emptyList(), emptyList())
             if (snapshot.total <= 0) return MeModel(State.EMPTY, 0, emptyList(), emptyList())
@@ -58,13 +74,13 @@ data class MeModel(val state: State, val count: Int, val icons: List<String>, va
             val faces = if (showContent) {
                 snapshot.recent.take(MAX_FACES).map {
                     MeFace(
-                        it.key, it.appKey, names[it.appKey] ?: it.packageName,
+                        it.key, it.appKey, names[it.appKey],
                         it.preview?.title?.takeIf(String::isNotBlank), it.preview?.text?.takeIf(String::isNotBlank),
                     )
                 }
             } else {
                 snapshot.apps.take(MAX_FACES).map {
-                    MeFace(it.newestKey, it.appKey, names.getValue(it.appKey), null, "${it.count} new")
+                    MeFace(it.newestKey, it.appKey, names[it.appKey], null, "${it.count} new")
                 }
             }
             return MeModel(State.ACTIVE, snapshot.total, snapshot.apps.take(iconSlots(size)).map { it.appKey }, faces)

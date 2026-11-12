@@ -23,6 +23,8 @@ import io.github.danielphingston.metro.ui.theme.MetroType
 /** The tile label at the bottom left over a subtle dark gradient, so it reads on any photo. */
 @Composable
 internal fun BoxScope.ScrimmedLabel(text: String, m: TileMetrics) {
+    // Without the name, the photo needs no scrim either.
+    if (!io.github.danielphingston.metro.ui.theme.LocalTileDecor.current.showName) return
     Box(
         Modifier
             .align(Alignment.BottomStart)

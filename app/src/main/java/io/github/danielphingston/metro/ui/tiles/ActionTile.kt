@@ -25,6 +25,9 @@ import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileStyle
+import io.github.danielphingston.metro.data.TileSpec
+import io.github.danielphingston.metro.data.TileLook
+import io.github.danielphingston.metro.data.TileLooks
 import io.github.danielphingston.metro.live.PeopleSource
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.search.SearchGlyphs
@@ -47,12 +50,13 @@ private val PhotoScrim = Brush.verticalGradient(0.6f to Color.Transparent, 1f to
 @Composable
 fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: Boolean) {
     val action = tile.spec.content as? TileContent.Action ?: return PlaceholderTile(tile, cellSize)
-    val style = tile.spec.style
+    val look = TileLooks.shown(tile.spec)
+    val face = ActionFaces.of(tile.spec)
+    val plain = face == ActionFace.PLAIN
     val contact = action.icon as? ActionIcon.Contact
-    // A contact's photo is its default face; any other style replaces it.
-    if (contact != null && style == TileStyle.ICON && tile.spec.icon == null) {
+    if (contact != null && face.contactPhoto) {
         val photo = rememberContactPhoto(contact, cellSize * maxOf(tile.spec.width, tile.spec.height))
-        if (photo != null) return PhotoTile(tile, cellSize, photo)
+        if (photo != null) return PhotoTile(tile, cellSize, photo, showName = face == ActionFace.CONTACT_PHOTO)
     }
     val glyph = when (val icon = action.icon) {
         is ActionIcon.Glyph -> SearchGlyphs.byId(icon.id)
@@ -62,7 +66,7 @@ fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
     }
     val custom0 = tile.spec.icon
     val app = tile.app?.takeIf { action.icon is ActionIcon.App }
-    if (glyph == null && app == null && custom0 == null && style == TileStyle.ICON) return PlaceholderTile(tile, cellSize)
+    if (glyph == null && app == null && custom0 == null && plain) return PlaceholderTile(tile, cellSize)
     val m = rememberTileMetrics(cellSize)
     val size = tile.spec.size
     val white = Metro.colors.onAccent
@@ -77,8 +81,8 @@ fun ActionTile(tile: ResolvedTile, cellSize: Dp, icons: IconCache, monochrome: B
         }
     }
     Box(Modifier.fillMaxSize().tileSurface()) {
-        if (style != TileStyle.ICON || custom != null) {
-            StyledTileFace(tile.label, size, 0, m, style, tile.spec.image, appIcon = picture)
+        if (face == ActionFace.STYLED) {
+            StyledTileFace(tile.label, size, 0, m, look, tile.spec.image, appIcon = picture)
             return@Box
         }
         val iconSize = when (size) {
@@ -101,12 +105,48 @@ private fun rememberContactPhoto(contact: ActionIcon.Contact, side: Dp): ImageBi
     }.value
 }
 
+/** How a search tile draws itself; see [ActionFaces.of]. */
+enum class ActionFace(val contactPhoto: Boolean = false) {
+    /** A contact's photo filling the tile, with the name strip. */
+    CONTACT_PHOTO(contactPhoto = true),
+
+    /** A contact's photo filling the tile without the name ("show name" off on the photo face). */
+    CONTACT_PHOTO_NO_NAME(contactPhoto = true),
+
+    /** The picture over the name label (a contact without a photo is the person drawing). */
+    PLAIN,
+
+    /** Any other look, drawn by [StyledTileFace] (which shows the label only when the look does). */
+    STYLED,
+}
+
+object ActionFaces {
+    /**
+     * The face of search tile [spec]. As before the customise sheet, only the plain style without a
+     * picked icon is the plain face (a contact's photo when it has one); every older style, and a
+     * hidden name, is the styled face. A contact's photo face with "show name" off is stored as the
+     * plain style plus the hidden name, which older styles never were, and keeps the photo.
+     */
+    fun of(spec: TileSpec): ActionFace {
+        val action = spec.content as? TileContent.Action ?: return ActionFace.STYLED
+        val look = TileLooks.shown(spec)
+        val plainStyle = spec.style == TileStyle.ICON && spec.icon == null
+        val contact = action.icon is ActionIcon.Contact
+        return when {
+            plainStyle && contact && look == TileLook() -> ActionFace.CONTACT_PHOTO
+            plainStyle && contact && look == TileLook(showName = false) -> ActionFace.CONTACT_PHOTO_NO_NAME
+            plainStyle && look == TileLook() -> ActionFace.PLAIN
+            else -> ActionFace.STYLED
+        }
+    }
+}
+
 @Composable
-private fun PhotoTile(tile: ResolvedTile, cellSize: Dp, photo: ImageBitmap) {
+private fun PhotoTile(tile: ResolvedTile, cellSize: Dp, photo: ImageBitmap, showName: Boolean = true) {
     val m = rememberTileMetrics(cellSize)
     Box(Modifier.fillMaxSize().tileSurface()) {
         Image(photo, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        if (tile.spec.size != TileSize.SMALL) {
+        if (tile.spec.size != TileSize.SMALL && showName) {
             Box(Modifier.fillMaxSize().background(PhotoScrim))
             TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
         }

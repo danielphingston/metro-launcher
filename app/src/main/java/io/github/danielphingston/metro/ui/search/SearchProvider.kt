@@ -158,4 +158,7 @@ interface LauncherCommands {
 
     /** Remembers [question] as the last one asked, for the assistant tile. */
     fun recordAssistantQuestion(question: String)
+
+    /** Closes search and puts saved layout [id] on start, the same switch a switch tile makes. */
+    fun switchLayout(id: Long)
 }

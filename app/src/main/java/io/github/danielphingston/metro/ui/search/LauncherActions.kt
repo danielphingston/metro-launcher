@@ -2,10 +2,10 @@ package io.github.danielphingston.metro.ui.search
 
 import android.content.Context
 import android.content.Intent
-import kotlinx.coroutines.launch
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.SavedLayout
+import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.ui.settings.SettingsActivity
 import io.github.danielphingston.metro.ui.settings.SettingsPage
@@ -78,6 +78,18 @@ internal object LauncherActions {
         SearchRanking.top(layouts, name, MAX_LAYOUTS) { listOf(it.name) }.map { it.item }
 
     private const val MAX_LAYOUTS = 3
+
+    /**
+     * The search row for [layout]: tapping it asks the launcher to switch (see
+     * [LauncherCommands.switchLayout], the same switch a switch tile makes), and it pins as the
+     * real layout switch tile, the same as one added from the add menu.
+     */
+    fun layoutItem(layout: SavedLayout, activeId: Long): SearchItem = SearchItem(
+        "layout:${layout.id}", "layout: ${layout.name}",
+        if (layout.id == activeId) "on start now" else "switch the start screen to it", SearchGlyphs.tiles,
+        ItemAction.Run { it.commands.switchLayout(layout.id) },
+        pin = TileContent.LayoutSwitch(layout.id),
+    )
 }
 
 /**
@@ -137,11 +149,7 @@ internal class LauncherActionsProvider(
         val app = context.applicationContext as? MetroApplication ?: return emptyList()
         val set = app.layouts.layouts.value?.takeIf { app.layouts.isUnlocked } ?: return emptyList()
         return LauncherActions.layoutsFor(name, set.layouts).map { layout ->
-            val active = layout.id == set.active
-            SearchItem(
-                "layout:${layout.id}", "layout: ${layout.name}", if (active) "on start now" else "switch the start screen to it", SearchGlyphs.tiles,
-                ItemAction.Run { app.appScope.launch { app.layouts.switchTo(layout.id) } },
-            )
+            LauncherActions.layoutItem(layout, set.active)
         }
     }
 

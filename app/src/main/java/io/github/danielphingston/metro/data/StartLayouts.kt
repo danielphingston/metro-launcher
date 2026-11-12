@@ -11,7 +11,20 @@ import org.json.JSONObject
  * are its start settings (see [LayoutStartSettings]): the stored value of each per-layout key that
  * is set; null for an entry saved before layouts kept settings, which leaves the live ones alone.
  */
-data class SavedLayout(val id: Long, val name: String, val tiles: String, val settings: Map<String, Any>? = null)
+data class SavedLayout(val id: Long, val name: String, val tiles: String, val settings: Map<String, Any>? = null) {
+    // Reading the tile JSON is real work: once per layout (decoding warms it, off the main thread).
+    private val noTiles = lazy(LazyThreadSafetyMode.PUBLICATION) {
+        TileJson.read(tiles)?.let { read ->
+            read.tiles.isEmpty() && read.unread.top.isEmpty() && read.unread.children.values.all { it.isEmpty() }
+        } == true
+    }
+
+    /** Whether this layout holds no tiles at all (entries this version can't read count as tiles). */
+    val hasNoTiles: Boolean get() = noTiles.value
+
+    /** Whether [hasNoTiles] is already known, so reading it does no work. */
+    internal val knowsWhetherEmpty: Boolean get() = noTiles.isInitialized()
+}
 
 /**
  * The saved start layouts, of which [active] is the one on screen. The live "tiles" key holds the
@@ -98,6 +111,8 @@ internal object LayoutsJson {
             )
         }
         if (layouts.isEmpty()) return null
+        // Known here, off the main thread, so the layouts page doesn't read every layout's tiles as it draws.
+        layouts.forEach { it.hasNoTiles }
         val active = root.optLong("active", layouts.first().id).takeIf { id -> layouts.any { it.id == id } } ?: layouts.first().id
         return LayoutSet(active, layouts)
     }
@@ -158,6 +173,18 @@ internal object LayoutOps {
         if (LayoutNames.problem(clean, set) != null) return null
         val base = (set ?: LayoutSet(1, listOf(SavedLayout(1, LayoutNames.FIRST, live)))).withLive(live, settings)
         return base.copy(layouts = base.layouts + SavedLayout(nextId(base), clean, live, base.activeLayout.settings))
+    }
+
+    /**
+     * Adds a layout called [name] with no tiles and the current start settings; the current layout
+     * stays active (the user switches when ready). The first time, the current start itself becomes
+     * the layout [LayoutNames.FIRST], as with [saveAs]. An empty layout references no widget or shortcut.
+     */
+    fun newEmpty(set: LayoutSet?, live: String, name: String, settings: Map<String, Any>? = null): LayoutSet? {
+        val clean = LayoutNames.clean(name)
+        if (LayoutNames.problem(clean, set) != null) return null
+        val base = (set ?: LayoutSet(1, listOf(SavedLayout(1, LayoutNames.FIRST, live)))).withLive(live, settings)
+        return base.copy(layouts = base.layouts + SavedLayout(nextId(base), clean, "[]", base.activeLayout.settings))
     }
 
     fun rename(set: LayoutSet, id: Long, name: String, live: String, settings: Map<String, Any>? = null): LayoutSet? {
