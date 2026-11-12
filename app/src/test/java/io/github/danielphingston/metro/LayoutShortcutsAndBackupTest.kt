@@ -94,6 +94,29 @@ class LayoutShortcutsAndBackupTest {
     }
 
     @Test
+    fun eachLayoutsSettingsSurviveABackup() {
+        val work = mapOf(
+            "columns" to 6, "start_background" to "PHOTO_TILES", "background_photo" to "content://media/1",
+            "background_accent" to 0xFF112233.toInt(), "accent_arrows" to true, "tile_colour_mode" to "ICON",
+        )
+        val withSettings = set.copy(layouts = set.layouts.map { if (it.id == 20L) it.copy(settings = work) else it.copy(settings = emptyMap()) } + SavedLayout(40, "old", "[]"))
+        val prefs = mutablePreferencesOf(
+            stringPreferencesKey("tiles") to tiles,
+            stringPreferencesKey(LayoutsJson.KEY) to LayoutsJson.encode(withSettings),
+            intPreferencesKey("columns") to 4,
+        )
+        val restored = Backup.decode(Backup.encode(prefs, "x", 0))
+        assertEquals(prefs.asMap(), restored.asMap())
+        Backup.checkKeyTypes(restored)
+        val layouts = LayoutsJson.decode(restored[stringPreferencesKey(LayoutsJson.KEY)])!!
+        assertEquals(withSettings, layouts)
+        assertEquals(work, layouts.byId(20)!!.settings)
+        assertEquals(emptyMap<String, Any>(), layouts.byId(10)!!.settings)
+        // A layout saved before layouts kept settings still has none after the round trip.
+        assertNull(layouts.byId(40)!!.settings)
+    }
+
+    @Test
     fun setupFlagStaysOutOfBackups() {
         val prefs = mutablePreferencesOf(booleanPreferencesKey("onboarding_done") to true, stringPreferencesKey("theme") to "LIGHT")
         val text = Backup.encode(prefs, "x", 0)

@@ -29,6 +29,15 @@ import io.github.danielphingston.metro.ui.components.findActivity
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 
+/** What Metro Plus includes, one short line each, as the Metro Plus page lists it above the purchase. */
+internal val MetroPlusContents = listOf(
+    "quick settings tiles: flashlight, ringer, do not disturb and more",
+    "an assistant tile with its latest reply",
+    "smart search: calculator, settings, timers, launcher actions",
+    "layouts, each with its own tiles, wallpaper and settings",
+    "gestures: double tap, two-finger swipes, sleep",
+)
+
 /**
  * The Metro Plus page: the one-time purchase (unlocked, a buy button with Play's price, or not on
  * sale yet) and its two sections, "assistant" and "smart search".
@@ -45,13 +54,14 @@ fun MetroPlusSettingsSection(
     val unlocked by purchases.quickTilesUnlocked.collectAsState()
     val price by purchases.quickTilesPrice.collectAsState()
 
-    MetroText(
-        "Metro Plus: quick settings tiles that toggle the flashlight, ringer and more, an " +
-            "assistant tile, smart search, start layouts you can switch between, and gestures. " +
-            "A one-time purchase, no subscription.",
-        MetroType.caption,
-        color = Metro.colors.subtle,
-    )
+    Spacer(Modifier.height(12.dp))
+    MetroText("Metro Plus adds", MetroType.body)
+    Spacer(Modifier.height(4.dp))
+    MetroPlusContents.forEach { line ->
+        MetroText("·  $line", MetroType.caption, color = Metro.colors.subtle)
+    }
+    Spacer(Modifier.height(8.dp))
+    MetroText("A one-time purchase, no subscription.", MetroType.caption, color = Metro.colors.subtle)
     Spacer(Modifier.height(12.dp))
     val activity = context.findActivity()
     when {

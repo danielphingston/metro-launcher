@@ -36,6 +36,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -520,7 +521,9 @@ private const val CONTINUUM_DEGREES = 12f
 fun Modifier.continuum(pager: PagerState, page: Int, enabled: Boolean = true): Modifier = graphicsLayer {
     if (!enabled) return@graphicsLayer
     val offset = (page - pager.currentPage - pager.currentPageOffsetFraction).coerceIn(-1f, 1f)
-    if (offset == 0f) return@graphicsLayer
+    // A page entirely off screen stays flat too: tilted about its far edge, the start page's other
+    // edge came toward the camera and showed as a strip down the side of the app list.
+    if (offset == 0f || abs(offset) >= 1f) return@graphicsLayer
     rotationY = offset * CONTINUUM_DEGREES
     transformOrigin = TransformOrigin(0f, 0.5f)
     cameraDistance = 24f * density

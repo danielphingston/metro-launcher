@@ -121,15 +121,21 @@ internal fun <T> rememberOnResume(read: () -> T): T {
     return value
 }
 
-/** One page of the settings: a menu entry with a one-line summary of what is inside. */
-internal enum class SettingsPage(val title: String, val summary: String, val parent: SettingsPage? = null) {
-    START("start", "tiles per row, padding, background, transparency"),
+/**
+ * One page of the settings: a menu entry with a one-line summary of what is inside. The order of
+ * the entries is the order of the menu; only [name] is ever stored (deep links, the open page).
+ * [plus] pages belong to Metro Plus. A page with a [parent] is not in the menu: it is reached from
+ * its parent (or a link), and back goes there.
+ */
+internal enum class SettingsPage(val title: String, val summary: String, val parent: SettingsPage? = null, val plus: Boolean = false) {
+    START("start", "layouts, tiles per row, padding, background, tile colour"),
     APP_LIST("app list", "icons, scrubber highlight and position"),
     SEARCH("search", "search engine, pull distance, smart search"),
     APPEARANCE("appearance", "theme, accent colour, icon pack"),
     ANIMATIONS("animations", "launch animation, speed, tilt, live tile flips"),
     TILES("tiles", "weather, photos, people, calendar, notifications"),
     METRO_PLUS("metro plus", "quick settings tiles, assistant, smart search, layouts, gestures"),
+    GESTURES("gestures", "double tap, two-finger swipes, sleep", plus = true),
     ABOUT("about", "default home app, app info, crash log, version"),
 
     // Long lists of the search settings, each on a page of its own (reached from the search page, not listed in the menu).
@@ -137,8 +143,17 @@ internal enum class SettingsPage(val title: String, val summary: String, val par
     SEARCH_KEYWORDS("search keywords", "short words that search one app or site", SEARCH),
     SEARCH_HELP("what can I type?", "the phrases smart search understands", SEARCH),
 
-    GESTURES("gestures", "double tap, two-finger swipes, sleep"),
-    LAYOUTS("layouts", "save and switch start layouts"),
+    // Managed from the start page's layouts section; also opened by a switch tile or search.
+    LAYOUTS("layouts", "save and switch start layouts", START, plus = true),
+    ;
+
+    /** The menu's line under the title; a Metro Plus page says so while the pack is locked. */
+    fun menuSummary(unlocked: Boolean): String = if (plus && !unlocked) "$summary · metro plus" else summary
+
+    companion object {
+        /** The pages the settings menu lists, in order. */
+        val menu: List<SettingsPage> get() = entries.filter { it.parent == null }
+    }
 }
 
 @Composable
@@ -166,7 +181,7 @@ internal fun SettingsScreen(
         } else {
             SettingsPageFrame(current, pageScrolls.getValue(current)) {
                 when (current) {
-                    SettingsPage.START -> StartPage(settings, repository)
+                    SettingsPage.START -> StartPage(settings, repository, onOpenPage = { page = it.name })
                     SettingsPage.APP_LIST -> AppListPage(settings, repository)
                     SettingsPage.SEARCH -> SearchSettingsSection(
                         settings, repository,
@@ -187,8 +202,9 @@ internal fun SettingsScreen(
                         onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
                     ) { GesturesPage(settings, repository) }
                     SettingsPage.LAYOUTS -> PlusGate(
-                        "Keep more than one start screen, such as work and weekend, and switch between them with a tile, " +
-                            "from search or from a routine, once Metro Plus is unlocked, a one-time purchase.",
+                        "Keep more than one start screen, such as work and weekend, each with its own tiles, wallpaper and " +
+                            "settings, and switch between them with a tile, from search or from a routine, once Metro Plus is " +
+                            "unlocked, a one-time purchase.",
                         onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
                     ) { LayoutsPage() }
                 }
@@ -211,7 +227,9 @@ private fun SettingsMenu(scroll: ScrollState, onOpen: (SettingsPage) -> Unit) {
         MetroText("METRO LAUNCHER", MetroType.appName, color = colors.subtle)
         MetroText("settings", MetroType.pageTitle, maxLines = 1)
         Spacer(Modifier.height(12.dp))
-        SettingsPage.entries.filter { it.parent == null }.forEach { entry ->
+        val app = LocalContext.current.applicationContext as? MetroApplication
+        val unlocked = app?.purchases?.quickTilesUnlocked?.collectAsState()?.value ?: true
+        SettingsPage.menu.forEach { entry ->
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -220,7 +238,7 @@ private fun SettingsMenu(scroll: ScrollState, onOpen: (SettingsPage) -> Unit) {
                     .padding(vertical = 10.dp),
             ) {
                 MetroText(entry.title, MetroType.sectionTitle.copy(fontSize = 30.sp), maxLines = 1)
-                MetroText(entry.summary, MetroType.caption, color = colors.subtle, maxLines = 3)
+                MetroText(entry.menuSummary(unlocked), MetroType.caption, color = colors.subtle, maxLines = 3)
             }
         }
         Spacer(Modifier.height(24.dp))

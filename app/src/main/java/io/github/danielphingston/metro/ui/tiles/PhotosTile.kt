@@ -219,7 +219,10 @@ fun PhotosSettingsSection() {
             if (chosen.isEmpty()) return@launch
             val previous = PhotoSource.current(context)
             PhotoSource.save(context, chosen)
-            (previous - chosen.toSet()).forEach { release(Uri.parse(it)) }
+            val dropped = previous - chosen.toSet()
+            // A photo a start background still shows (on screen or in a saved layout) keeps its grant.
+            val layouts = (context.applicationContext as? io.github.danielphingston.metro.MetroApplication)?.layouts
+            if (layouts != null) layouts.releasePhotosIfUnused(dropped) else dropped.forEach { release(Uri.parse(it)) }
         }
     }
 

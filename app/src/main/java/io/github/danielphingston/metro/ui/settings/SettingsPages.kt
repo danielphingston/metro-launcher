@@ -55,10 +55,13 @@ internal const val NOTIFICATION_DISCLOSURE = "Live tiles read your notifications
 
 // The pages of the settings (see SettingsScreen). Each takes the controls that used to share one long page.
 
+/** The start page. [onOpenPage] goes to another settings page: the layouts page, or Metro Plus to unlock them. */
 @Composable
-internal fun StartPage(settings: LauncherSettings, repository: SettingsRepository) {
+internal fun StartPage(settings: LauncherSettings, repository: SettingsRepository, onOpenPage: (SettingsPage) -> Unit = {}) {
     val scope = rememberCoroutineScope()
     val colors = Metro.colors
+    // Everything below belongs to the layout on screen, so the layouts come first.
+    StartLayoutsSection(onOpenPage)
     Section("start screen")
     if (LocalConfiguration.current.smallestScreenWidthDp >= LARGE_SCREEN_DP) {
         // Tiles keep about a phone's size on a tablet, so more columns fill the wider screen; auto picks the count.

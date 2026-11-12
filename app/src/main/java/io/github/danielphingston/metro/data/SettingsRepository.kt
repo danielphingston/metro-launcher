@@ -254,7 +254,8 @@ internal val Context.metroDataStore by preferencesDataStore(
 )
 
 class SettingsRepository(private val context: Context) {
-    private object Keys {
+    /** The stored keys; [LayoutStartSettings] reuses the start screen's. */
+    internal object Keys {
         val theme = stringPreferencesKey("theme")
         val accent = intPreferencesKey("accent")
         val columns = intPreferencesKey("columns")

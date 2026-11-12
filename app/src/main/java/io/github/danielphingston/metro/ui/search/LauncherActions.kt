@@ -63,11 +63,42 @@ internal object LauncherActions {
         return SearchRanking.top(candidates, name, MAX_APPS) { listOf(it.label) }.map { it.item }
     }
 
+    /**
+     * Whether [query] asks for layouts by name: "layouts", "layout settings", "layout work"...
+     * Only whole phrases count, so typing an app that starts with "la" never mentions layouts.
+     */
+    fun asksForLayouts(query: String): Boolean {
+        val q = query.trim().replace(Regex("\\s+"), " ").lowercase()
+        if (layout.matchEntire(q) != null) return true
+        return q == "layout" || q in Cmd.LAYOUTS.keywords
+    }
+
     /** The saved layouts [name] points at, best first. */
     fun layoutsFor(name: String, layouts: List<SavedLayout>): List<SavedLayout> =
         SearchRanking.top(layouts, name, MAX_LAYOUTS) { listOf(it.name) }.map { it.item }
 
     private const val MAX_LAYOUTS = 3
+}
+
+/**
+ * While Metro Plus is locked (the only time it is asked, see [SearchProviders.active]): a search for
+ * layouts gets one row saying they are part of Metro Plus, which opens its settings page, instead
+ * of nothing. Asks for nothing else.
+ */
+internal object LockedLayoutsProvider : SearchProvider {
+    override val id = "locked_layouts"
+    override val feature: SmartFeature? = null
+    override val section = "launcher"
+
+    const val TITLE = "layouts are part of Metro Plus"
+
+    override suspend fun results(query: String, ctx: SearchContext): List<SearchItem> {
+        if (!LauncherActions.asksForLayouts(query)) return emptyList()
+        val intent = SettingsActivity.intent(ctx.context, SettingsPage.METRO_PLUS)
+        return listOf(
+            SearchItem("plus", TITLE, "a start screen for work and one for the weekend, each with its own wallpaper", SearchGlyphs.tiles, SearchActions.start(intent)),
+        )
+    }
 }
 
 /** Feature 7: commands for the launcher itself, plus app info and uninstall for a named app. */

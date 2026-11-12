@@ -33,10 +33,19 @@ internal object SearchProviders {
         AskAssistantProvider,
     )
 
-    /** The providers that may answer now: always-on ones, and those whose feature is unlocked and switched on. */
+    /**
+     * Asked only while Metro Plus is locked: rows that say a search found a Metro Plus feature,
+     * where the unlocked feature would have answered.
+     */
+    val whileLocked: List<SearchProvider> = listOf(LockedLayoutsProvider)
+
+    /**
+     * The providers that may answer now: always-on ones, and those whose feature is unlocked and
+     * switched on; while locked, [whileLocked] too.
+     */
     fun active(settings: LauncherSettings, unlocked: Boolean, providers: List<SearchProvider> = all): List<SearchProvider> =
         providers.filter { provider ->
             val feature = provider.feature
             feature == null || (unlocked && settings.smartOn(feature))
-        }
+        } + if (unlocked) emptyList() else whileLocked
 }

@@ -5,10 +5,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,6 +31,7 @@ import io.github.danielphingston.metro.data.LayoutNames
 import io.github.danielphingston.metro.data.LayoutSet
 import io.github.danielphingston.metro.data.SavedLayout
 import io.github.danielphingston.metro.ui.components.MetroButton
+import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.SearchField
 import io.github.danielphingston.metro.ui.components.SearchFieldStyle
@@ -35,6 +39,83 @@ import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.launch
+
+/**
+ * The top of the start page: which layout these settings belong to, chips to switch layouts right
+ * there (the page then shows the other layout's settings) and the way to the layouts page. While
+ * Metro Plus is locked it says what layouts would do and how to unlock them. Without the app (a
+ * preview) there is no purchase to check, so it reads as locked.
+ */
+@Composable
+internal fun StartLayoutsSection(onOpenPage: (SettingsPage) -> Unit) {
+    val app = LocalContext.current.applicationContext as? MetroApplication
+    val unlocked = app?.purchases?.quickTilesUnlocked?.collectAsState()?.value ?: false
+    val set = app?.layouts?.layouts?.collectAsState()?.value
+    val scope = rememberCoroutineScope()
+    StartLayoutsSectionContent(
+        unlocked = unlocked,
+        set = set,
+        onSwitch = { id -> app?.let { scope.launch { it.layouts.switchTo(id) } } },
+        onManage = { onOpenPage(SettingsPage.LAYOUTS) },
+        onUnlock = { onOpenPage(SettingsPage.METRO_PLUS) },
+    )
+}
+
+/** What [StartLayoutsSection] shows, for [unlocked] and the saved layouts [set] (null: none saved yet). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun StartLayoutsSectionContent(
+    unlocked: Boolean,
+    set: LayoutSet?,
+    onSwitch: (Long) -> Unit,
+    onManage: () -> Unit,
+    onUnlock: () -> Unit,
+) {
+    val colors = Metro.colors
+    if (!unlocked) {
+        Spacer(Modifier.height(36.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
+            LockGlyph(colors.subtle, Modifier.padding(top = 10.dp).size(width = 20.dp, height = 22.dp))
+            Column(Modifier.weight(1f)) {
+                MetroText("layouts · metro plus", MetroType.sectionTitle)
+                Spacer(Modifier.height(4.dp))
+                MetroText(LAYOUTS_PITCH, MetroType.caption, color = colors.subtle)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        MetroButton("unlock with Metro Plus", onClick = onUnlock)
+        return
+    }
+    Section("layouts")
+    if (set == null) {
+        MetroText(
+            "Keep more than one start screen, such as work and weekend, each with its own tiles, wallpaper and the settings below.",
+            MetroType.caption,
+            color = colors.subtle,
+        )
+        Spacer(Modifier.height(12.dp))
+        MetroButton("manage layouts", onClick = onManage)
+        return
+    }
+    MetroText(
+        "These settings belong to the layout “${set.activeLayout.name}”. Each layout keeps its own.",
+        MetroType.caption,
+        color = colors.subtle,
+    )
+    Spacer(Modifier.height(10.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        set.layouts.forEach { layout ->
+            val active = layout.id == set.activeLayout.id
+            MetroChoice(layout.name, active, { if (!active) onSwitch(layout.id) })
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    MetroButton("manage layouts", onClick = onManage)
+}
+
+/** What layouts are, for someone who hasn't unlocked them. */
+internal const val LAYOUTS_PITCH = "Keep a start screen for work and one for the weekend, each with its own tiles, wallpaper " +
+    "and settings. Switch with a tile, from search, or automatically from a routine."
 
 /** What the layouts page is asking for: a name for a new layout or a renamed one, or a confirmed delete. */
 private sealed interface LayoutEdit {
@@ -61,8 +142,8 @@ internal fun LayoutsPage() {
 
     Spacer(Modifier.height(12.dp))
     MetroText(
-        "Keep more than one start screen, such as work and weekend, each with its own tiles, and switch between them here, " +
-            "from a switch tile (the + under the tiles) or by searching for “layout” and its name.",
+        "Keep more than one start screen, such as work and weekend, each with its own tiles, wallpaper and start settings, " +
+            "and switch between them here, from a switch tile (the + under the tiles) or by searching for “layout” and its name.",
         MetroType.caption,
         color = colors.subtle,
     )
@@ -112,7 +193,11 @@ internal fun LayoutsPage() {
         else -> NameEditor(
             initial = (e as? LayoutEdit.Rename)?.layout?.name.orEmpty(),
             title = if (e is LayoutEdit.Rename) "rename layout" else "new layout",
-            note = if (current == null) "Your start screen as it is now is kept as “${LayoutNames.FIRST}”, and the new layout starts as a copy of it." else "The new layout starts as a copy of the start screen as it is now.",
+            note = if (current == null) {
+                "Your start screen as it is now is kept as “${LayoutNames.FIRST}”, and the new layout starts as a copy of it, settings and wallpaper included."
+            } else {
+                "The new layout starts as a copy of the start screen as it is now, settings and wallpaper included."
+            },
             set = current,
             exceptId = (e as? LayoutEdit.Rename)?.layout?.id,
             onSave = { name ->
@@ -162,7 +247,7 @@ private fun NameEditor(
 private fun DeleteConfirm(layout: SavedLayout, onDelete: () -> Unit, onCancel: () -> Unit) {
     MetroText("delete ${layout.name}?", MetroType.sectionTitle)
     Spacer(Modifier.height(4.dp))
-    MetroText("Its tiles go with it. Your other layouts stay as they are.", MetroType.caption, color = Metro.colors.subtle)
+    MetroText("Its tiles and settings go with it. Your other layouts stay as they are.", MetroType.caption, color = Metro.colors.subtle)
     Spacer(Modifier.height(16.dp))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         MetroButton("delete", onClick = onDelete)
