@@ -680,7 +680,8 @@ fun StartScreen(
                         onResize = if (isWidget) null else ({ viewModel.resize(tiles[selectedIndex].spec.id) }),
                         onGroup = if (TileFolders.canGroup(selectedTile.spec)) ({ state.startGrouping(selectedTile.spec.id) }) else null,
                         groupLabel = if (selectedTile.spec.content is TileContent.Folder) "add to folder" else "group into folder",
-                        onStyle = if (offersStyle(selectedTile.spec, defaults)) ({ state.stylingId = selectedTile.spec.id }) else null,
+                        onStyle = if (offersTileColour(selectedTile.spec)) ({ state.stylingId = selectedTile.spec.id }) else null,
+                        centreStyle = isWidget,
                     )
                     WidgetEditBadges(
                         tile = tiles[selectedIndex],
@@ -702,7 +703,7 @@ fun StartScreen(
                             state.exitEdit()
                         },
                         onResize = { viewModel.resize(openChildren[selectedChild].spec.id) },
-                        onStyle = if (offersStyle(openChildren[selectedChild].spec, defaults)) ({ state.stylingId = openChildren[selectedChild].spec.id }) else null,
+                        onStyle = if (offersTileColour(openChildren[selectedChild].spec)) ({ state.stylingId = openChildren[selectedChild].spec.id }) else null,
                     )
                 }
             }
@@ -734,6 +735,8 @@ fun StartScreen(
             } else {
                 TileStyleMenu(
                     spec = spec,
+                    styleable = offersStyle(spec, defaults),
+                    onColour = { color -> viewModel.setColor(id, color) },
                     onPick = { style, image -> viewModel.setStyle(id, style, image) },
                     onDismiss = { state.stylingId = null },
                     onChooseIcon = {
@@ -994,6 +997,7 @@ internal fun TileHost(
                     onRemoveFromFolder?.let { add(CustomAccessibilityAction("Remove from folder") { it(); true }) }
                     add(CustomAccessibilityAction("Unpin from start") { onUnpin(); true })
                     if (onRemoveFromFolder == null && !isWidget) add(CustomAccessibilityAction("Resize") { onResize(); true })
+                    if (offersTileColour(tile.spec)) add(CustomAccessibilityAction("Tile colour…") { state.stylingId = id; true })
                     addAll(widgetActions)
                 }
             }
@@ -1081,6 +1085,8 @@ internal fun EditBadges(
     onGroup: (() -> Unit)? = null,
     groupLabel: String = "group into folder",
     onStyle: (() -> Unit)? = null,
+    /** Puts the style badge bottom centre, where a widget's own badges leave room. */
+    centreStyle: Boolean = false,
 ) {
     val badgePx = with(LocalDensity.current) { EditBadgeSize.toPx() }
     val right = (placement.x + placement.width) * cellPx - gapPx
@@ -1107,7 +1113,10 @@ internal fun EditBadges(
     if (onStyle != null) EditBadge(
         label = "tile style",
         onClick = onStyle,
-        modifier = Modifier.offset { IntOffset((left - badgePx * 0.15f).roundToInt(), (bottom - badgePx * 0.7f).roundToInt()) },
+        modifier = Modifier.offset {
+            val x = if (centreStyle) (left + right - badgePx) / 2f else left - badgePx * 0.15f
+            IntOffset(x.roundToInt(), (bottom - badgePx * 0.7f).roundToInt())
+        },
     ) { color, stroke ->
         val inset = size.minDimension * 0.28f
         drawRect(color, Offset(inset, inset), Size(size.width - inset * 2, size.height - inset * 2), style = Stroke(stroke))
@@ -1236,12 +1245,15 @@ private fun activateTile(
 @Composable
 private fun TileStyleMenu(
     spec: TileSpec,
+    styleable: Boolean,
+    onColour: (String?) -> Unit,
     onPick: (TileStyle, String?) -> Unit,
     onDismiss: () -> Unit,
     onChooseIcon: () -> Unit,
     onDefaultIcon: () -> Unit,
 ) {
     val context = LocalContext.current
+    var colouring by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<TileStyle?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         val style = pending
@@ -1271,14 +1283,22 @@ private fun TileStyleMenu(
         }
     }
     val folder = spec.content is TileContent.Folder
-    val items = TileStyles.styles(spec).map { style ->
-        val label = style.label
-        (if (style == spec.style) "• $label" else label) to { choose(style) }
-    } + listOfNotNull(
-        if (spec.style.needsImage) "choose another photo" to { choose(spec.style, newPhoto = true) } else null,
-        if (!folder) "choose icon" to onChooseIcon else null,
-        if (!folder && spec.icon != null) "reset to default" to { onDefaultIcon(); onDismiss() } else null,
-    )
+    if (colouring) {
+        TileColourMenu(spec, onColour, onDismiss)
+        return
+    }
+    val items = (if (styleable) {
+        TileStyles.styles(spec).map { style ->
+            val label = style.label
+            (if (style == spec.style) "• $label" else label) to { choose(style) }
+        } + listOfNotNull(
+            if (spec.style.needsImage) "choose another photo" to { choose(spec.style, newPhoto = true) } else null,
+            if (!folder) "choose icon" to onChooseIcon else null,
+            if (!folder && spec.icon != null) "reset to default" to { onDefaultIcon(); onDismiss() } else null,
+        )
+    } else {
+        emptyList()
+    }) + ("tile colour" to { colouring = true })
     MetroFlyout(onDismiss) {
         MetroMenu(
             items = items,

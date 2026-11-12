@@ -283,6 +283,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Sets how tile [id] draws itself; see [io.github.danielphingston.metro.data.TileRepository.setStyle]. */
     fun setStyle(id: Long, style: io.github.danielphingston.metro.data.TileStyle, image: String?) = metro.tiles.setStyle(id, style, image)
 
+    /** Sets the colour of tile [id]; see [io.github.danielphingston.metro.data.TileColors]. */
+    fun setColor(id: Long, color: String?) = metro.tiles.setColor(id, color)
+
     /** Drops tile [id] with its top-left corner on the grid cell [x], [y]. */
     fun moveTo(id: Long, x: Int, y: Int) = metro.tiles.moveTo(id, x, y)
 
