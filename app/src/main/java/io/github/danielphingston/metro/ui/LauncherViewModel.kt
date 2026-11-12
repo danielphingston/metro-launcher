@@ -56,6 +56,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import io.github.danielphingston.metro.ui.onboarding.OnboardingState
 import java.io.FileNotFoundException
 
 /**
@@ -73,6 +74,9 @@ data class ResolvedTile(
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
     private val metro = application as MetroApplication
     val icons: IconCache = metro.icons
+
+    /** The first-run setup; created before the default layout is saved, which it tells apart. */
+    internal val onboarding = OnboardingState(application, metro.settings, viewModelScope)
 
     /** The Metro Plus pack: whether it is unlocked, its Play price, and how to buy it. */
     val quickTilesUnlocked: StateFlow<Boolean> = metro.purchases.quickTilesUnlocked

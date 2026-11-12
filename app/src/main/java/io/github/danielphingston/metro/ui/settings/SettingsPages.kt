@@ -49,6 +49,10 @@ import io.github.danielphingston.metro.ui.tiles.PhotosSettingsSection
 import io.github.danielphingston.metro.ui.tiles.WeatherSettingsSection
 import kotlinx.coroutines.launch
 
+/** Shown before sending the user to notification access; the first-run setup says the same. */
+internal const val NOTIFICATION_DISCLOSURE = "Live tiles read your notifications on this phone to show counts and the latest " +
+    "message on app tiles. Nothing leaves your device."
+
 // The pages of the settings (see SettingsScreen). Each takes the controls that used to share one long page.
 
 @Composable
@@ -207,8 +211,7 @@ internal fun TilesPage(settings: LauncherSettings, repository: SettingsRepositor
 
     Section("live tiles")
     MetroText(
-        "Live tiles read your notifications on this phone to show counts and the latest " +
-            "message on app tiles. Nothing leaves your device.",
+        NOTIFICATION_DISCLOSURE,
         MetroType.caption,
         color = colors.subtle,
     )
@@ -257,6 +260,7 @@ internal fun TilesPage(settings: LauncherSettings, repository: SettingsRepositor
 @Composable
 internal fun AboutPage() {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val colors = Metro.colors
     val roleManager = remember { context.getSystemService(RoleManager::class.java) }
     val isDefaultHome = rememberOnResume { roleManager.isRoleHeld(RoleManager.ROLE_HOME) }
@@ -288,6 +292,20 @@ internal fun AboutPage() {
         context.startActivity(
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
         )
+    })
+
+    Section("setup")
+    MetroText(
+        "Go through the first-run setup again: default home app, live tiles and the look.",
+        MetroType.caption,
+        color = colors.subtle,
+    )
+    Spacer(Modifier.height(10.dp))
+    MetroButton("run setup again", onClick = {
+        scope.launch {
+            (context.applicationContext as MetroApplication).settings.setOnboardingDone(false)
+            Toast.makeText(context, "Setup will show when you go back to the start screen", Toast.LENGTH_LONG).show()
+        }
     })
 
     BackupSettingsSection()

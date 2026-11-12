@@ -33,6 +33,7 @@ import io.github.danielphingston.metro.ui.applist.AppListScreen
 import io.github.danielphingston.metro.ui.applist.AppListState
 import io.github.danielphingston.metro.ui.components.LocalMotion
 import io.github.danielphingston.metro.ui.components.Motion
+import io.github.danielphingston.metro.ui.onboarding.OnboardingScreen
 import io.github.danielphingston.metro.ui.search.LauncherCommands
 import io.github.danielphingston.metro.ui.search.SearchOverlay
 import io.github.danielphingston.metro.ui.search.SearchState
@@ -265,6 +266,9 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
             }
             // Outside LocalTurnstile's scope: its own field must not swing with the tiles.
             SearchOverlay(viewModel, searchState, launcher, commands)
+            // First-run setup, above everything; see Onboarding.
+            val onboarding by viewModel.onboarding.visible.collectAsStateWithLifecycle()
+            if (onboarding) OnboardingScreen(settings, viewModel.onboarding::finish)
         }
     }
 }
