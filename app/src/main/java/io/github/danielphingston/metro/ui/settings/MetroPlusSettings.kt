@@ -40,14 +40,16 @@ internal val MetroPlusContents = listOf(
 
 /**
  * The Metro Plus page: the one-time purchase (unlocked, a buy button with Play's price, or not on
- * sale yet) and its two sections, "assistant" and "smart search".
- * [onOpenSearchSettings] goes to the search page, where each smart search feature has its switch.
+ * sale yet) and its sections, "assistant", "smart search" and "gestures".
+ * [onOpenSearchSettings] goes to the search page, where each smart search feature has its switch;
+ * [onOpenGestureSettings] to the gestures page.
  */
 @Composable
 fun MetroPlusSettingsSection(
     settings: LauncherSettings,
     repository: SettingsRepository,
     onOpenSearchSettings: () -> Unit = {},
+    onOpenGestureSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val purchases = (context.applicationContext as MetroApplication).purchases
@@ -107,6 +109,17 @@ fun MetroPlusSettingsSection(
     )
     Spacer(Modifier.height(10.dp))
     MetroButton("search settings", onClick = onOpenSearchSettings)
+
+    Section("gestures")
+    MetroText(
+        "Double tap, two-finger swipes and a pinch on the start screen can open search, the app list, an app, " +
+            "the notification shade or quick settings, or turn the screen off. Each gesture is off until you " +
+            "choose what it does.",
+        MetroType.caption,
+        color = Metro.colors.subtle,
+    )
+    Spacer(Modifier.height(10.dp))
+    MetroButton("gesture settings", onClick = onOpenGestureSettings)
 }
 
 /**

@@ -7,17 +7,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
@@ -26,23 +22,17 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.changedToDown
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -59,7 +49,7 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.delay
 
-/** What the slim bar along the bottom of start reports, and the one action it offers. */
+/** What the undo pill at the top of start stands for after an edit or a layout switch, and its action. */
 internal sealed interface StartNotice {
     /** Bumped for every notice, so the same text twice in a row still restarts the bar's timer. */
     val serial: Long
@@ -77,45 +67,51 @@ internal sealed interface StartNotice {
     }
 }
 
-/** What can happen to the bar; see [NoticeState.reduce]. */
+/** What can happen to the pill; see [NoticeState.reduce]. */
 internal sealed interface NoticeEvent {
-    /** An edit was recorded; only a [destructive] one gets a bar. */
-    data class Edit(val label: String, val destructive: Boolean) : NoticeEvent
+    /** An edit was recorded. */
+    data class Edit(val label: String) : NoticeEvent
     data class Switched(val name: String, val previous: Long) : NoticeEvent
-    /** A pointer went down on the launcher outside the bar. */
-    data object Touch : NoticeEvent
-    data object Scroll : NoticeEvent
+    /** Edit mode ended; [undoNext] is what an undo would still take back, if anything. */
+    data class EditModeLeft(val undoNext: String?) : NoticeEvent
+    /** The pill was tapped and one step undone; [undoNext] is what the next tap would take back. */
+    data class UndoTapped(val undoNext: String?) : NoticeEvent
     data object PageChanged : NoticeEvent
     /** The launcher was left (stopped), e.g. by launching an app. */
     data object Left : NoticeEvent
     /** The display time ran out. */
     data object Timeout : NoticeEvent
-    /** The bar's action was tapped. */
-    data object UndoTapped : NoticeEvent
 }
 
 /**
- * The bar's whole behaviour as a pure reducer. A destructive edit or a layout switch shows the
- * bar; a harmless edit, a touch elsewhere, a scroll, a page change, leaving the launcher, the
- * timeout and tapping the action all hide it.
+ * The pill's whole behaviour as a pure reducer. Every edit, a layout switch, leaving edit mode
+ * with something to undo, and an undo that leaves more steps all show it for [StartNotices.NOTICE_MILLIS]
+ * (a new one restarts the time). The timeout, another page and leaving the launcher hide it.
  */
 internal data class NoticeState(val current: StartNotice? = null, val serial: Long = 0) {
+    private fun show(label: String) = copy(current = StartNotice.Edited(label, serial + 1), serial = serial + 1)
+
     fun reduce(event: NoticeEvent): NoticeState = when (event) {
-        is NoticeEvent.Edit ->
-            if (event.destructive) copy(current = StartNotice.Edited(event.label, serial + 1), serial = serial + 1)
-            else copy(current = null)
+        is NoticeEvent.Edit -> show(event.label)
         is NoticeEvent.Switched -> copy(current = StartNotice.Switched(event.name, event.previous, serial + 1), serial = serial + 1)
-        NoticeEvent.Touch, NoticeEvent.Scroll, NoticeEvent.PageChanged, NoticeEvent.Left,
-        NoticeEvent.Timeout, NoticeEvent.UndoTapped,
-        -> copy(current = null)
+        is NoticeEvent.EditModeLeft -> event.undoNext?.let(::show) ?: this
+        is NoticeEvent.UndoTapped -> event.undoNext?.let(::show) ?: copy(current = null)
+        NoticeEvent.PageChanged, NoticeEvent.Left, NoticeEvent.Timeout -> copy(current = null)
+    }
+
+    companion object {
+        /**
+         * Whether the undo steps go once the pill is gone: always outside edit mode. Inside it
+         * they stay, so leaving edit mode can offer the latest one for a last few seconds.
+         */
+        fun clearsUndoWhenHidden(editing: Boolean): Boolean = !editing
     }
 }
 
 /**
- * The bar's state: the latest notice until it times out ([NOTICE_MILLIS], longer when an
- * accessibility service asks for it), a new one replaces it, or the user moves on (touches
- * anything else, scrolls, swipes to another page or leaves the launcher, which launching an app
- * also does).
+ * The pill's state: the latest notice until its time runs out ([NOTICE_MILLIS], longer when an
+ * accessibility service asks for it), a new one replaces it, or the user goes to another page
+ * or leaves the launcher (which launching an app also does).
  */
 @Stable
 internal class StartNotices {
@@ -123,189 +119,140 @@ internal class StartNotices {
 
     val current: StartNotice? get() = state.current
 
-    /** Where the bar is on screen, so a touch on it is not a touch elsewhere; null while it is hidden. */
-    var barBounds: Rect? = null
-
-    /** Where the observing modifier sits on screen; its pointer positions are relative to that. */
-    var origin: Offset = Offset.Zero
-
     fun send(event: NoticeEvent) {
         state = state.reduce(event)
     }
-
-    fun dismiss() = send(NoticeEvent.Timeout)
-
-    /**
-     * Whether something covers the bottom of start: a notice, or in edit mode the undo button
-     * while [undoNext] says there is a step to take back.
-     */
-    fun barShown(editing: Boolean, undoNext: String?): Boolean = current != null || (editing && undoNext != null)
 
     companion object {
         const val NOTICE_MILLIS = 4_000L
     }
 }
 
-/** The edit mode undo button's TalkBack label, or null when there is nothing to undo (no button). */
+/** The undo pill's TalkBack label in edit mode, or null when there is nothing to undo (no pill). */
 internal fun editUndoDescription(undoNext: String?): String? = undoNext?.let { "undo $it" }
 
 @Composable
 internal fun rememberStartNotices(
     viewModel: LauncherViewModel,
     isCurrentPage: Boolean,
-    scrolling: () -> Boolean,
+    editing: Boolean,
 ): StartNotices {
     val notices = remember { StartNotices() }
+    val editingNow by rememberUpdatedState(editing)
+    // Drops the undo steps once the pill is gone outside edit mode; see NoticeState.clearsUndoWhenHidden.
+    fun hide(event: NoticeEvent) {
+        notices.send(event)
+        if (NoticeState.clearsUndoWhenHidden(editingNow)) viewModel.clearUndo()
+    }
     LaunchedEffect(viewModel) {
-        viewModel.undoRecorded.collect { notices.send(NoticeEvent.Edit(it.label, it.destructive)) }
+        viewModel.undoRecorded.collect { notices.send(NoticeEvent.Edit(it.label)) }
     }
     LaunchedEffect(viewModel) {
         viewModel.layoutSwitches.collect { notices.send(NoticeEvent.Switched(it.name, it.previous)) }
+    }
+    var wasEditing by remember { mutableStateOf(editing) }
+    LaunchedEffect(editing) {
+        if (wasEditing && !editing) notices.send(NoticeEvent.EditModeLeft(viewModel.undoNext.value))
+        wasEditing = editing
     }
     val accessibility = LocalAccessibilityManager.current
     LaunchedEffect(notices.current) {
         if (notices.current == null) return@LaunchedEffect
         val millis = accessibility?.calculateRecommendedTimeoutMillis(
-            StartNotices.NOTICE_MILLIS, containsIcons = false, containsText = true, containsControls = true,
+            StartNotices.NOTICE_MILLIS, containsIcons = true, containsText = true, containsControls = true,
         ) ?: StartNotices.NOTICE_MILLIS
         delay(millis)
-        notices.send(NoticeEvent.Timeout)
+        hide(NoticeEvent.Timeout)
     }
-    LaunchedEffect(notices) {
-        snapshotFlow(scrolling).collect { if (it) notices.send(NoticeEvent.Scroll) }
-    }
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { notices.send(NoticeEvent.Left) }
-    LaunchedEffect(isCurrentPage) { if (!isCurrentPage) notices.send(NoticeEvent.PageChanged) }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { hide(NoticeEvent.Left) }
+    LaunchedEffect(isCurrentPage) { if (!isCurrentPage) hide(NoticeEvent.PageChanged) }
     return notices
 }
 
 /**
- * Hides the bar at the first pointer-down anywhere on the launcher but on the bar itself. It
- * watches before the children and consumes nothing, so the touch still does what it would have.
- */
-internal fun Modifier.hideNoticesOnTouch(notices: StartNotices): Modifier = this
-    .onGloballyPositioned { notices.origin = it.positionInRoot() }
-    .pointerInput(notices) {
-        awaitPointerEventScope {
-            while (true) {
-                val event = awaitPointerEvent(PointerEventPass.Initial)
-                if (notices.current == null) continue
-                val bar = notices.barBounds
-                if (event.changes.any { it.changedToDown() && (bar == null || !bar.contains(notices.origin + it.position)) }) {
-                    notices.send(NoticeEvent.Touch)
-                }
-            }
-        }
-    }
-
-/**
- * The slim bar along the bottom of start, above the navigation bar, like the grouping bar:
- * "<what happened>" and its action. TalkBack reads each new message as it appears.
+ * The one undo control: a small floating pill near the top of start, over the tiles, with an
+ * undo arrow and the word. In edit mode it stays while something can be undone. Outside it, it
+ * shows for a few seconds after an edit, after leaving edit mode with something left to undo,
+ * and after a layout switch ("back"); see [NoticeState] and [pillContent].
+ * Each tap takes back one step and, while more are left, keeps it up a few seconds longer.
+ * TalkBack hears what the tap takes back.
  */
 @Composable
-internal fun StartNoticeBar(
+internal fun UndoPill(
     notices: StartNotices,
     viewModel: LauncherViewModel,
+    editing: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val undoNext by viewModel.undoNext.collectAsStateWithLifecycle()
-    val notice = notices.current
-    // An edit notice whose step was already undone (from the edit mode button, say) has nothing left to offer.
-    val shown: StartNotice? = notice?.takeIf { it !is StartNotice.Edited || undoNext != null }
+    val shown = pillContent(notices.current, editing, undoNext)
     var last by remember { mutableStateOf(shown) }
     if (shown != null) last = shown
     AnimatedVisibility(
         visible = shown != null,
         modifier = modifier,
-        enter = fadeIn(tween(160)) + slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it / 2 },
+        enter = fadeIn(tween(160)) + slideInVertically(tween(220, easing = FastOutSlowInEasing)) { -it / 2 },
         exit = fadeOut(tween(120)),
     ) {
         val current = shown ?: last ?: return@AnimatedVisibility
+        val colors = Metro.colors
         Row(
             Modifier
-                .fillMaxWidth()
-                .background(Metro.colors.chrome)
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .onGloballyPositioned { notices.barBounds = it.boundsInRoot() },
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(top = 12.dp)
+                .clip(CircleShape)
+                .background(colors.chrome)
+                .clickable(onClickLabel = current.description, role = Role.Button) {
+                    when (val n = current.notice) {
+                        is StartNotice.Switched -> {
+                            viewModel.switchLayout(n.previous)
+                            notices.send(NoticeEvent.UndoTapped(null))
+                        }
+                        else -> {
+                            viewModel.undo()
+                            notices.send(NoticeEvent.UndoTapped(viewModel.undoNext.value))
+                        }
+                    }
+                }
+                .semantics {
+                    contentDescription = current.description
+                    liveRegion = LiveRegionMode.Polite
+                }
+                .padding(start = 14.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MetroText(
-                current.message,
-                MetroType.body,
-                maxLines = 1,
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = 20.dp, end = 8.dp)
-                    .semantics { liveRegion = LiveRegionMode.Polite },
-            )
-            Box(
-                Modifier
-                    .widthIn(min = 96.dp)
-                    .height(GroupingBarHeight)
-                    .clickable(role = Role.Button) {
-                        when (current) {
-                            is StartNotice.Edited -> viewModel.undo()
-                            is StartNotice.Switched -> viewModel.switchLayout(current.previous)
-                        }
-                        notices.send(NoticeEvent.UndoTapped)
-                    }
-                    .semantics { contentDescription = "${current.action}: ${current.message}" }
-                    .padding(horizontal = 20.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                MetroText(current.action, MetroType.button, maxLines = 1)
-            }
+            Box(Modifier.size(24.dp).drawBehind { drawUndoArrow(colors.accent, 2.dp.toPx()) })
+            MetroText(current.label, MetroType.button, color = colors.accent, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
         }
     }
 }
 
+/** What the pill says ([label]), what TalkBack says ([description]), and the notice it stands for, if any. */
+internal data class PillContent(val label: String, val description: String, val notice: StartNotice?)
+
 /**
- * Edit mode's own "undo": a round outlined button with an undo arrow and the word, along the
- * bottom of start where the grouping bar goes. It is there while a step can be taken back and
- * no notice covers the bottom (the notice's action does the same); each tap takes back one step.
+ * What the pill shows, or null for no pill: "back" for a layout switch notice; "undo" while
+ * editing with a step to take back ([undoNext]), or for an edit notice whose step is still there.
  */
-@Composable
-internal fun EditUndoButton(
-    visible: Boolean,
-    viewModel: LauncherViewModel,
-    modifier: Modifier = Modifier,
-) {
-    val undoNext by viewModel.undoNext.collectAsStateWithLifecycle()
-    val description = editUndoDescription(undoNext)
-    if (!visible || description == null) return
-    val colors = Metro.colors
-    val tint = colors.foreground.copy(alpha = 0.6f)
-    Row(
-        modifier
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .height(GroupingBarHeight)
-            .clickable(onClickLabel = description, role = Role.Button) { viewModel.undo() }
-            .semantics { contentDescription = description }
-            .padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(40.dp)
-                .border(1.5.dp, tint, CircleShape)
-                .drawBehind { drawUndoArrow(tint, 1.5.dp.toPx()) },
-        )
-        MetroText("undo", MetroType.button, maxLines = 1, modifier = Modifier.padding(start = 12.dp))
-    }
+internal fun pillContent(notice: StartNotice?, editing: Boolean, undoNext: String?): PillContent? = when {
+    notice is StartNotice.Switched -> PillContent("back", "back to the previous layout", notice)
+    undoNext == null -> null
+    editing || notice is StartNotice.Edited -> PillContent("undo", editUndoDescription(undoNext)!!, notice)
+    else -> null
 }
 
 /** A hairline arrow curving back to the left, like the other round buttons' glyphs. */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawUndoArrow(color: androidx.compose.ui.graphics.Color, stroke: Float) {
     val w = size.width
-    val tip = Offset(w * 0.30f, w * 0.44f)
+    val tip = Offset(w * 0.22f, w * 0.40f)
     val shaft = Path().apply {
         moveTo(tip.x, tip.y)
-        cubicTo(w * 0.52f, w * 0.30f, w * 0.78f, w * 0.40f, w * 0.70f, w * 0.68f)
+        cubicTo(w * 0.52f, w * 0.18f, w * 0.92f, w * 0.34f, w * 0.80f, w * 0.80f)
     }
     val head = Path().apply {
-        moveTo(tip.x, w * 0.24f)
+        moveTo(tip.x, w * 0.12f)
         lineTo(tip.x, tip.y)
-        lineTo(w * 0.52f, tip.y + w * 0.02f)
+        lineTo(w * 0.50f, tip.y + w * 0.02f)
     }
     val style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round)
     drawPath(shaft, color, style = style)

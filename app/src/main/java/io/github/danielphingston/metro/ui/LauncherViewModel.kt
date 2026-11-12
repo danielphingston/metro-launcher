@@ -343,6 +343,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         metro.undo.undo()
     }
 
+    /** Drops every undo step (and frees what only they still held); the pill's time is up outside edit mode. */
+    fun clearUndo() {
+        metro.undo.clear()
+    }
+
     /** The saved start layouts, null while there are none; see [StartLayoutRepository]. */
     val layouts: StateFlow<LayoutSet?> = metro.layouts.layouts
 
