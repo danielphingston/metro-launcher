@@ -194,7 +194,11 @@ internal fun SettingsScreen(
                     SettingsPage.APPEARANCE -> AppearancePage(settings, repository)
                     SettingsPage.ANIMATIONS -> AnimationsPage(settings, repository)
                     SettingsPage.TILES -> TilesPage(settings, repository)
-                    SettingsPage.METRO_PLUS -> MetroPlusSettingsSection(settings, repository, onOpenSearchSettings = { page = SettingsPage.SEARCH.name })
+                    SettingsPage.METRO_PLUS -> MetroPlusSettingsSection(
+                        settings, repository,
+                        onOpenSearchSettings = { page = SettingsPage.SEARCH.name },
+                        onOpenGestureSettings = { page = SettingsPage.GESTURES.name },
+                    )
                     SettingsPage.ABOUT -> AboutPage()
                     SettingsPage.GESTURES -> PlusGate(
                         "Double tap, two-finger swipes and a pinch on the start screen can open search, the app list, an app, " +
