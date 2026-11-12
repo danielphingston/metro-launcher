@@ -17,7 +17,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import io.github.danielphingston.metro.R
+import io.github.danielphingston.metro.data.IconColor
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.TileColourMode
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.ui.components.LocalMotion
 import io.github.danielphingston.metro.ui.components.Motion
@@ -32,13 +34,15 @@ data class MetroColors(
     val chrome: Color,
     val accent: Color,
     val isDark: Boolean,
+    /** Ink on a tile that has a colour of its own and is opaque (see TileColourScope); null keeps white. */
+    val tileInk: Color? = null,
 ) {
     /**
      * Tile text is always white, as on Windows Phone. Tiles are the accent at the configured
      * transparency, often over a photo or the dark page, so white is the right ink there whatever
      * the accent is. For surfaces that are the solid accent colour use [onSolidAccent].
      */
-    val onAccent: Color get() = Color.White
+    val onAccent: Color get() = tileInk ?: Color.White
 
     /**
      * White or black, whichever reads better on the solid [accent]: white on lime, yellow, amber,
@@ -133,6 +137,12 @@ object MetroType {
 
 val LocalMetroColors = staticCompositionLocalOf { MetroColors.of(true, Color(LauncherSettings.DEFAULT_ACCENT)) }
 
+/** The two settings that decide the colour of tiles without one of their own. */
+@Immutable
+data class TileColourSettings(val mode: TileColourMode, val vividness: Int)
+
+val LocalTileColourSettings = staticCompositionLocalOf { TileColourSettings(TileColourMode.ACCENT, IconColor.DEFAULT_VIVIDNESS) }
+
 object Metro {
     val colors: MetroColors
         @Composable get() = LocalMetroColors.current
@@ -151,8 +161,12 @@ fun MetroTheme(settings: LauncherSettings, content: @Composable () -> Unit) {
     val colors = remember(dark, settings.effectiveAccent) { MetroColors.of(dark, Color(settings.effectiveAccent)) }
     val selection = remember(colors) { TextSelectionColors(colors.accent, colors.accent.copy(alpha = 0.4f)) }
     val motion = remember(settings) { Motion.of(settings) }
+    val tileColour = remember(settings.tileColourMode, settings.tileIconVividness) {
+        TileColourSettings(settings.tileColourMode, settings.tileIconVividness)
+    }
     CompositionLocalProvider(
         LocalMetroColors provides colors,
+        LocalTileColourSettings provides tileColour,
         LocalTextSelectionColors provides selection,
         LocalMotion provides motion,
         content = content,

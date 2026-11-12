@@ -146,6 +146,10 @@ data class LauncherSettings(
     val searchInOrder: SearchInOrder = SearchInOrder.default,
     /** The custom order of the strip: target ids (see [SearchInOrdering]); targets not listed come last. */
     val searchInCustomOrder: List<String> = emptyList(),
+    /** What tiles without a colour of their own use; see [TileColors]. */
+    val tileColourMode: TileColourMode = TileColourMode.ACCENT,
+    /** 0..100: how strongly a colour taken from an icon is made vivid; see [IconColor.adjust]. */
+    val tileIconVividness: Int = IconColor.DEFAULT_VIVIDNESS,
 ) {
     /** Whether [feature]'s own switch is on (it still needs Metro Plus to show anything). */
     fun smartOn(feature: SmartFeature): Boolean = feature in smartFeatures
@@ -295,6 +299,8 @@ class SettingsRepository(private val context: Context) {
 
         val searchInOrder = stringPreferencesKey("search_in_order")
         val searchInCustomOrder = stringPreferencesKey("search_in_custom_order")
+        val tileColourMode = stringPreferencesKey("tile_colour_mode")
+        val tileIconVividness = intPreferencesKey("tile_icon_colour_vividness")
     }
 
     val settings: Flow<LauncherSettings> = context.metroDataStore.data.map { it.toSettings() }
@@ -358,6 +364,9 @@ class SettingsRepository(private val context: Context) {
             searchKeywords = SearchKeywords.decode(this[Keys.searchKeywords]),
             searchInOrder = SearchInOrder.fromId(this[Keys.searchInOrder]),
             searchInCustomOrder = SearchInOrdering.decode(this[Keys.searchInCustomOrder]),
+            tileColourMode = this[Keys.tileColourMode]?.let { runCatching { TileColourMode.valueOf(it) }.getOrNull() }
+                ?: defaults.tileColourMode,
+            tileIconVividness = this[Keys.tileIconVividness]?.let(IconColor::clampVividness) ?: defaults.tileIconVividness,
         )
     }
 
@@ -506,6 +515,11 @@ class SettingsRepository(private val context: Context) {
     suspend fun setSearchKeywordEnabled(keyword: String, enabled: Boolean) = editKeywords { SearchKeywords.setEnabled(it, keyword, enabled) }
 
     suspend fun resetSearchKeywords() = context.metroDataStore.edit { it.remove(Keys.searchKeywords) }
+
+    suspend fun setTileColourMode(mode: TileColourMode) = context.metroDataStore.edit { it[Keys.tileColourMode] = mode.name }
+
+    suspend fun setTileIconVividness(percent: Int) =
+        context.metroDataStore.edit { it[Keys.tileIconVividness] = IconColor.clampVividness(percent) }
 
     suspend fun setSwingPages(enabled: Boolean) = context.metroDataStore.edit { it[Keys.swingPages] = enabled }
 

@@ -82,6 +82,15 @@ object BackgroundAccent {
      * be vivid but dark enough for white tile text. Null when the photo is grey or very dark.
      */
     fun fromPixels(argb: IntArray): Int? {
+        val rgb = dominantRgb(argb) ?: return null
+        return vivid(rgb[0], rgb[1], rgb[2])
+    }
+
+    /**
+     * The raw (r, g, b), each 0..1, of the strongest hue bucket, before any adjustment. Shared
+     * with [IconColor]. Null when nothing is colourful enough.
+     */
+    internal fun dominantRgb(argb: IntArray): FloatArray? {
         val weight = FloatArray(BUCKETS)
         val red = FloatArray(BUCKETS)
         val green = FloatArray(BUCKETS)
@@ -103,10 +112,10 @@ object BackgroundAccent {
         }
         val best = weight.indices.maxByOrNull { weight[it] } ?: return null
         if (weight[best] <= 0f) return null
-        return vivid(red[best] / weight[best], green[best] / weight[best], blue[best] / weight[best])
+        return floatArrayOf(red[best] / weight[best], green[best] / weight[best], blue[best] / weight[best])
     }
 
-    private fun hue(r: Float, g: Float, b: Float, top: Float, delta: Float): Float = when {
+    internal fun hue(r: Float, g: Float, b: Float, top: Float, delta: Float): Float = when {
         delta == 0f -> 0f
         top == r -> ((g - b) / delta + 6f) % 6f * 60f
         top == g -> ((b - r) / delta + 2f) * 60f
@@ -114,7 +123,7 @@ object BackgroundAccent {
     }
 
     /** Raises saturation and caps brightness, so the accent carries white text. */
-    private fun vivid(r: Float, g: Float, b: Float): Int {
+    internal fun vivid(r: Float, g: Float, b: Float): Int {
         val top = max(r, max(g, b))
         val delta = top - min(r, min(g, b))
         val hue = hue(r, g, b, top, delta)

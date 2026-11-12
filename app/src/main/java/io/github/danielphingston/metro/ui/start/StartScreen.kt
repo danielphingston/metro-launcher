@@ -1059,11 +1059,13 @@ internal fun TileHost(
             // Constant for a tile, so edit mode (which turns the tilt off) never reshapes the modifier chain mid-gesture.
             .then(if (isWidget) Modifier else Modifier.metroTilt(enabled = !state.editing)),
     ) {
-        TileBody(
-            tile, liveContent, flipped, monochromeIcons, icons, cell, folderOpen,
-            editing = state.editing,
-            onWidgetLongPress = { onLongPress(); state.select(id) },
-        )
+        TileColourScope(tile, icons) {
+            TileBody(
+                tile, liveContent, flipped, monochromeIcons, icons, cell, folderOpen,
+                editing = state.editing,
+                onWidgetLongPress = { onLongPress(); state.select(id) },
+            )
+        }
         if (groupAnchor) Box(Modifier.fillMaxSize().border(2.dp, Metro.colors.foreground))
         if (groupTarget) GroupCheckbox(picked, Modifier.align(Alignment.TopEnd).padding(6.dp))
     }
