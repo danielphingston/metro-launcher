@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.core.net.toUri
+import io.github.danielphingston.metro.data.LayoutShortcuts
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.data.TileStyle
 import io.github.danielphingston.metro.data.TileStyles
@@ -1342,8 +1343,12 @@ private fun activateTile(
 ) {
     when (val content = tile.spec.content) {
         is TileContent.App -> tile.app?.let { launcher.launch(it, bounds) }
-        is TileContent.Shortcut -> launcher.open(bounds) { screenBounds, options ->
-            ShortcutTiles.launch(context, content, screenBounds, options)
+        is TileContent.Shortcut -> when (val layoutSwitch = LayoutShortcuts.asLayoutSwitch(content)) {
+            // One of Metro's own layout shortcuts pinned before this was handled: switch in place.
+            is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, layoutSwitch)
+            else -> launcher.open(bounds) { screenBounds, options ->
+                ShortcutTiles.launch(context, content, screenBounds, options)
+            }
         }
         is TileContent.Widget -> Unit // The hosted widget handles its own taps.
         TileContent.Weather -> WeatherTiles.intent(context)?.let { launcher.start(it, bounds) }

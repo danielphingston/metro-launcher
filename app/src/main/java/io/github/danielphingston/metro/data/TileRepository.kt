@@ -367,6 +367,9 @@ class TileRepository(
 
     /** Pins a tile at the bottom of the start screen unless an identical one (same app or shortcut) is already pinned. A [span] replaces the footprint of [size]. */
     fun add(content: TileContent, size: TileSize, span: TileSpan? = null): Long? {
+        // Whatever pins one of Metro's own layout shortcuts (an app's pin request, the app list) gets a switch tile.
+        @Suppress("NAME_SHADOWING")
+        val content = LayoutShortcuts.asLayoutSwitch(content)
         var newId: Long? = null
         synchronized(loadLock) {
             if (_tiles.value == null) {

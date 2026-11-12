@@ -7,6 +7,7 @@ import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
 import android.net.Uri
+import io.github.danielphingston.metro.BuildConfig
 import io.github.danielphingston.metro.R
 import io.github.danielphingston.metro.ui.SwitchLayoutActivity
 import io.github.danielphingston.metro.ui.settings.SettingsActivity
@@ -31,6 +32,21 @@ object LayoutShortcuts {
         data object Next : Target
         data class Layout(val id: Long) : Target
     }
+
+    /**
+     * The saved layout an app shortcut switches to, when it is one of Metro's own layout shortcuts
+     * ([ownPackage], id "layout_<id>"), else null. Such a shortcut is handled inside the launcher
+     * (search, a pinned tile, pinning) like a switch tile, instead of being started as an app:
+     * starting it went through the invisible [SwitchLayoutActivity] in a task of its own, with the
+     * launch and return animations around it, and took seconds.
+     */
+    fun layoutIdOf(packageName: String, shortcutId: String, ownPackage: String = BuildConfig.APPLICATION_ID): Long? =
+        if (packageName == ownPackage && shortcutId.startsWith(ID_PREFIX)) shortcutId.removePrefix(ID_PREFIX).toLongOrNull() else null
+
+    /** [content] as a layout switch tile when it is one of Metro's own layout shortcuts, else unchanged. */
+    fun asLayoutSwitch(content: TileContent, ownPackage: String = BuildConfig.APPLICATION_ID): TileContent =
+        (content as? TileContent.Shortcut)?.let { layoutIdOf(it.packageName, it.shortcutId, ownPackage) }
+            ?.let { TileContent.LayoutSwitch(it) } ?: content
 
     fun uri(id: Long): Uri = Uri.Builder().scheme(SCHEME).authority(HOST).appendPath(id.toString()).build()
 

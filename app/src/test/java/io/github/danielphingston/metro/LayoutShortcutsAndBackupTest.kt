@@ -133,4 +133,21 @@ class LayoutShortcutsAndBackupTest {
         } catch (_: BackupException) {
         }
     }
+
+    @Test
+    fun metrosOwnLayoutShortcutsAreSwitchedInPlace() {
+        val own = "io.github.danielphingston.metro"
+        assertEquals(20L, LayoutShortcuts.layoutIdOf(own, "layout_20", own))
+        assertNull(LayoutShortcuts.layoutIdOf(own, "layout_x", own))
+        assertNull(LayoutShortcuts.layoutIdOf(own, "settings", own))
+        assertNull(LayoutShortcuts.layoutIdOf("com.example.other", "layout_20", own))
+        // Pinning one gives the real switch tile; any other shortcut stays a shortcut.
+        assertEquals(
+            TileContent.LayoutSwitch(20),
+            LayoutShortcuts.asLayoutSwitch(TileContent.Shortcut(own, "layout_20", 0, "work"), own),
+        )
+        val other = TileContent.Shortcut("com.example.other", "layout_20", 0, "x")
+        assertEquals(other, LayoutShortcuts.asLayoutSwitch(other, own))
+        assertEquals(TileContent.Weather, LayoutShortcuts.asLayoutSwitch(TileContent.Weather, own))
+    }
 }

@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.danielphingston.metro.MetroApplication
+import io.github.danielphingston.metro.data.LayoutShortcuts
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.AssistantChoice
 import io.github.danielphingston.metro.data.LastAsked
@@ -271,6 +272,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** Pins [content] at medium size once the system holds what it needs (a shortcut must be pinned with it first). */
     fun pin(content: TileContent) {
+        // Metro's own layout shortcuts become real switch tiles (no shortcut to pin with the system).
+        val content = LayoutShortcuts.asLayoutSwitch(content)
         viewModelScope.launch {
             acquireTileResources(getApplication(), content)
             addTile(content, TileSize.MEDIUM)
