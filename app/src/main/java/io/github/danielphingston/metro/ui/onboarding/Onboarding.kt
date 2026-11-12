@@ -48,6 +48,10 @@ internal class OnboardingState(
 ) {
     val visible: StateFlow<Boolean> = flow {
         val layoutSaved = context.metroDataStore.data.first()[stringPreferencesKey("tiles")] != null
+        // Remember that the setup is pending: the default layout is saved right after this, and a
+        // process killed while the user is away granting notification access would otherwise come
+        // back looking like an existing install and never show the rest.
+        if (!layoutSaved && settings.onboardingDone.first() == null) settings.setOnboardingDone(false)
         emitAll(settings.onboardingDone.map { Onboarding.shouldShow(layoutSaved, it) })
     }.stateIn(scope, SharingStarted.Eagerly, false)
 
