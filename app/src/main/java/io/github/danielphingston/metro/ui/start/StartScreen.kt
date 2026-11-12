@@ -1384,7 +1384,7 @@ private fun activateTile(
 ) {
     when (val content = tile.spec.content) {
         is TileContent.App -> tile.app?.let { launcher.launch(it, bounds) }
-        is TileContent.Shortcut -> when (val layoutSwitch = LayoutShortcuts.asLayoutSwitch(content)) {
+        is TileContent.Shortcut -> when (val layoutSwitch = LayoutShortcuts.asLayoutSwitch(context, content)) {
             // One of Metro's own layout shortcuts pinned before this was handled: switch in place.
             is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, layoutSwitch)
             else -> launcher.open(bounds) { screenBounds, options ->

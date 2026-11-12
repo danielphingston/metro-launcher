@@ -140,7 +140,8 @@ internal sealed interface SearchRow {
     /** An app shortcut; [app] is the app it belongs to, for the icon and the subtitle. */
     data class Shortcut(val hit: ShortcutHit, val app: AppInfo?) : SearchRow {
         override val key get() = "s:${hit.packageName}/${hit.id}#${hit.userSerial}"
-        override val pin get() = LayoutShortcuts.asLayoutSwitch(TileContent.Shortcut(hit.packageName, hit.id, hit.userSerial, hit.shortLabel))
+        // Metro's own layout shortcut pins as a switch tile: the view model turns it into one.
+        override val pin get() = TileContent.Shortcut(hit.packageName, hit.id, hit.userSerial, hit.shortLabel)
     }
 
     /** The query read as an address; [shown] is what was typed. */
@@ -411,7 +412,7 @@ private fun SearchPanel(viewModel: LauncherViewModel, state: SearchState, launch
         val onStarted = { if (recordsSearch(row)) viewModel.recordSearch(query) }
         val accepted = when (row) {
             is SearchRow.App -> launcher.launch(row.app, bounds, onStarted)
-            is SearchRow.Shortcut -> LayoutShortcuts.layoutIdOf(row.hit.packageName, row.hit.id)
+            is SearchRow.Shortcut -> LayoutShortcuts.layoutIdOf(row.hit.packageName, row.hit.id, row.hit.userSerial, LayoutShortcuts.ownSerial(context))
                 ?.let { commands.switchLayout(it); true }
                 ?: launcher.open(bounds) { screenBounds, options ->
                     val content = TileContent.Shortcut(row.hit.packageName, row.hit.id, row.hit.userSerial, row.hit.shortLabel)

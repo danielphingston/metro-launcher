@@ -7,8 +7,10 @@ import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
 import android.net.Uri
+import android.os.Process
 import io.github.danielphingston.metro.BuildConfig
 import io.github.danielphingston.metro.R
+import io.github.danielphingston.metro.live.UserSerials
 import io.github.danielphingston.metro.ui.SwitchLayoutActivity
 import io.github.danielphingston.metro.ui.settings.SettingsActivity
 
@@ -33,20 +35,37 @@ object LayoutShortcuts {
         data class Layout(val id: Long) : Target
     }
 
+    /** The user serial of the user Metro runs as: only that user's layout shortcuts are this launcher's. */
+    fun ownSerial(context: Context): Long = UserSerials.of(context, Process.myUserHandle())
+
     /**
      * The saved layout an app shortcut switches to, when it is one of Metro's own layout shortcuts
-     * ([ownPackage], id "layout_<id>"), else null. Such a shortcut is handled inside the launcher
+     * ([ownPackage], id "layout_<id>", published by this user: [userSerial] is [ownSerial]; a Metro
+     * in a work profile publishes its own for its own layouts), else null. Such a shortcut is handled inside the launcher
      * (search, a pinned tile, pinning) like a switch tile, instead of being started as an app:
      * starting it went through the invisible [SwitchLayoutActivity] in a task of its own, with the
      * launch and return animations around it, and took seconds.
      */
-    fun layoutIdOf(packageName: String, shortcutId: String, ownPackage: String = BuildConfig.APPLICATION_ID): Long? =
-        if (packageName == ownPackage && shortcutId.startsWith(ID_PREFIX)) shortcutId.removePrefix(ID_PREFIX).toLongOrNull() else null
+    fun layoutIdOf(
+        packageName: String,
+        shortcutId: String,
+        userSerial: Long,
+        ownSerial: Long,
+        ownPackage: String = BuildConfig.APPLICATION_ID,
+    ): Long? = if (packageName == ownPackage && userSerial == ownSerial && shortcutId.startsWith(ID_PREFIX)) {
+        shortcutId.removePrefix(ID_PREFIX).toLongOrNull()
+    } else {
+        null
+    }
 
-    /** [content] as a layout switch tile when it is one of Metro's own layout shortcuts, else unchanged. */
-    fun asLayoutSwitch(content: TileContent, ownPackage: String = BuildConfig.APPLICATION_ID): TileContent =
-        (content as? TileContent.Shortcut)?.let { layoutIdOf(it.packageName, it.shortcutId, ownPackage) }
+    /** [content] as a layout switch tile when it is one of Metro's own layout shortcuts (see [layoutIdOf]), else unchanged. */
+    fun asLayoutSwitch(content: TileContent, ownSerial: Long, ownPackage: String = BuildConfig.APPLICATION_ID): TileContent =
+        (content as? TileContent.Shortcut)?.let { layoutIdOf(it.packageName, it.shortcutId, it.userSerial, ownSerial, ownPackage) }
             ?.let { TileContent.LayoutSwitch(it) } ?: content
+
+    /** [asLayoutSwitch] for the user Metro runs as. */
+    fun asLayoutSwitch(context: Context, content: TileContent): TileContent =
+        if (content is TileContent.Shortcut) asLayoutSwitch(content, ownSerial(context)) else content
 
     fun uri(id: Long): Uri = Uri.Builder().scheme(SCHEME).authority(HOST).appendPath(id.toString()).build()
 

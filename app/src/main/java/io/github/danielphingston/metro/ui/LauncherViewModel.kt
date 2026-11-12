@@ -268,12 +268,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun pin(app: AppInfo) = pin(TileContent.App(app.key))
 
-    fun isPinned(content: TileContent): Boolean = metro.tiles.isPinned(content)
+    fun isPinned(content: TileContent): Boolean = metro.tiles.isPinned(LayoutShortcuts.asLayoutSwitch(getApplication(), content))
 
     /** Pins [content] at medium size once the system holds what it needs (a shortcut must be pinned with it first). */
     fun pin(content: TileContent) {
         // Metro's own layout shortcuts become real switch tiles (no shortcut to pin with the system).
-        val content = LayoutShortcuts.asLayoutSwitch(content)
+        val content = LayoutShortcuts.asLayoutSwitch(getApplication(), content)
         viewModelScope.launch {
             acquireTileResources(getApplication(), content)
             addTile(content, TileSize.MEDIUM)
