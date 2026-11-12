@@ -67,3 +67,31 @@ object MeFeed {
         return MeSnapshot(inputs.size, apps, recent)
     }
 }
+
+/** Which notifications count toward the unread counts and the me tile; pure so it can be tested. */
+internal object NotificationFilter {
+    /** The system's own packages: their entries ("N more notifications", USB, charging...) summarise or announce, never message. */
+    val SYSTEM_PACKAGES = setOf("com.android.systemui", "android")
+
+    /** True for a package that must never count: the system UI, or a system app with no launcher entry. */
+    fun isSystemNoise(packageName: String, isSystemApp: Boolean, launchable: Boolean): Boolean =
+        packageName in SYSTEM_PACKAGES || (isSystemApp && !launchable)
+
+    fun counts(
+        packageName: String,
+        ownPackage: String,
+        ongoing: Boolean,
+        clearable: Boolean,
+        flags: Int,
+        category: String?,
+        isSystemApp: Boolean,
+        launchable: Boolean,
+    ): Boolean {
+        if (packageName == ownPackage || isSystemNoise(packageName, isSystemApp, launchable)) return false
+        if (ongoing || !clearable) return false
+        if (flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0) return false
+        return category != android.app.Notification.CATEGORY_PROGRESS &&
+            category != android.app.Notification.CATEGORY_TRANSPORT &&
+            category != android.app.Notification.CATEGORY_SERVICE
+    }
+}

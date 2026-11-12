@@ -134,12 +134,19 @@ class MetroNotificationListener : NotificationListenerService() {
 
     private fun countsTowardTile(sbn: StatusBarNotification): Boolean {
         val n = sbn.notification
-        if (sbn.packageName == packageName) return false
-        if (sbn.isOngoing || !sbn.isClearable) return false
-        if (n.flags and Notification.FLAG_GROUP_SUMMARY != 0) return false
-        return n.category != Notification.CATEGORY_PROGRESS &&
-            n.category != Notification.CATEGORY_TRANSPORT &&
-            n.category != Notification.CATEGORY_SERVICE
+        val pkg = sbn.packageName
+        // Only look the package up when it could matter: the cheap checks come first.
+        val system = pkg !in NotificationFilter.SYSTEM_PACKAGES && isSystemApp(pkg)
+        val launchable = !system || packageManager.getLaunchIntentForPackage(pkg) != null
+        return NotificationFilter.counts(
+            pkg, packageName, sbn.isOngoing, sbn.isClearable, n.flags, n.category, system, launchable,
+        )
+    }
+
+    private fun isSystemApp(pkg: String): Boolean = try {
+        packageManager.getApplicationInfo(pkg, 0).flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM != 0
+    } catch (_: Exception) {
+        false
     }
 
     /**

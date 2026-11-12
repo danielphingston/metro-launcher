@@ -391,7 +391,13 @@ fun StartScreen(
             LiveContent.Me(
                 MeModel.of(
                     meFeed.value, listenerConnected, settings.showNotificationContent, tile.spec.size,
-                ) { app -> meApps.value.firstOrNull { it.key.notificationKey == app.appKey }?.label ?: app.packageName },
+                ) { app ->
+                    val label = meApps.value.firstOrNull { it.key.notificationKey == app.appKey }?.label
+                        ?: runCatching {
+                            context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(app.packageName, 0))
+                        }.getOrNull()
+                    MeModel.humanLabel(label, app.packageName)
+                },
                 meApps.value.associateBy { it.key.notificationKey },
             )
         } else if (key == null) {

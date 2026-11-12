@@ -110,4 +110,33 @@ class MeTileTest {
         // One per layout is enforced by TileRepository.add (identical content is refused); data objects compare equal.
         assertEquals(TileContent.Me, TileContent.Me)
     }
+
+    @Test
+    fun packageNamesNeverShowOnTheTile() {
+        val feed = MeFeed.build(listOf(input("s1", "com.android.systemui", 50), input("a1", "mail", 10)))
+        val model = MeModel.of(feed, true, true, TileSize.WIDE) { app -> MeModel.humanLabel(null, app.packageName) }
+        assertTrue(model.faces.all { it.appName == null })
+        assertFalse(model.description().contains("com.android"))
+        assertEquals("me, 2 notifications, latest: t-s1", model.description())
+        val off = MeModel.of(feed, true, false, TileSize.WIDE) { app -> MeModel.humanLabel(app.packageName, app.packageName) }
+        assertTrue(off.faces.all { it.appName == null })
+        assertNull(MeModel.humanLabel("com.android.systemui", "other.pkg"))
+        assertNull(MeModel.humanLabel("  ", "x"))
+        assertEquals("System UI", MeModel.humanLabel("System UI", "com.android.systemui"))
+        assertEquals("Mail", MeModel.humanLabel("Mail", "com.mail"))
+    }
+
+    @Test
+    fun systemUiAndGroupSummariesAreFiltered() {
+        val own = "io.github.danielphingston.metro"
+        fun counts(pkg: String, flags: Int = 0, system: Boolean = false, launchable: Boolean = true) =
+            io.github.danielphingston.metro.live.NotificationFilter.counts(pkg, own, false, true, flags, null, system, launchable)
+        assertTrue(counts("com.example.mail"))
+        assertFalse(counts("com.android.systemui"))
+        assertFalse(counts("android"))
+        assertFalse(counts("com.google.android.gms", system = true, launchable = false))
+        assertTrue(counts("com.android.dialer", system = true, launchable = true))
+        assertFalse(counts("com.example.mail", flags = android.app.Notification.FLAG_GROUP_SUMMARY))
+        assertFalse(counts(own))
+    }
 }
