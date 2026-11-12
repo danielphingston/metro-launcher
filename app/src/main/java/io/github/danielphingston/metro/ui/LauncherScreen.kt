@@ -217,8 +217,11 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val image by viewModel.backdropImage.collectAsStateWithLifecycle()
     // Read in the draw phase only, so scrolling the start screen never recomposes.
-    val backdrop = remember(settings.background, settings.backgroundPhoto, settings.transparencyFraction, image, startState) {
-        StartBackdrop.of(settings, image) { startState.scroll.value * BackgroundPhoto.PARALLAX }
+    val backdrop = remember(settings.background, settings.backgroundPhoto, settings.transparencyFraction, image, startState, pager) {
+        StartBackdrop.of(
+            settings, image,
+            pageShift = { -(pager.currentPage + pager.currentPageOffsetFraction) * pager.layoutInfo.run { pageSize + pageSpacing } },
+        ) { startState.scroll.value * BackgroundPhoto.PARALLAX }
     }
 
     // Pulling the start screen down past its top and letting go opens search.
