@@ -315,6 +315,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun updateTile(id: Long, edit: StartEdit, change: (io.github.danielphingston.metro.data.TileSpec) -> io.github.danielphingston.metro.data.TileSpec) =
         undoable(edit) { metro.tiles.update(id, change) }
 
+    /** Lets go of the read grant on the tile photo [uri] once nothing (tile, layout, background) uses it. */
+    fun releasePhotoIfUnused(uri: String?) {
+        uri ?: return
+        metro.appScope.launch { metro.layouts.releasePhotosIfUnused(listOf(uri)) }
+    }
+
     /** Sets the colour of tile [id]; see [io.github.danielphingston.metro.data.TileColors]. */
     fun setColor(id: Long, color: String?) = undoable(StartEdit.COLOUR) { metro.tiles.setColor(id, color) }
 

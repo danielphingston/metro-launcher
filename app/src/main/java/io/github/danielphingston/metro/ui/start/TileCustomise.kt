@@ -31,7 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.PhotoUse
 import io.github.danielphingston.metro.data.StartEdit
@@ -92,9 +91,8 @@ internal fun TileCustomise(
     val resolver = context.contentResolver
     val id = spec.id
     val hasLook = TileOption.SHOW_ICON in options
-    fun release(uri: String?) {
-        uri?.let { runCatching { resolver.releasePersistableUriPermission(it.toUri(), Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
-    }
+    // Another tile, a saved layout or a background may use the same photo: only then is it kept.
+    fun release(uri: String?) = viewModel.releasePhotoIfUnused(uri)
     fun look(change: (TileSpec) -> TileSpec) {
         val before = spec.image
         val after = change(spec).image

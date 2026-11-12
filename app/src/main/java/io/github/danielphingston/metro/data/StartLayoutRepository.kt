@@ -160,14 +160,16 @@ class StartLayoutRepository(
     }
 
     /**
-     * Lets go of the persisted read grant of each of [uris] that no layout, the live background
-     * and the photos tile use any more (see [LayoutStartSettings.photosInUse]).
+     * Lets go of the persisted read grant of each of [uris] that no layout's background, the live
+     * background, the photos tile and no tile photo (on start or in a saved layout) use any more
+     * (see [LayoutStartSettings.photosInUse], [TileOptions.photosIn]).
      */
     suspend fun releasePhotosIfUnused(uris: Collection<String>) {
         val candidates = uris.filter { it.isNotEmpty() }
         if (candidates.isEmpty()) return
         val livePhoto = context.metroDataStore.data.first().let { LayoutStartSettings.read(it)[LayoutStartSettings.PHOTO] as? String }
-        val inUse = LayoutStartSettings.photosInUse(_layouts.value, livePhoto) + PhotoSource.current(context)
+        val inUse = LayoutStartSettings.photosInUse(_layouts.value, livePhoto) + PhotoSource.current(context) +
+            TileOptions.photosIn(listOfNotNull(tiles.tiles.value) + heldTiles())
         candidates.filter { it !in inUse }.forEach { uri ->
             runCatching {
                 context.contentResolver.releasePersistableUriPermission(Uri.parse(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION)

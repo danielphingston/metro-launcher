@@ -476,6 +476,29 @@ class TileOptionsTest {
     }
 
     @Test
+    fun aPickedIconInPlaceOfMyPhotoLetsThePhotoGoWhenNothingElseUsesIt() {
+        val photo = "content://media/picked/1"
+        val mine = TileSpec(1, TileSize.MEDIUM, TileContent.App(AppKey("com.example.a", "Main", 0)), 0, 0)
+            .let { TileOptions.withPhoto(it, PhotoUse.ICON, photo) }
+        assertEquals(photo, mine.image)
+        // A pack icon or a glyph replaces the photo: it is dropped, and its grant is up for release.
+        for (icon in listOf("pack:com.pack:cat", "glyph:alarm")) {
+            val after = TileOptions.withIcon(mine, icon)
+            assertNull(after.image)
+            assertEquals(photo, TileOptions.droppedPhoto(mine, after))
+        }
+        // Keeping the photo (it fills the tile) drops nothing.
+        val filled = TileOptions.withPhoto(mine, PhotoUse.FILL, photo)
+        assertNull(TileOptions.droppedPhoto(filled, TileOptions.withIcon(filled, "glyph:alarm")))
+        // Still in use when another tile, a folder child or a saved layout's tile shows it.
+        val other = mine.copy(id = 2)
+        val folder = TileSpec(3, TileSize.MEDIUM, TileContent.Folder("f", listOf(other.copy(id = 4))))
+        assertEquals(setOf(photo), TileOptions.photosIn(listOf(listOf(other))))
+        assertEquals(setOf(photo), TileOptions.photosIn(listOf(emptyList(), listOf(folder))))
+        assertEquals(emptySet<String>(), TileOptions.photosIn(listOf(listOf(TileOptions.withIcon(mine, "glyph:alarm")))))
+    }
+
+    @Test
     fun searchTileFacesKeepOldStylesAndAContactPhotoWithoutItsName() {
         val faces = io.github.danielphingston.metro.ui.tiles.ActionFaces
         fun action(icon: ActionIcon) = TileSpec(1, TileSize.MEDIUM, TileContent.Action("x", icon, LaunchTarget.Web("https://example.com")))

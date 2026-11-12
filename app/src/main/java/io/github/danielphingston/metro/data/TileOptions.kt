@@ -231,6 +231,19 @@ object TileOptions {
         return base.copy(icon = icon)
     }
 
+    /** The photo [before] had that [after] no longer has (its read grant may be let go), or null. */
+    fun droppedPhoto(before: TileSpec, after: TileSpec): String? = before.image?.takeIf { it != after.image }
+
+    /** The tile photos used in [layouts], folder children included. */
+    fun photosIn(layouts: List<List<TileSpec>>): Set<String> = buildSet {
+        layouts.forEach { tiles ->
+            tiles.forEach { spec ->
+                spec.image?.let(::add)
+                (spec.content as? TileContent.Folder)?.children?.forEach { child -> child.image?.let(::add) }
+            }
+        }
+    }
+
     /** [spec] with the photo [image] used as [use] ([PhotoUse.NONE] drops it). */
     fun withPhoto(spec: TileSpec, use: PhotoUse, image: String?): TileSpec =
         withLook(spec, spec.look.copy(photo = use), image.takeIf { use != PhotoUse.NONE })

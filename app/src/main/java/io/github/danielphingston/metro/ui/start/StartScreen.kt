@@ -851,15 +851,21 @@ fun StartScreen(
                 state.iconPickerId = null
                 state.stylingId = id
             }
+            val spec = (tiles.map { it.spec } + openChildren.map { it.spec }).firstOrNull { it.id == id }
+            // A picked icon replaces "my photo": its grant goes once nothing else uses the photo.
+            fun setIcon(icon: String?) {
+                viewModel.updateTile(id, StartEdit.ICON) { TileOptions.withIcon(it, icon) }
+                spec?.let { TileOptions.droppedPhoto(it, TileOptions.withIcon(it, icon)) }?.let(viewModel::releasePhotoIfUnused)
+            }
             IconPicker(
                 icons = viewModel.icons,
-                hasIcon = (tiles.map { it.spec } + openChildren.map { it.spec }).firstOrNull { it.id == id }?.icon != null,
+                hasIcon = spec?.icon != null,
                 onReset = {
-                    viewModel.updateTile(id, StartEdit.ICON) { TileOptions.withIcon(it, null) }
+                    setIcon(null)
                     back()
                 },
                 onPick = { icon ->
-                    viewModel.updateTile(id, StartEdit.ICON) { TileOptions.withIcon(it, icon) }
+                    setIcon(icon)
                     back()
                 },
                 onDismiss = ::back,
