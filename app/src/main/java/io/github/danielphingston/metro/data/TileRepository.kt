@@ -140,6 +140,8 @@ data class TileSpec(
     val image: String? = null,
     /** A picked icon replacing the tile's own: "pack:<package>:<drawable>" or "glyph:<id>". */
     val icon: String? = null,
+    /** This tile's colour (see [TileColors]); null follows [TileColourMode]. */
+    val color: String? = null,
 ) {
     /** The app key for app tiles, else null. */
     val appKey: AppKey? get() = (content as? TileContent.App)?.app
@@ -418,6 +420,9 @@ class TileRepository(
     fun setSpan(id: Long, width: Int, height: Int) =
         _tiles.update { list -> list?.let { TilePlacement.setSpan(it, id, width, height, columnCount) } }
 
+    /** Sets the colour of tile [id] (top level or in a folder); see [TileColors]. */
+    fun setColor(id: Long, color: String?) = _tiles.update { list -> list?.let { TileColors.set(it, id, color) } }
+
     /** Sets how tile [id] (top level or in a folder) draws itself; [image] is kept only for styles that need one. */
     fun setStyle(id: Long, style: TileStyle, image: String?) = _tiles.update { list ->
         list?.let { TileStyles.set(it, id, style, image) }
@@ -618,6 +623,7 @@ internal object TileJson {
         if (tile.style != TileStyle.ICON) obj.put("style", tile.style.id)
         tile.image?.let { obj.put("image", it) }
         tile.icon?.let { obj.put("icon", it) }
+        tile.color?.let { obj.put("color", it) }
         when (val c = tile.content) {
             is TileContent.App -> obj.put("type", "app").put("app", c.app.serialize())
             is TileContent.Shortcut -> obj.put("type", "shortcut").put("package", c.packageName)
@@ -696,6 +702,7 @@ internal object TileJson {
             style = TileStyle.fromId(obj.optString("style").ifEmpty { null }),
             image = obj.optString("image").ifEmpty { null },
             icon = obj.optString("icon").ifEmpty { null },
+            color = TileColors.parse(obj.optString("color").ifEmpty { null }),
         )
     }
 }

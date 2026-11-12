@@ -109,6 +109,7 @@ internal fun StartPage(settings: LauncherSettings, repository: SettingsRepositor
     )
 
     BackgroundSettingsSection(settings, repository)
+    TileColourSettingsSection(settings, repository)
 }
 
 /** A start screen padding slider: the label is "<side> padding", the value in dp. */

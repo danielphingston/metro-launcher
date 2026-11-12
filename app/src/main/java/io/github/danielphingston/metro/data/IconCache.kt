@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.createBitmap
 import androidx.core.graphics.drawable.toBitmap
@@ -37,6 +38,7 @@ class IconCache(private val context: Context) {
             if (field == value) return
             field = value
             cache.evictAll()
+            iconColors.clear()
             generation++
         }
 
@@ -49,6 +51,30 @@ class IconCache(private val context: Context) {
 
     private val cache = object : LruCache<String, TileIcon>(24 * 1024 * 1024) {
         override fun sizeOf(key: String, value: TileIcon) = value.bitmap.width * value.bitmap.height * 4
+    }
+
+    /** Raw icon colours per app (and pack), derived once; [NO_COLOUR] marks icons with no usable colour. */
+    private val iconColors = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    /**
+     * The dominant colour of [app]'s own coloured icon (what an icon pack shows, when one is on),
+     * even when tiles draw the themed monochrome one; see [IconColor.dominant]. Null when the icon
+     * has none or can't be drawn. Kept in memory only, dropped with the icons. Blocking: call off
+     * the main thread.
+     */
+    fun dominantColor(app: AppInfo): Int? {
+        val key = "${app.key.serialize()}/${iconPack.orEmpty()}"
+        iconColors[key]?.let { return it.takeIf { c -> c != NO_COLOUR } }
+        val icon = load(app, COLOUR_SAMPLE_PX, monochrome = false) ?: return null
+        val pixels = try {
+            val scaled = Bitmap.createScaledBitmap(icon.bitmap.asAndroidBitmap(), IconColor.SAMPLE, IconColor.SAMPLE, true)
+            IntArray(IconColor.SAMPLE * IconColor.SAMPLE).also { scaled.getPixels(it, 0, IconColor.SAMPLE, 0, 0, IconColor.SAMPLE, IconColor.SAMPLE) }
+        } catch (_: RuntimeException) {
+            return null
+        }
+        val colour = IconColor.dominant(pixels)
+        iconColors[key] = colour ?: NO_COLOUR
+        return colour
     }
 
     fun peek(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? = cache.get(cacheKey(app, sizePx, monochrome))
@@ -113,6 +139,7 @@ class IconCache(private val context: Context) {
      */
     fun evict(packageName: String) {
         cache.snapshot().keys.filter { it.startsWith("$packageName/") }.forEach { cache.remove(it) }
+        iconColors.keys.filter { it.startsWith("$packageName/") }.forEach { iconColors.remove(it) }
         generation++
     }
 
@@ -123,6 +150,7 @@ class IconCache(private val context: Context) {
         generation++
         if (iconPack == packageName) {
             cache.evictAll()
+            iconColors.clear()
             generation++
         }
     }
@@ -198,3 +226,8 @@ class IconCache(private val context: Context) {
         return TileIcon(bitmap.asImageBitmap(), isMonochrome = false)
     }
 }
+
+private const val COLOUR_SAMPLE_PX = 48
+
+/** Stored in place of a colour when an icon has none (opaque ARGB never equals 0). */
+private const val NO_COLOUR = 0
