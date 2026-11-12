@@ -85,7 +85,9 @@ class SmartProvidersTest {
     fun lockedMeansNoSmartProviderIsAsked() {
         val all = SearchProviders.all
         assertTrue(all.isNotEmpty())
-        assertTrue(SearchProviders.active(LauncherSettings(), unlocked = false).isEmpty())
+        // Only the rows that point at Metro Plus itself answer while it is locked.
+        assertEquals(SearchProviders.whileLocked, SearchProviders.active(LauncherSettings(), unlocked = false))
+        assertTrue(SearchProviders.whileLocked.all { it.feature == null && it !in all })
         val allOn = LauncherSettings(smartFeatures = SmartFeature.entries.toSet())
         assertEquals(all.size, SearchProviders.active(allOn, unlocked = true).size)
     }

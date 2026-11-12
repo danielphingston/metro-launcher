@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.BackgroundPhoto
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SettingsRepository
@@ -69,10 +70,13 @@ fun BackgroundSettingsSection(settings: LauncherSettings, repository: SettingsRe
             val accent = withContext(Dispatchers.IO) { BackgroundPhoto.deriveAccent(context, uri) }
             val previous = repository.settings.first().backgroundPhoto
             repository.setBackgroundPhoto(uri.toString(), accent)
-            // Let go of the old photo, unless the photos tile shows it too.
-            if (previous != null && previous != uri.toString() && previous !in PhotoSource.current(context)) {
-                runCatching {
-                    resolver.releasePersistableUriPermission(Uri.parse(previous), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // Let go of the old photo, unless the photos tile or another start layout still shows it.
+            if (previous != null && previous != uri.toString()) {
+                val layouts = (context.applicationContext as? MetroApplication)?.layouts
+                if (layouts != null) {
+                    layouts.releasePhotosIfUnused(listOf(previous))
+                } else if (previous !in PhotoSource.current(context)) {
+                    runCatching { resolver.releasePersistableUriPermission(Uri.parse(previous), Intent.FLAG_GRANT_READ_URI_PERMISSION) }
                 }
             }
         }

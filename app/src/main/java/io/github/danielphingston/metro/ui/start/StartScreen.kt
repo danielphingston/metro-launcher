@@ -155,6 +155,7 @@ import io.github.danielphingston.metro.ui.theme.LocalStartBackdrop
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.flowOf
@@ -479,6 +480,7 @@ fun StartScreen(
         switchMotion.update(
             switchGeneration,
             tiles.indices.associate { tileKeys.keyOf(tiles[it].spec.id) to (tiles[it] to placements[it]) },
+            glides = tileKeys.glides,
         ) { Turnstile.animationsEnabled(context.contentResolver) }
         // Where the tile being resized would land, snapped to the grid.
         val resizeSpan = state.resizeSpan
@@ -582,6 +584,7 @@ fun StartScreen(
 
         DragTracking(state, tiles, cellPx, columns)
 
+        val currentSettings by rememberUpdatedState(settings)
         LaunchedEffect(switchGeneration) {
             if (!switchMotion.takeSwitch()) return@LaunchedEffect
             // The new layout starts from its top, with nothing of the old one's edit mode or open folder.
@@ -589,6 +592,12 @@ fun StartScreen(
             state.dismissOverlays()
             if (!Turnstile.animationsEnabled(context.contentResolver)) {
                 state.scroll.scrollTo(0)
+            } else if (switchMotion.fading) {
+                // The new layout's settings (columns, paddings) land just after its tiles: stay
+                // transparent until they have, briefly at most, so the fade shows the final grid.
+                state.scroll.scrollTo(0)
+                withTimeoutOrNull(SWITCH_SETTINGS_WAIT_MILLIS) { snapshotFlow { currentSettings }.drop(1).first() }
+                switchMotion.play(motion.duration(SWITCH_MILLIS))
             } else {
                 launch { state.scroll.animateScrollTo(0) }
                 switchMotion.play(motion.duration(SWITCH_MILLIS))
@@ -604,6 +613,7 @@ fun StartScreen(
             onRemoveFromFolder: (() -> Unit)? = null,
             onDragMove: () -> Unit = {},
             motionModifier: Modifier = Modifier,
+            snapMoves: Boolean = false,
             onDrop: (completed: Boolean) -> Unit,
         ) = TileHost(
             tile = tile,
@@ -628,6 +638,7 @@ fun StartScreen(
             onDragMove = onDragMove,
             onDrop = onDrop,
             modifier = motionModifier,
+            snapMoves = snapMoves,
         )
 
         Column(
@@ -666,7 +677,8 @@ fun StartScreen(
             Box(
                 Modifier
                     .absolutePadding(left = leftPadding, right = rightPadding)
-                    .size(width = gridWidth, height = cell * rows),
+                    .size(width = gridWidth, height = cell * rows)
+                    .then(switchMotion.fadeModifier()),
             ) {
                 // With the tiles a layout switch just took away, fading where they were (same call site, so they keep their composition).
                 switchMotion.onScreen(tiles, placements, tileKeys::keyOf).forEach { shown ->
@@ -677,6 +689,8 @@ fun StartScreen(
                             tile, placement,
                             appearFrom = if (switchMotion.isEntering(shown.key)) IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt()) else null,
                             motionModifier = switchMotion.modifier(shown.key, placement, shown.leaving),
+                            // While a switch fades the grid in, its tiles jump to where the new grid puts them.
+                            snapMoves = switchMotion.fading,
                             onDrop = { completed ->
                                 val cell = state.dragCell
                                 state.preview = null
@@ -843,8 +857,11 @@ fun StartScreen(
                 onDismiss = { state.addMenuOpen = false },
                 onLayouts = {
                     state.addMenuOpen = false
+                    // Layouts are Metro Plus: while it is locked the entry leads to the purchase, like the Metro Plus tiles.
                     // Switch tiles need two layouts to switch between; until then the entry leads to where they are made.
-                    if ((viewModel.layouts.value?.layouts?.size ?: 0) < 2) {
+                    if (!quickUnlocked) {
+                        context.startActivity(SettingsActivity.intent(context, SettingsPage.METRO_PLUS))
+                    } else if ((viewModel.layouts.value?.layouts?.size ?: 0) < 2) {
                         context.startActivity(SettingsActivity.intent(context, SettingsPage.LAYOUTS))
                     } else {
                         state.layoutsMenuOpen = true
@@ -970,6 +987,8 @@ internal fun TileHost(
     liveOf: (() -> LiveContent?)? = null,
     /** Draw-only extras applied to the laid-out tile, e.g. a layout switch's size glide or fade; see [SwitchMotion]. */
     modifier: Modifier = Modifier,
+    /** Moves jump instead of gliding, e.g. while a layout switch fades in a grid of another size. */
+    snapMoves: Boolean = false,
 ) {
     val liveContent = liveOf?.invoke() ?: live
     val id = tile.spec.id
@@ -980,8 +999,11 @@ internal fun TileHost(
     val target = IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt())
     val position = remember { Animatable(appearFrom ?: target, IntOffset.VectorConverter) }
     val dragging = state.dragId == id
+    val snap by rememberUpdatedState(snapMoves)
     LaunchedEffect(target, dragging) {
-        if (dragging) {
+        if (snap && !dragging) {
+            position.snapTo(target)
+        } else if (dragging) {
             // Track the finger so the drop animation starts where the tile was released.
             snapshotFlow { state.dragTopLeft }.collect {
                 position.snapTo(IntOffset(it.x.roundToInt(), it.y.roundToInt()))

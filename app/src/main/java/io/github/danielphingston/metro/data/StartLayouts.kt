@@ -1,13 +1,17 @@
 package io.github.danielphingston.metro.data
 
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.stringPreferencesKey
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
  * One saved start layout. [tiles] is a tile array exactly as the "tiles" key stores it (see
- * [TileJson]), kept as text so entries this version can't decode survive untouched.
+ * [TileJson]), kept as text so entries this version can't decode survive untouched. [settings]
+ * are its start settings (see [LayoutStartSettings]): the stored value of each per-layout key that
+ * is set; null for an entry saved before layouts kept settings, which leaves the live ones alone.
  */
-data class SavedLayout(val id: Long, val name: String, val tiles: String)
+data class SavedLayout(val id: Long, val name: String, val tiles: String, val settings: Map<String, Any>? = null)
 
 /**
  * The saved start layouts, of which [active] is the one on screen. The live "tiles" key holds the
@@ -21,6 +25,14 @@ data class LayoutSet(val active: Long, val layouts: List<SavedLayout>) {
 
     /** This set with layout [id]'s tiles replaced by [tiles]. */
     fun withTiles(id: Long, tiles: String): LayoutSet = copy(layouts = layouts.map { if (it.id == id) it.copy(tiles = tiles) else it })
+
+    /**
+     * This set with the screen as it is written into the active entry: the live [tiles] and, unless
+     * null, the live per-layout [settings].
+     */
+    fun withLive(tiles: String, settings: Map<String, Any>?): LayoutSet = copy(
+        layouts = layouts.map { if (it.id == active) it.copy(tiles = tiles, settings = settings ?: it.settings) else it },
+    )
 
     /** The layout after the active one, wrapping around; null when there is no other. */
     fun next(): SavedLayout? {
@@ -41,9 +53,11 @@ data class LayoutSet(val active: Long, val layouts: List<SavedLayout>) {
 }
 
 /**
- * The "layouts" key: {"active": <id>, "layouts": [{"id": <long>, "name": "...", "tiles": [...]}]}.
- * An install that never saved a layout has no such key. Part of every backup, so its shape is a
- * promise: only ever add fields, and read what isn't there as before.
+ * The "layouts" key:
+ * {"active": <id>, "layouts": [{"id": <long>, "name": "...", "tiles": [...], "settings": {"<key>": <value>}}]}.
+ * "settings" is optional (see [LayoutStartSettings]). An install that never saved a layout has no
+ * such key. Part of every backup, so its shape is a promise: only ever add fields, and read what
+ * isn't there as before.
  */
 internal object LayoutsJson {
     const val KEY = "layouts"
@@ -53,7 +67,11 @@ internal object LayoutsJson {
         .put(
             "layouts",
             JSONArray().apply {
-                set.layouts.forEach { put(JSONObject().put("id", it.id).put("name", it.name).put("tiles", JSONArray(it.tiles))) }
+                set.layouts.forEach { layout ->
+                    val entry = JSONObject().put("id", layout.id).put("name", layout.name).put("tiles", JSONArray(layout.tiles))
+                    layout.settings?.let { entry.put("settings", LayoutStartSettings.encode(it)) }
+                    put(entry)
+                }
             },
         )
         .toString()
@@ -72,7 +90,12 @@ internal object LayoutsJson {
             val id = runCatching { obj.getLong("id") }.getOrNull() ?: return@mapNotNull null
             val tiles = obj.optJSONArray("tiles") ?: return@mapNotNull null
             if (!seen.add(id)) return@mapNotNull null
-            SavedLayout(id, LayoutNames.clean(obj.optString("name")).ifEmpty { "layout $id" }, tiles.toString())
+            SavedLayout(
+                id,
+                LayoutNames.clean(obj.optString("name")).ifEmpty { "layout $id" },
+                tiles.toString(),
+                LayoutStartSettings.decode(obj.optJSONObject("settings")),
+            )
         }
         if (layouts.isEmpty()) return null
         val active = root.optLong("active", layouts.first().id).takeIf { id -> layouts.any { it.id == id } } ?: layouts.first().id
@@ -117,48 +140,78 @@ object LayoutNames {
 }
 
 /**
- * The layout operations as pure functions over a [LayoutSet] and the live tiles ([live], as the
- * tiles key stores them). Each writes the live tiles back into the active entry, so whatever is
+ * The layout operations as pure functions over a [LayoutSet], the live tiles ([live], as the tiles
+ * key stores them) and the live per-layout settings ([settings], see [LayoutStartSettings]; null
+ * keeps the stored ones). Each writes the live state back into the active entry, so whatever is
  * written next has the screen as it is. Null means the operation doesn't apply.
  */
 internal object LayoutOps {
     private fun nextId(set: LayoutSet) = (set.layouts.maxOfOrNull { it.id } ?: 0) + 1
 
     /**
-     * Keeps a copy of the current start as a new layout called [name]; the current one stays
-     * active. The first time, the current start itself becomes the layout [LayoutNames.FIRST].
+     * Keeps a copy of the current start, its settings included, as a new layout called [name];
+     * the current one stays active. The first time, the current start itself becomes the layout
+     * [LayoutNames.FIRST].
      */
-    fun saveAs(set: LayoutSet?, live: String, name: String): LayoutSet? {
+    fun saveAs(set: LayoutSet?, live: String, name: String, settings: Map<String, Any>? = null): LayoutSet? {
         val clean = LayoutNames.clean(name)
         if (LayoutNames.problem(clean, set) != null) return null
-        val base = (set ?: LayoutSet(1, listOf(SavedLayout(1, LayoutNames.FIRST, live)))).withTiles(set?.active ?: 1, live)
-        return base.copy(layouts = base.layouts + SavedLayout(nextId(base), clean, live))
+        val base = (set ?: LayoutSet(1, listOf(SavedLayout(1, LayoutNames.FIRST, live)))).withLive(live, settings)
+        return base.copy(layouts = base.layouts + SavedLayout(nextId(base), clean, live, base.activeLayout.settings))
     }
 
-    fun rename(set: LayoutSet, id: Long, name: String, live: String): LayoutSet? {
+    fun rename(set: LayoutSet, id: Long, name: String, live: String, settings: Map<String, Any>? = null): LayoutSet? {
         val clean = LayoutNames.clean(name)
         if (set.byId(id) == null || LayoutNames.problem(clean, set, exceptId = id) != null) return null
-        return set.withTiles(set.active, live).copy(layouts = set.layouts.map { if (it.id == id) it.copy(name = clean) else it })
+        val written = set.withLive(live, settings)
+        return written.copy(layouts = written.layouts.map { if (it.id == id) it.copy(name = clean) else it })
     }
 
-    /** A copy of layout [id] right after it, named "<name> copy". Widget tiles share their ids with the original. */
-    fun duplicate(set: LayoutSet, id: Long, live: String): LayoutSet? {
-        val written = set.withTiles(set.active, live)
+    /**
+     * A copy of layout [id], tiles and settings, right after it, named "<name> copy"; the active
+     * layout is copied as it is on screen. Widget tiles share their ids with the original.
+     */
+    fun duplicate(set: LayoutSet, id: Long, live: String, settings: Map<String, Any>? = null): LayoutSet? {
+        val written = set.withLive(live, settings)
         val source = written.byId(id) ?: return null
-        val copy = SavedLayout(nextId(set), LayoutNames.unique("${source.name} copy", set), source.tiles)
+        val copy = SavedLayout(nextId(set), LayoutNames.unique("${source.name} copy", set), source.tiles, source.settings)
         val index = written.layouts.indexOf(source)
         return written.copy(layouts = written.layouts.toMutableList().apply { add(index + 1, copy) })
     }
 
     /** Removes layout [id] and returns it; never the active one. */
-    fun delete(set: LayoutSet, id: Long, live: String): Pair<LayoutSet, SavedLayout>? {
+    fun delete(set: LayoutSet, id: Long, live: String, settings: Map<String, Any>? = null): Pair<LayoutSet, SavedLayout>? {
         val gone = set.byId(id)?.takeIf { id != set.active } ?: return null
-        return set.withTiles(set.active, live).copy(layouts = set.layouts.filter { it.id != id }) to gone
+        val written = set.withLive(live, settings)
+        return written.copy(layouts = written.layouts.filter { it.id != id }) to gone
     }
 
-    /** Makes layout [target] active, keeping the live tiles in the one that was. Null for the active layout or a missing one. */
-    fun switch(set: LayoutSet, live: String, target: Long): LayoutSet? {
+    /**
+     * Makes layout [target] active, keeping the live tiles and settings in the one that was. The
+     * caller then loads the target's tiles, and its settings when it has any ([settingsToLoad]).
+     * Null for the active layout or a missing one.
+     */
+    fun switch(set: LayoutSet, live: String, target: Long, settings: Map<String, Any>? = null): LayoutSet? {
         if (target == set.active || set.byId(target) == null) return null
-        return set.withTiles(set.active, live).copy(active = target)
+        return set.withLive(live, settings).copy(active = target)
+    }
+
+    /**
+     * What the live per-layout keys hold after switching to [switched]'s active layout: its
+     * settings, every per-layout key they lack removed (see [LayoutStartSettings.apply]). Null, for
+     * an entry saved without settings, leaves the live settings as they are.
+     */
+    fun settingsToLoad(switched: LayoutSet): Map<String, Any>? = switched.activeLayout.settings
+
+    /**
+     * The store's side of a switch to [target], inside the one edit that also writes the target's
+     * tiles: the live settings in [prefs] go into the active entry, the layouts are written, and
+     * the target's settings become the live ones. Returns the new set, or null when it doesn't apply.
+     */
+    fun switchStore(prefs: MutablePreferences, set: LayoutSet, live: String, target: Long): LayoutSet? {
+        val switched = switch(set, live, target, LayoutStartSettings.read(prefs)) ?: return null
+        prefs[stringPreferencesKey(LayoutsJson.KEY)] = LayoutsJson.encode(switched)
+        settingsToLoad(switched)?.let { LayoutStartSettings.apply(prefs, it) }
+        return switched
     }
 }

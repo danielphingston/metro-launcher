@@ -1,9 +1,12 @@
 package io.github.danielphingston.metro.data
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import io.github.danielphingston.metro.live.PhotoSource
 import io.github.danielphingston.metro.ui.start.TileKeys
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -88,66 +92,103 @@ class StartLayoutRepository(
     /** Whether a layout not on screen has entries this version can't read; then no widget id is reclaimed. */
     fun hasUndecoded(): Boolean = _layouts.value?.hasUndecoded() == true
 
-    private suspend fun write(set: LayoutSet): Boolean = try {
-        context.metroDataStore.edit { it[key] = LayoutsJson.encode(set) }
-        _layouts.value = set
-        true
-    } catch (_: IOException) {
-        false
-    }
-
-    /** Runs [change] on the set and the live tiles and writes the result; false when it didn't apply or couldn't be written. */
-    private suspend fun update(change: (LayoutSet?, String) -> LayoutSet?): Boolean = mutex.withLock {
+    /**
+     * Runs [change] on the set, the live tiles and the live per-layout settings, and writes the
+     * result; false when it didn't apply or couldn't be written. The settings are read inside the
+     * same store edit, so a setting changed just before can't be missed.
+     */
+    private suspend fun update(change: (LayoutSet?, String, Map<String, Any>) -> LayoutSet?): Boolean = mutex.withLock {
         val live = tiles.encoded() ?: return false
-        val next = change(_layouts.value, live) ?: return false
-        write(next)
+        val current = _layouts.value
+        var written: LayoutSet? = null
+        try {
+            context.metroDataStore.edit { prefs ->
+                val next = change(current, live, LayoutStartSettings.read(prefs)) ?: return@edit
+                prefs[key] = LayoutsJson.encode(next)
+                written = next
+            }
+        } catch (_: IOException) {
+            return false
+        }
+        written?.let { _layouts.value = it }
+        written != null
     }
 
-    /** Saves the current start as a new layout called [name]; returns why not, or null when it was saved. */
+    /** Saves the current start, its settings included, as a new layout called [name]; returns why not, or null when it was saved. */
     suspend fun saveCurrentAs(name: String): String? {
         if (!unlocked()) return LOCKED
         LayoutNames.problem(LayoutNames.clean(name), _layouts.value)?.let { return it }
-        return if (update { set, live -> LayoutOps.saveAs(set, live, name) }) null else "couldn't save the layout"
+        return if (update { set, live, settings -> LayoutOps.saveAs(set, live, name, settings) }) null else "couldn't save the layout"
     }
 
     /** Renames layout [id]; returns why not, or null when it was renamed. */
     suspend fun rename(id: Long, name: String): String? {
         LayoutNames.problem(LayoutNames.clean(name), _layouts.value, exceptId = id)?.let { return it }
-        return if (update { set, live -> set?.let { LayoutOps.rename(it, id, name, live) } }) null else "couldn't rename the layout"
+        return if (update { set, live, settings -> set?.let { LayoutOps.rename(it, id, name, live, settings) } }) null else "couldn't rename the layout"
     }
 
-    suspend fun duplicate(id: Long): Boolean = unlocked() && update { set, live -> set?.let { LayoutOps.duplicate(it, id, live) } }
+    suspend fun duplicate(id: Long): Boolean =
+        unlocked() && update { set, live, settings -> set?.let { LayoutOps.duplicate(it, id, live, settings) } }
 
-    /** Deletes layout [id] (never the active one) and frees the widget ids and shortcuts only it used. */
+    /**
+     * Deletes layout [id] (never the active one) and frees the widget ids, shortcuts and
+     * background photo only it used.
+     */
     suspend fun delete(id: Long): Boolean {
         var gone: SavedLayout? = null
-        val done = update { set, live ->
-            set?.let { LayoutOps.delete(it, id, live) }?.let { (next, removed) ->
+        val done = update { set, live, settings ->
+            set?.let { LayoutOps.delete(it, id, live, settings) }?.let { (next, removed) ->
                 gone = removed
                 next
             }
         }
-        gone?.takeIf { done }?.let { layout -> undo().releaseUnreferenced(TileJson.read(layout.tiles)?.tiles.orEmpty()) }
+        gone?.takeIf { done }?.let { layout ->
+            undo().releaseUnreferenced(TileJson.read(layout.tiles)?.tiles.orEmpty())
+            (layout.settings?.get(LayoutStartSettings.PHOTO) as? String)?.let { releasePhotosIfUnused(listOf(it)) }
+        }
         return done
     }
 
     /**
-     * Shows layout [id] on start: the live tiles go back into the active entry and [id]'s tiles
-     * become the live ones, in one store edit. The undo steps belonged to the other layout and
-     * are dropped. False for the active layout, a missing one, or a failed write.
+     * Lets go of the persisted read grant of each of [uris] that no layout, the live background
+     * and the photos tile use any more (see [LayoutStartSettings.photosInUse]).
+     */
+    suspend fun releasePhotosIfUnused(uris: Collection<String>) {
+        val candidates = uris.filter { it.isNotEmpty() }
+        if (candidates.isEmpty()) return
+        val livePhoto = context.metroDataStore.data.first().let { LayoutStartSettings.read(it)[LayoutStartSettings.PHOTO] as? String }
+        val inUse = LayoutStartSettings.photosInUse(_layouts.value, livePhoto) + PhotoSource.current(context)
+        candidates.filter { it !in inUse }.forEach { uri ->
+            runCatching {
+                context.contentResolver.releasePersistableUriPermission(Uri.parse(uri), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+    }
+
+    /**
+     * Shows layout [id] on start: the live tiles and per-layout settings go back into the active
+     * entry, and [id]'s tiles and settings become the live ones, all in one store edit. An entry
+     * without settings leaves the live settings as they are. The undo steps belonged to the other
+     * layout and are dropped. False for the active layout, a missing one, or a failed write.
      */
     suspend fun switchTo(id: Long): Boolean = mutex.withLock {
         if (!unlocked()) return false
         val set = _layouts.value ?: return false
         val live = tiles.encoded() ?: return false
-        val next = LayoutOps.switch(set, live, id) ?: return false
+        val target = set.byId(id)?.takeIf { id != set.active } ?: return false
         val from = tiles.tiles.value.orEmpty()
-        val encoded = LayoutsJson.encode(next)
-        val swapped = tiles.swap(next.byId(id)!!.tiles, beforePublish = { keys.switched(from, it) }) { prefs -> prefs[key] = encoded }
-        if (!swapped) return false
-        _layouts.value = next
+        // Tiles glide to their new places only when the grid's cells stay the same size.
+        val before = LayoutStartSettings.read(context.metroDataStore.data.first())
+        val glide = !LayoutStartSettings.changesGrid(before, target.settings)
+        var next: LayoutSet? = null
+        val swapped = tiles.swap(target.tiles, beforePublish = { keys.switched(from, it, glide) }) { prefs ->
+            next = LayoutOps.switchStore(prefs, set, live, id)
+        }
+        val done = next
+        if (!swapped || done == null) return false
+        _layouts.value = done
         undo().clear()
-        _switches.tryEmit(Switched(next.activeLayout.name, set.active))
+        _switches.tryEmit(Switched(done.activeLayout.name, set.active))
         true
     }
 

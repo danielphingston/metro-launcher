@@ -7,6 +7,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
@@ -18,6 +19,9 @@ import io.github.danielphingston.metro.ui.ResolvedTile
 
 /** How long a layout switch's fades and size glides take, before the animation speed setting. */
 internal const val SWITCH_MILLIS = 260
+
+/** How long a switch that fades the grid in waits for the new layout's settings before it starts anyway. */
+internal const val SWITCH_SETTINGS_WAIT_MILLIS = 250L
 
 /** Which tiles of two layouts are "the same tile", for the switch animation; pure. */
 internal object TileMatching {
@@ -71,6 +75,14 @@ class TileKeys {
     var generation = 0
         private set
 
+    /**
+     * Whether the latest switch kept the grid's cells (columns and side paddings), so tiles of
+     * both layouts glide. False when the other layout's settings change the grid: positions in
+     * cells then mean other places on screen, so the new layout fades in as a whole instead.
+     */
+    var glides = true
+        private set
+
     @Synchronized
     fun keyOf(id: Long): Long {
         aliases[id]?.let { return it }
@@ -79,11 +91,12 @@ class TileKeys {
         return id
     }
 
-    /** [to] replaces [from] on start; see [TileMatching.match]. */
+    /** [to] replaces [from] on start; see [TileMatching.match]. Without [glide] no tile is matched, see [glides]. */
     @Synchronized
-    fun switched(from: List<TileSpec>, to: List<TileSpec>) {
+    fun switched(from: List<TileSpec>, to: List<TileSpec>, glide: Boolean = true) {
         val fromKeys = from.associate { it.id to keyOf(it.id) }
-        val match = TileMatching.match(from, to)
+        val match = if (glide) TileMatching.match(from, to) else emptyMap()
+        glides = glide
         val next = HashMap<Long, Long>()
         val used = HashSet<Long>()
         match.forEach { (toId, fromId) -> fromKeys[fromId]?.let { next[toId] = it; used += it } }
@@ -129,17 +142,32 @@ internal class SwitchMotion {
      * Called while composing start with the tiles it shows by key: on a new [generation] works
      * out what left, what is new and what changed size. Returns whether a switch just happened.
      */
-    fun update(generation: Int, now: Map<Long, Pair<ResolvedTile, Placement>>, animate: () -> Boolean): Boolean {
+    fun update(
+        generation: Int,
+        now: Map<Long, Pair<ResolvedTile, Placement>>,
+        glides: Boolean = true,
+        animate: () -> Boolean,
+    ): Boolean {
         val switched = seenGeneration >= 0 && generation != seenGeneration
         seenGeneration = generation
         val before = shown
         shown = now
         if (!switched) return false
         pending = true
+        fading = false
         // Animations off (the system's animator scale): the new layout just appears.
         if (!animate()) return true
         // Set here, so the frame that first shows the new layout already draws its start.
         progress = 0f
+        if (!glides) {
+            // The grid changes too (other columns or side paddings): the old tiles go at once and
+            // the new layout fades in as a whole, once its settings have arrived (see [fadeModifier]).
+            fading = true
+            leaving = emptyList()
+            entering = emptySet()
+            resized = emptyMap()
+            return true
+        }
         leaving = before.filterKeys { it !in now }.map { (key, value) -> Leaving(key, value.first, value.second) }
         entering = now.keys - before.keys
         resized = now.mapNotNull { (key, value) ->
@@ -158,8 +186,15 @@ internal class SwitchMotion {
 
     private var pending = false
 
+    /** Whether the switch being animated fades the whole grid in instead of gliding its tiles. */
+    var fading by mutableStateOf(false)
+        private set
+
     /** Whether a switch happened that the screen hasn't reacted to yet; true once per switch. */
     fun takeSwitch(): Boolean = pending.also { pending = false }
+
+    /** For the whole grid: transparent at the start of a [fading] switch, opaque at its end. */
+    fun fadeModifier(): Modifier = Modifier.graphicsLayer { if (fading) alpha = progress }
 
     suspend fun play(durationMillis: Int) {
         try {
@@ -171,6 +206,7 @@ internal class SwitchMotion {
 
     private fun finish() {
         progress = 1f
+        fading = false
         leaving = emptyList()
         entering = emptySet()
         resized = emptyMap()
