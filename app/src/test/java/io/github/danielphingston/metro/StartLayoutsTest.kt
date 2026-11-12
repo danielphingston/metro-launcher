@@ -26,6 +26,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import io.github.danielphingston.metro.data.decodeLatest
+import kotlinx.coroutines.flow.toList
 import org.junit.Test
 import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles.Outcome
 import org.junit.runner.RunWith
@@ -326,6 +328,21 @@ class StartLayoutsTest {
         (row.action as io.github.danielphingston.metro.ui.search.ItemAction.Run)
             .run(io.github.danielphingston.metro.ui.search.ActionEnv(org.robolectric.RuntimeEnvironment.getApplication(), null, null, commands))
         assertEquals(listOf(2L), asked)
+    }
+
+    @Test
+    fun aDecodeOvertakenByANewerWriteDoesNotPutTheOlderSetBack() = kotlinx.coroutines.runBlocking {
+        // The store holds "new" (this repository wrote it) by the time "old" is decoded: "old" is dropped.
+        var store = "old"
+        val decoded = kotlinx.coroutines.flow.flowOf("old", "new")
+            .decodeLatest(latest = { store }, decode = { s -> store = "new"; "decoded $s" })
+            .toList()
+        assertEquals(listOf("decoded new"), decoded)
+        // An outside change (a backup import) that is the store's latest value comes through.
+        val imported = kotlinx.coroutines.flow.flowOf<String?>("imported")
+            .decodeLatest(latest = { "imported" }, decode = { "decoded $it" })
+            .toList()
+        assertEquals(listOf("decoded imported"), imported)
     }
 
     @Test

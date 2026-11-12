@@ -11,6 +11,7 @@ import io.github.danielphingston.metro.ui.start.TileKeys
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -25,6 +27,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.IOException
+
+/**
+ * [decode]s each stored value off the main thread, and passes on only those still [latest] once
+ * decoded: an older value, overtaken while it was decoded (by a write that already published its
+ * own result), is dropped; any newer one, a backup import too, comes through as its own emission.
+ */
+internal fun <T> Flow<String?>.decodeLatest(latest: suspend () -> String?, decode: (String?) -> T): Flow<T> =
+    map { it to decode(it) }
+        .flowOn(Dispatchers.Default)
+        .filter { (source, _) -> source == latest() }
+        .map { it.second }
 
 /**
  * The saved start layouts (see [LayoutSet], stored under [LayoutsJson.KEY] beside the tiles) and
@@ -66,10 +79,13 @@ class StartLayoutRepository(
     init {
         scope.launch {
             // Decoding every saved layout is real work (all their tile JSON): off the main thread, which a switch would stall.
-            context.metroDataStore.data.map(::stored).distinctUntilChanged().map(LayoutsJson::decode).flowOn(Dispatchers.Default).collect {
-                _layouts.value = it
-                loaded.complete(Unit)
-            }
+            // A decode that finishes after this repository wrote a newer set must not put the older one back.
+            context.metroDataStore.data.map(::stored).distinctUntilChanged()
+                .decodeLatest(latest = { stored(context.metroDataStore.data.first()) }, decode = LayoutsJson::decode)
+                .collect {
+                    _layouts.value = it
+                    loaded.complete(Unit)
+                }
         }
     }
 
