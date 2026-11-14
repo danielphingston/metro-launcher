@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -201,25 +202,29 @@ internal fun rememberIcon(icons: IconCache, app: AppInfo, sizePx: Int, monochrom
     // Keyed on the app itself, not its key: an updated app is a new AppInfo with the new icon loader.
     val loaded by produceState(cached, app, sizePx, monochrome, icons.generation) {
         // Keep showing the previous icon until the new one is ready.
-        value = icons.peek(app, sizePx, monochrome) ?: loadWithRetry(icons, app, sizePx, monochrome) ?: value
+        value = icons.peek(app, sizePx, monochrome) ?: loadWithRetry(icons, app, sizePx, monochrome)
     }
     return loaded
 }
 
-/** How long to wait before each retry of an icon that could not be drawn (see [loadWithRetry]). */
+/** How long to wait before each retry of an icon that could not be drawn (see [loadWithRetry]); the last repeats. */
 private val ICON_RETRY_MILLIS = longArrayOf(1_500L, 5_000L, 15_000L, 60_000L, 60_000L, 300_000L)
 
 /**
- * Loads off the main thread. A null result is often transient (the app is being updated), and
- * nothing else would ask again, so it is retried with growing delays for about eight minutes,
- * long enough for a large app update to finish.
+ * Loads off the main thread. A null result is often transient (the app or the icon pack is being
+ * updated), and nothing else would ask again, so it is retried with growing delays, then every
+ * five minutes for as long as the tile is on screen: giving up left tiles blank until a restart.
  */
-private suspend fun loadWithRetry(icons: IconCache, app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
-    for (wait in ICON_RETRY_MILLIS) {
-        withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }?.let { return it }
-        delay(wait)
+private suspend fun loadWithRetry(icons: IconCache, app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon =
+    retrying { icons.load(app, sizePx, monochrome) }
+
+internal suspend fun <T : Any> retrying(load: () -> T?): T {
+    var attempt = 0
+    while (true) {
+        withContext(Dispatchers.Default) { load() }?.let { return it }
+        delay(ICON_RETRY_MILLIS[attempt.coerceAtMost(ICON_RETRY_MILLIS.lastIndex)])
+        attempt++
     }
-    return withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }
 }
 
 @Composable
@@ -287,8 +292,13 @@ fun CustomTileIcon(icon: String, size: Dp, icons: IconCache, modifier: Modifier 
     }
     val px = with(LocalDensity.current) { size.roundToPx() }
     val generation = icons.generation
-    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, icon, px, generation) {
-        value = withContext(Dispatchers.IO) { icons.loadCustom(icon, px) }
+    // Like app icons: shown at once when cached, the previous one kept while reloading, and a pack
+    // that can't be read right now (being updated) retried instead of leaving the tile blank.
+    // Keyed on the icon too, so a newly picked icon never shows the previous one while it loads.
+    val bitmap by key(icon, px) {
+        produceState(icons.peekCustom(icon, px), generation) {
+            value = icons.peekCustom(icon, px) ?: retrying { icons.loadCustom(icon, px) }
+        }
     }
     bitmap?.let { Image(it, contentDescription = null, modifier = modifier.size(size)) }
 }

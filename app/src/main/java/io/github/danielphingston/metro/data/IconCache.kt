@@ -81,8 +81,9 @@ class IconCache(private val context: Context) {
 
     /**
      * Blocking: call off the main thread. Null when the icon can't be drawn, for instance while
-     * its app is being updated (the system then hands out its default icon, which is not cached
-     * either); the next call tries again.
+     * its app or the icon pack is being updated (the system then hands out its default icon, and
+     * the pack can't be read; neither is cached, nor the app's own icon in place of the pack's);
+     * the next call tries again.
      */
     fun load(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
         val key = cacheKey(app, sizePx, monochrome)
@@ -105,7 +106,13 @@ class IconCache(private val context: Context) {
     /** Drawable names of icon pack [pack]. Blocking. */
     fun packIconNames(pack: String): List<String> = iconPacks.iconNames(pack)
 
-    /** A picked "pack:<package>:<drawable>" icon at [sizePx], or null. Blocking: call off the main thread. */
+    /** A picked icon already rendered at [sizePx]; see [loadCustom]. */
+    fun peekCustom(icon: String, sizePx: Int): ImageBitmap? = cache.get("custom/$icon@$sizePx")?.bitmap
+
+    /**
+     * A picked "pack:<package>:<drawable>" icon at [sizePx], or null (also while the pack can't be
+     * read, which is not remembered: the next call tries again). Blocking: call off the main thread.
+     */
     fun loadCustom(icon: String, sizePx: Int): ImageBitmap? {
         val rest = icon.removePrefix("pack:").takeIf { it != icon } ?: return null
         val split = rest.indexOf(':')

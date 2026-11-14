@@ -14,6 +14,9 @@ import java.util.concurrent.ConcurrentHashMap
 
 data class IconPackInfo(val packageName: String, val label: String)
 
+/** An icon pack could not be read right now (typically while it is being updated); try again later. */
+class PackUnreadable(pack: String, cause: Throwable) : RuntimeException("icon pack $pack unreadable", cause)
+
 /**
  * Launcher icon packs in the common ADW/Nova/Apex format: an `appfilter.xml` (in the pack's
  * `res/xml` or assets) mapping each app's component to a drawable name in the pack.
@@ -44,28 +47,23 @@ class IconPacks(private val context: Context) {
             .sortedBy { it.label.lowercase() }
     }
 
-    /** The pack's icon for [component], or null if the pack has none. Called off the main thread. */
-    fun drawable(packPackage: String, component: ComponentName, density: Int): Drawable? = try {
-        val filter = filters[packPackage] ?: loadFilter(packPackage)?.also { filters[packPackage] = it }
-        val name = filter?.get(component)
-        if (name == null) {
-            null
-        } else {
-            val resources = resourcesOf(packPackage)
-            val id = resources.getIdentifier(name, "drawable", packPackage).takeIf { it != 0 }
-                ?: resources.getIdentifier(name, "mipmap", packPackage)
-            if (id == 0) null else resources.getDrawableForDensity(id, density, null)
-        }
-    } catch (_: Exception) {
-        null
+    /**
+     * The pack's icon for [component], or null if the pack has none (or is not installed). Throws
+     * [PackUnreadable] when the pack could not be read right now; that must not be taken for "no
+     * icon". Called off the main thread.
+     */
+    fun drawable(packPackage: String, component: ComponentName, density: Int): Drawable? = readPack(packPackage) { resources ->
+        val filter = filters[packPackage] ?: loadFilter(packPackage, resources).also { filters[packPackage] = it }
+        val name = filter[component] ?: return@readPack null
+        drawableIn(resources, packPackage, name, density)
     }
 
     /** Distinct sorted drawable names of [pack] (appfilter, plus drawable.xml items). Blocking. */
     fun iconNames(pack: String): List<String> {
         val names = HashSet<String>()
         try {
-            val filter = filters[pack] ?: loadFilter(pack)?.also { filters[pack] = it }
-            filter?.values?.let { names.addAll(it) }
+            val filter = filters[pack] ?: loadFilter(pack, resourcesOf(pack)).also { filters[pack] = it }
+            names.addAll(filter.values)
         } catch (_: Exception) {
         }
         try {
@@ -87,14 +85,49 @@ class IconPacks(private val context: Context) {
         return names.sorted()
     }
 
-    /** The pack's drawable called [name] (drawable, then mipmap), or null. Blocking. */
-    fun drawableByName(pack: String, name: String, density: Int): Drawable? = try {
-        val resources = resourcesOf(pack)
+    /**
+     * The pack's drawable called [name] (drawable, then mipmap), or null if it has none. Throws
+     * [PackUnreadable] like [drawable]. Blocking.
+     */
+    fun drawableByName(pack: String, name: String, density: Int): Drawable? =
+        readPack(pack) { resources -> drawableIn(resources, pack, name, density) }
+
+    private fun drawableIn(resources: Resources, pack: String, name: String, density: Int): Drawable? {
         val id = resources.getIdentifier(name, "drawable", pack).takeIf { it != 0 }
             ?: resources.getIdentifier(name, "mipmap", pack)
-        if (id == 0) null else resources.getDrawableForDensity(id, density, null)
+        return if (id == 0) null else resources.getDrawableForDensity(id, density, null)
+    }
+
+    /**
+     * Runs [read] on the pack's resources. The cached [Resources] can still point at the APK a pack
+     * update just replaced, so a failure is tried once more with fresh ones. A pack that is not
+     * installed gives null. A pack that is installed and readable but still fails is broken: null
+     * as well, so tiles fall back to the app's own icon. Otherwise (mid-update) [PackUnreadable],
+     * so nothing caches a stand-in for an icon that will be back in a moment.
+     */
+    private inline fun <T> readPack(pack: String, read: (Resources) -> T?): T? {
+        try {
+            return read(resourcesOf(pack))
+        } catch (_: PackageManager.NameNotFoundException) {
+            return null
+        } catch (_: Exception) {
+            invalidate(pack)
+        }
+        try {
+            return read(resourcesOf(pack))
+        } catch (_: PackageManager.NameNotFoundException) {
+            return null
+        } catch (e: Exception) {
+            if (isSettled(pack)) return null
+            throw PackUnreadable(pack, e)
+        }
+    }
+
+    /** Whether [pack] is installed with an APK that can be read, i.e. not in the middle of an update. */
+    private fun isSettled(pack: String): Boolean = try {
+        java.io.File(context.packageManager.getApplicationInfo(pack, 0).sourceDir).canRead()
     } catch (_: Exception) {
-        null
+        false
     }
 
     /** Forgets the parsed filter and resources of [packageName], e.g. after the pack was updated. */
@@ -103,22 +136,18 @@ class IconPacks(private val context: Context) {
         resourcesByPack.remove(packageName)
     }
 
-    /** Null when loading failed, which must not be remembered. */
-    private fun loadFilter(pack: String): Map<ComponentName, String>? = try {
-        val resources = resourcesOf(pack)
+    /** The pack's appfilter, empty when it has none. Throws when it could not be read, which must not be remembered. */
+    private fun loadFilter(pack: String, resources: Resources): Map<ComponentName, String> {
         val id = resources.getIdentifier("appfilter", "xml", pack)
-        if (id != 0) {
-            resources.getXml(id).use { parseAppFilter(it) }
-        } else {
+        if (id != 0) return resources.getXml(id).use { parseAppFilter(it) }
+        return try {
             context.createPackageContext(pack, 0).assets.open("appfilter.xml").use { input ->
                 parseAppFilter(Xml.newPullParser().apply { setInput(input, null) })
             }
+        } catch (_: FileNotFoundException) {
+            // The pack has no appfilter.xml at all.
+            emptyMap()
         }
-    } catch (_: FileNotFoundException) {
-        // The pack has no appfilter.xml at all.
-        emptyMap()
-    } catch (_: Exception) {
-        null
     }
 
     @Suppress("DEPRECATION")
