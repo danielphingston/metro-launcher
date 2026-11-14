@@ -210,7 +210,7 @@ class LayoutStartSettingsTest {
     @Test
     fun settingsMenuOrder() {
         assertEquals(
-            listOf("start", "app list", "search", "appearance", "animations", "tiles", "metro plus", "gestures", "about"),
+            listOf("start", "app list", "search", "appearance", "animations", "tiles", "metro plus", "gestures", "backup", "about"),
             SettingsPage.menu.map { it.title },
         )
         assertEquals(SettingsPage.START, SettingsPage.LAYOUTS.parent)

@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 import java.time.LocalDate
 
-/** Settings section to save the tiles and settings to a file and to restore them from one; see [Backup]. */
+/** The backup settings page: save the tiles and settings to a file and restore them from one; see [Backup]. */
 @Composable
 internal fun BackupSettingsSection() {
     val context = LocalContext.current
@@ -52,9 +52,10 @@ internal fun BackupSettingsSection() {
             }
         }
     }
-    Section("backup")
+    Spacer(Modifier.height(36.dp))
     MetroText(
-        "Save your tiles and settings to a file, or bring them back from one, for example on a new phone.",
+        "Save your tiles and settings to a file, or bring them back from one, for example on a new phone. " +
+            "To keep it in Google Drive, pick Drive in the menu of the file picker when you save, and again when you restore.",
         MetroType.caption,
         color = colors.subtle,
     )
@@ -72,7 +73,7 @@ internal fun BackupSettingsSection() {
 
 /**
  * The "restore from backup" button with its file picker and confirmation; [onRestored] runs after
- * a backup was restored. Shared by the about page and the first-run setup.
+ * a backup was restored. Shared by the backup page and the first-run setup.
  */
 @Composable
 internal fun RestoreFromBackupButton(modifier: Modifier = Modifier, onRestored: () -> Unit = {}) {

@@ -55,4 +55,14 @@ class IconStandInTest {
         val cache = IconCache(context)
         assertNotNull(cache.load(app(declaresIcon = true) { ColorDrawable(Color.RED) }, 96, false))
     }
+
+    /** An icon pack that is gone is "no pack icon": tiles fall back to the app's own icon, never blank. */
+    @Test
+    fun missingIconPackFallsBackToTheAppIcon() {
+        val cache = IconCache(context)
+        cache.iconPack = "com.example.notinstalled.pack"
+        assertNotNull(cache.load(app(declaresIcon = true) { ColorDrawable(Color.RED) }, 96, false))
+        assertNull(cache.loadCustom("pack:com.example.notinstalled.pack:ic_phone", 96))
+        assertNull(cache.peekCustom("pack:com.example.notinstalled.pack:ic_phone", 96))
+    }
 }

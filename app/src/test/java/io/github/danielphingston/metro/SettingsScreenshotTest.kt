@@ -56,6 +56,9 @@ class SettingsScreenshotTest {
     fun metroPlus() = capture("settings_metro_plus", SettingsPage.METRO_PLUS)
 
     @Test
+    fun backup() = capture("settings_backup", SettingsPage.BACKUP)
+
+    @Test
     fun about() = capture("settings_about", SettingsPage.ABOUT)
 
     private fun capture(name: String, page: SettingsPage?) {

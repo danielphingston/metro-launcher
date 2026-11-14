@@ -87,7 +87,7 @@ Contacts and calendar are only read while you search with their switch on and th
 **Backgrounds and personalisation**
 - Theme: dark, light or follow system. The 20 Windows Phone accent colours.
 - Start background: solid; photo tiles (each tile is a window onto one photo); full photo with parallax; or the system wallpaper. In photo tiles mode, "photo moves with the tiles" (off by default) slides the photo away with the tiles when you swipe to the app list.
-- Settings are a menu of pages: start (with layouts), app list, search, appearance, animations, tiles, metro plus, gestures and about.
+- Settings are a menu of pages: start (with layouts), app list, search, appearance (theme, accent colour, themed icons and icon pack), animations, tiles, metro plus, gestures, backup (export and restore, to a file or straight to Google Drive through the system file picker) and about.
 - Tile transparency slider, and "accent colour from my background" for the photo modes.
 - Themed (monochrome) app icons on Android 13+, and icon packs (ADW, Nova and Apex formats).
 - "Metro settings" lives in the app list and also sets Metro as the default home app.
