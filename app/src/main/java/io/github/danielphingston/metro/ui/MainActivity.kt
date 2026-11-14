@@ -126,6 +126,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumes++
+        // Icons that failed to draw while away (an app or icon pack mid-update) get one more try.
+        (application as io.github.danielphingston.metro.MetroApplication).icons.retryFailed()
         viewModel.refreshPermissions()
         viewModel.recheckPurchases()
         NotificationAccess.rebindIfNeeded(this)

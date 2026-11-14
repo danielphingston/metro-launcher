@@ -22,7 +22,8 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.drawable.toBitmap
 import kotlin.math.roundToInt
 
-class TileIcon(val bitmap: ImageBitmap, val isMonochrome: Boolean)
+/** [isStandInForThemed]: the coloured icon shown because the themed one came out empty; never cached. */
+class TileIcon(val bitmap: ImageBitmap, val isMonochrome: Boolean, val isStandInForThemed: Boolean = false)
 
 /**
  * Renders app icons once and keeps them in memory, so scrolling and recomposition never
@@ -48,6 +49,21 @@ class IconCache(private val context: Context) {
      */
     var generation by mutableIntStateOf(0)
         private set
+
+    /** Set when an icon could not be drawn; [retryFailed] then reloads once. No timer ever asks again. */
+    @Volatile
+    private var failed = false
+
+    /**
+     * Called when the launcher comes back to the front: if an icon failed since last time (its app
+     * or the icon pack was being updated), bumps [generation] so visible tiles try again. Does
+     * nothing otherwise, so there is no background polling and no work on an ordinary return.
+     */
+    fun retryFailed() {
+        if (!failed) return
+        failed = false
+        generation++
+    }
 
     private val cache = object : LruCache<String, TileIcon>(24 * 1024 * 1024) {
         override fun sizeOf(key: String, value: TileIcon) = value.bitmap.width * value.bitmap.height * 4
@@ -83,7 +99,7 @@ class IconCache(private val context: Context) {
      * Blocking: call off the main thread. Null when the icon can't be drawn, for instance while
      * its app or the icon pack is being updated (the system then hands out its default icon, and
      * the pack can't be read; neither is cached, nor the app's own icon in place of the pack's);
-     * the next call tries again.
+     * the next call tries again, and [retryFailed] makes tiles call again when the launcher returns.
      */
     fun load(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
         val key = cacheKey(app, sizePx, monochrome)
@@ -97,7 +113,12 @@ class IconCache(private val context: Context) {
         } catch (_: OutOfMemoryError) {
             null // An enormous icon; tiles show no icon rather than the launcher dying.
         }
-        icon?.let { cache.put(key, it) }
+        when {
+            icon == null -> failed = true
+            // Shown for now but not kept: the themed icon is tried again on the next return.
+            icon.isStandInForThemed -> failed = true
+            else -> cache.put(key, icon)
+        }
         return icon
     }
 
@@ -111,7 +132,7 @@ class IconCache(private val context: Context) {
 
     /**
      * A picked "pack:<package>:<drawable>" icon at [sizePx], or null (also while the pack can't be
-     * read, which is not remembered: the next call tries again). Blocking: call off the main thread.
+     * read, which is not remembered: [retryFailed] tries again). Blocking: call off the main thread.
      */
     fun loadCustom(icon: String, sizePx: Int): ImageBitmap? {
         val rest = icon.removePrefix("pack:").takeIf { it != icon } ?: return null
@@ -125,6 +146,8 @@ class IconCache(private val context: Context) {
             val density = context.resources.displayMetrics.densityDpi
             iconPacks.drawableByName(pack, name, density)?.toBitmap(sizePx, sizePx)?.asImageBitmap()
         } catch (_: RuntimeException) {
+            // Typically [PackUnreadable] while the pack is being updated: try again on the next return.
+            failed = true
             null
         } catch (_: OutOfMemoryError) {
             null
@@ -211,6 +234,7 @@ class IconCache(private val context: Context) {
         // Rendered once, for the stand-in check and, for personal apps, the colour icon below.
         val rawBitmap = if (app.declaresIcon) raw.toBitmap(sizePx, sizePx) else null
         if (isStandIn(app, raw, rawBitmap)) return null
+        var emptyThemed = false
         if (monochrome && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val adaptive = raw as? AdaptiveIconDrawable
             val mono = adaptive?.monochrome?.mutate()
@@ -221,9 +245,10 @@ class IconCache(private val context: Context) {
                 mono.setBounds(-inset, -inset, sizePx + inset, sizePx + inset)
                 mono.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
                 mono.draw(Canvas(bitmap))
-                // A themed layer that draws nothing (seen after an app update) would leave the tile
-                // blank: use the coloured icon below instead.
+                // A themed layer that draws nothing (likely read mid-update) would leave the tile
+                // blank: show the coloured icon below for now, without caching it (see [load]).
                 if (hasInk(bitmap)) return TileIcon(badgedForWork(app, bitmap, sizePx).asImageBitmap(), isMonochrome = true)
+                emptyThemed = true
             }
         }
         // Badged and unbadged are the same for personal apps; work apps need the badged load.
@@ -232,7 +257,7 @@ class IconCache(private val context: Context) {
         } else {
             app.loadIcon(density, true).toBitmap(sizePx, sizePx)
         }
-        return TileIcon(bitmap.asImageBitmap(), isMonochrome = false)
+        return TileIcon(bitmap.asImageBitmap(), isMonochrome = false, isStandInForThemed = emptyThemed)
     }
 }
 

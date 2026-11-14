@@ -42,9 +42,17 @@ class ThemedIconTest {
     @Test
     fun emptyThemedLayerFallsBackToTheColouredIcon() {
         val icon = AdaptiveIconDrawable(ColorDrawable(Color.RED), ColorDrawable(Color.BLUE), ColorDrawable(Color.TRANSPARENT))
-        val loaded = IconCache(context).load(app(icon), 96, monochrome = true)
+        val cache = IconCache(context)
+        val loaded = cache.load(app(icon), 96, monochrome = true)
         assertNotNull(loaded)
         assertFalse(loaded!!.isMonochrome)
+        // Not kept, and the next return to the launcher asks the tiles again.
+        org.junit.Assert.assertNull(cache.peek(app(icon), 96, monochrome = true))
+        val before = cache.generation
+        cache.retryFailed()
+        assertTrue(cache.generation > before)
+        cache.retryFailed()
+        assertTrue(cache.generation == before + 1)
     }
 
     @Test

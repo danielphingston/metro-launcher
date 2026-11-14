@@ -132,12 +132,6 @@ internal fun AppListPage(settings: LauncherSettings, repository: SettingsReposit
         { scope.launch { repository.setAppListPlainIcons(it) } },
         description = "Show app icons without the coloured square",
     )
-    MetroToggle(
-        "Use themed app icons",
-        settings.monochromeIcons,
-        { scope.launch { repository.setMonochromeIcons(it) } },
-        description = "White icons on tiles for apps that provide them",
-    )
     Spacer(Modifier.height(10.dp))
     MetroText("Scrubber highlight", MetroType.body)
     Spacer(Modifier.height(8.dp))
@@ -194,6 +188,13 @@ internal fun AppearancePage(settings: LauncherSettings, repository: SettingsRepo
     AccentGrid(settings.accent) { scope.launch { repository.setAccent(it) } }
     AccentFromBackgroundToggle(settings, repository)
 
+    Section("app icons")
+    MetroToggle(
+        "Use themed app icons",
+        settings.monochromeIcons,
+        { scope.launch { repository.setMonochromeIcons(it) } },
+        description = "White icons on tiles for apps that provide them",
+    )
     IconPackSettingsSection(settings, repository)
 }
 
