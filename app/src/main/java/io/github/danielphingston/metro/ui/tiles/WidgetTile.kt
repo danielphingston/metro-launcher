@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -437,7 +438,9 @@ fun WidgetTile(
             .then(if (widget.transparent) Modifier else Modifier.tileSurface())
             .onSizeChanged { sizePx = it },
     ) {
-        AndroidView(
+        // Keyed on the widget: the factory runs once per view, so a tile slot that gets another widget
+        // (a layout switch puts a different widget where this one was) would keep showing the old one.
+        key(widget.appWidgetId) { AndroidView(
             factory = { ctx ->
                 val hostView = WidgetTiles.createView(ctx, widget.appWidgetId, info)
                 // The system's long-press callback only matters if Compose has not already entered edit mode.
@@ -453,7 +456,7 @@ fun WidgetTile(
                     frame.reportSize(SizeF(sizePx.width / density, sizePx.height / density))
                 }
             },
-        )
+        ) }
         if (editing) {
             Box(Modifier.fillMaxSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } })
         }
