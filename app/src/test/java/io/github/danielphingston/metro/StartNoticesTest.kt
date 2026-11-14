@@ -120,6 +120,7 @@ class StartNoticesTest {
         assertEquals("undo", pillContent(StartNotice.Edited("tile moved", 1), editing = false, undoNext = "tile moved")?.label)
         // Its step already gone: nothing to offer.
         assertNull(pillContent(StartNotice.Edited("tile moved", 1), editing = false, undoNext = null))
-        assertEquals("back", pillContent(StartNotice.Switched("work", 3, 1), editing = false, undoNext = null)?.label)
+        // A layout switch shows no pill.
+        assertNull(pillContent(StartNotice.Switched("work", 3, 1), editing = false, undoNext = null))
     }
 }

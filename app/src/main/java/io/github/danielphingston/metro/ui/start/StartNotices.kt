@@ -231,11 +231,12 @@ internal fun UndoPill(
 internal data class PillContent(val label: String, val description: String, val notice: StartNotice?)
 
 /**
- * What the pill shows, or null for no pill: "back" for a layout switch notice; "undo" while
+ * What the pill shows, or null for no pill (never after a layout switch): "undo" while
  * editing with a step to take back ([undoNext]), or for an edit notice whose step is still there.
  */
 internal fun pillContent(notice: StartNotice?, editing: Boolean, undoNext: String?): PillContent? = when {
-    notice is StartNotice.Switched -> PillContent("back", "back to the previous layout", notice)
+    // A layout switch shows no pill: switching again is how to go back.
+    notice is StartNotice.Switched -> null
     undoNext == null -> null
     editing || notice is StartNotice.Edited -> PillContent("undo", editUndoDescription(undoNext)!!, notice)
     else -> null

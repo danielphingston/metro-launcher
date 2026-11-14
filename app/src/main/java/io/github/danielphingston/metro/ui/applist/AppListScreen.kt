@@ -407,10 +407,9 @@ internal fun AppListIcon(app: AppInfo, icons: IconCache, monochrome: Boolean, pl
         contentAlignment = Alignment.Center,
     ) {
         val px = with(LocalDensity.current) { iconSize.roundToPx() }
-        val cached = icons.peek(app, px, themed)
-        val icon by produceState<TileIcon?>(cached, app.key, themed, px, icons.generation) {
-            value = icons.peek(app, px, themed) ?: withContext(Dispatchers.Default) { icons.load(app, px, themed) }
-        }
+        // Same loading as tiles: keyed on the app itself (an update is a new AppInfo) and retried
+        // when it fails, so an icon read mid-update doesn't stay wrong in the list.
+        val icon = io.github.danielphingston.metro.ui.start.rememberIcon(icons, app, px, themed)
         icon?.let { Image(it.bitmap, contentDescription = null, modifier = Modifier.size(iconSize)) }
     }
 }
