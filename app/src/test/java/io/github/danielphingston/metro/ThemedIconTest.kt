@@ -55,6 +55,30 @@ class ThemedIconTest {
         assertTrue(cache.generation == before + 1)
     }
 
+    /** An icon that fails on every return is asked for at most five times, until its app changes. */
+    @Test
+    fun returnRetriesStopAfterACapUntilTheAppChanges() {
+        val icon = AdaptiveIconDrawable(ColorDrawable(Color.RED), ColorDrawable(Color.BLUE), ColorDrawable(Color.TRANSPARENT))
+        val cache = IconCache(context)
+        val app = app(icon)
+        repeat(io.github.danielphingston.metro.data.MAX_RETURN_RETRIES) {
+            cache.load(app, 96, monochrome = true)
+            val before = cache.generation
+            cache.retryFailed()
+            assertTrue(cache.generation == before + 1)
+        }
+        cache.load(app, 96, monochrome = true)
+        val capped = cache.generation
+        cache.retryFailed()
+        assertTrue(cache.generation == capped)
+        // The app was updated: retrying on return starts again.
+        cache.evict("com.example.app")
+        cache.load(app, 96, monochrome = true)
+        val afterChange = cache.generation
+        cache.retryFailed()
+        assertTrue(cache.generation == afterChange + 1)
+    }
+
     @Test
     fun drawnThemedLayerIsUsed() {
         val icon = AdaptiveIconDrawable(ColorDrawable(Color.RED), ColorDrawable(Color.BLUE), ColorDrawable(Color.BLACK))

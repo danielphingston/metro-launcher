@@ -40,6 +40,7 @@ class IconCache(private val context: Context) {
             field = value
             cache.evictAll()
             iconColors.clear()
+            returnRetries = 0
             generation++
         }
 
@@ -62,10 +63,22 @@ class IconCache(private val context: Context) {
      * themed layer read mid-update, never reached them at all).
      */
     fun retryFailed() {
-        if (!failed) return
+        if (!failed) {
+            // Everything loaded since the last return: a later failure starts a fresh count.
+            returnRetries = 0
+            return
+        }
+        // An icon that fails on every return (an app whose themed icon really is empty) stops being
+        // asked for after a few tries; a change to an app or icon pack starts the count again.
+        if (returnRetries >= MAX_RETURN_RETRIES) return
         failed = false
+        returnRetries++
         generation++
     }
+
+    /** Returns in a row that retried and still saw a failure; see [retryFailed]. */
+    @Volatile
+    private var returnRetries = 0
 
     private val cache = object : LruCache<String, TileIcon>(24 * 1024 * 1024) {
         override fun sizeOf(key: String, value: TileIcon) = value.bitmap.width * value.bitmap.height * 4
@@ -172,6 +185,7 @@ class IconCache(private val context: Context) {
     fun evict(packageName: String) {
         cache.snapshot().keys.filter { it.startsWith("$packageName/") }.forEach { cache.remove(it) }
         iconColors.keys.filter { it.startsWith("$packageName/") }.forEach { iconColors.remove(it) }
+        returnRetries = 0
         generation++
     }
 
@@ -264,6 +278,9 @@ class IconCache(private val context: Context) {
 }
 
 private const val COLOUR_SAMPLE_PX = 48
+
+/** How many returns in a row [IconCache.retryFailed] retries an icon that keeps failing. */
+internal const val MAX_RETURN_RETRIES = 5
 
 /** Whether [bitmap] has any visibly opaque pixel. */
 internal fun hasInk(bitmap: Bitmap): Boolean {
