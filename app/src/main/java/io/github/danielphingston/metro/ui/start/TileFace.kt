@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -52,6 +51,7 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
@@ -201,10 +201,25 @@ internal fun rememberIcon(icons: IconCache, app: AppInfo, sizePx: Int, monochrom
     // Keyed on the app itself, not its key: an updated app is a new AppInfo with the new icon loader.
     val loaded by produceState(cached, app, sizePx, monochrome, icons.generation) {
         // Keep showing the previous icon until the new one is ready.
-        // A failed load keeps what is shown; IconCache.retryFailed asks again when the launcher returns.
-        value = icons.peek(app, sizePx, monochrome) ?: withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) } ?: value
+        value = icons.peek(app, sizePx, monochrome) ?: loadWithRetry(icons, app, sizePx, monochrome) ?: value
     }
     return loaded
+}
+
+/** How long to wait before each retry of an icon that could not be drawn (see [loadWithRetry]). */
+private val ICON_RETRY_MILLIS = longArrayOf(1_500L, 5_000L, 15_000L, 60_000L, 60_000L, 300_000L)
+
+/**
+ * Loads off the main thread. A null result is often transient (the app is being updated), and
+ * nothing else would ask again, so it is retried with growing delays for about eight minutes,
+ * long enough for a large app update to finish.
+ */
+private suspend fun loadWithRetry(icons: IconCache, app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
+    for (wait in ICON_RETRY_MILLIS) {
+        withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }?.let { return it }
+        delay(wait)
+    }
+    return withContext(Dispatchers.Default) { icons.load(app, sizePx, monochrome) }
 }
 
 @Composable
@@ -272,13 +287,8 @@ fun CustomTileIcon(icon: String, size: Dp, icons: IconCache, modifier: Modifier 
     }
     val px = with(LocalDensity.current) { size.roundToPx() }
     val generation = icons.generation
-    // Like app icons: shown at once when cached, the previous one kept while reloading, and a pack
-    // that can't be read right now (being updated) tried again when the launcher returns.
-    // Keyed on the icon too, so a newly picked icon never shows the previous one while it loads.
-    val bitmap by key(icon, px) {
-        produceState(icons.peekCustom(icon, px), generation) {
-            value = icons.peekCustom(icon, px) ?: withContext(Dispatchers.IO) { icons.loadCustom(icon, px) } ?: value
-        }
+    val bitmap by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, icon, px, generation) {
+        value = withContext(Dispatchers.IO) { icons.loadCustom(icon, px) }
     }
     bitmap?.let { Image(it, contentDescription = null, modifier = modifier.size(size)) }
 }

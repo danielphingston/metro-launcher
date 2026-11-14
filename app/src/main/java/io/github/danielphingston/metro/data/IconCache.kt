@@ -50,14 +50,16 @@ class IconCache(private val context: Context) {
     var generation by mutableIntStateOf(0)
         private set
 
-    /** Set when an icon could not be drawn; [retryFailed] then reloads once. No timer ever asks again. */
+    /** Set when an icon could not be drawn; [retryFailed] then asks the tiles again. */
     @Volatile
     private var failed = false
 
     /**
      * Called when the launcher comes back to the front: if an icon failed since last time (its app
      * or the icon pack was being updated), bumps [generation] so visible tiles try again. Does
-     * nothing otherwise, so there is no background polling and no work on an ordinary return.
+     * nothing otherwise, so an ordinary return costs nothing. This adds to the tiles' own short
+     * retries after a failure, which give up after a few minutes (an icon cached empty, such as a
+     * themed layer read mid-update, never reached them at all).
      */
     fun retryFailed() {
         if (!failed) return
