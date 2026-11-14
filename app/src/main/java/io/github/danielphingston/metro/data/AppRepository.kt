@@ -53,7 +53,8 @@ class AppInfo(
                     flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0,
                 // The same value as PackageInfo.firstInstallTime, and it also works for the work profile.
                 installTime = info.firstInstallTime,
-                declaresIcon = info.applicationInfo.icon != 0,
+                // The activity's own icon, else the app's: an app may set its icon on the launch activity only.
+                declaresIcon = info.activityInfo.iconResource != 0,
                 loadIcon = { density, badged -> if (badged) info.getBadgedIcon(density) else info.getIcon(density) },
             )
         }
