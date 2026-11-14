@@ -221,7 +221,9 @@ class IconCache(private val context: Context) {
                 mono.setBounds(-inset, -inset, sizePx + inset, sizePx + inset)
                 mono.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_IN)
                 mono.draw(Canvas(bitmap))
-                return TileIcon(badgedForWork(app, bitmap, sizePx).asImageBitmap(), isMonochrome = true)
+                // A themed layer that draws nothing (seen after an app update) would leave the tile
+                // blank: use the coloured icon below instead.
+                if (hasInk(bitmap)) return TileIcon(badgedForWork(app, bitmap, sizePx).asImageBitmap(), isMonochrome = true)
             }
         }
         // Badged and unbadged are the same for personal apps; work apps need the badged load.
@@ -235,6 +237,13 @@ class IconCache(private val context: Context) {
 }
 
 private const val COLOUR_SAMPLE_PX = 48
+
+/** Whether [bitmap] has any visibly opaque pixel. */
+internal fun hasInk(bitmap: Bitmap): Boolean {
+    val pixels = IntArray(bitmap.width * bitmap.height)
+    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+    return pixels.any { it ushr 24 >= 32 }
+}
 
 /** Stored in place of a colour when an icon has none (opaque ARGB never equals 0). */
 private const val NO_COLOUR = 0
