@@ -129,14 +129,15 @@ internal fun <T> rememberOnResume(read: () -> T): T {
  */
 internal enum class SettingsPage(val title: String, val summary: String, val parent: SettingsPage? = null, val plus: Boolean = false) {
     START("start", "layouts, tiles per row, padding, background, tile colour"),
-    APP_LIST("app list", "icons, scrubber highlight and position"),
+    APP_LIST("app list", "plain icons, scrubber highlight and position"),
     SEARCH("search", "search engine, pull distance, smart search"),
-    APPEARANCE("appearance", "theme, accent colour, icon pack"),
+    APPEARANCE("appearance", "theme, accent colour, themed icons, icon pack"),
     ANIMATIONS("animations", "launch animation, speed, tilt, live tile flips"),
     TILES("tiles", "weather, photos, people, calendar, notifications"),
     METRO_PLUS("metro plus", "quick settings tiles, assistant, smart search, layouts, gestures"),
     GESTURES("gestures", "double tap, two-finger swipes, sleep", plus = true),
-    ABOUT("about", "default home app, app info, crash log, version"),
+    BACKUP("backup", "export to a file or Google Drive, restore"),
+    ABOUT("about", "default home app, battery, setup, crash log, version"),
 
     // Long lists of the search settings, each on a page of its own (reached from the search page, not listed in the menu).
     SEARCH_IN_APPS("search in apps", "which apps the results can search, and their order", SEARCH),
@@ -199,6 +200,7 @@ internal fun SettingsScreen(
                         onOpenSearchSettings = { page = SettingsPage.SEARCH.name },
                         onOpenGestureSettings = { page = SettingsPage.GESTURES.name },
                     )
+                    SettingsPage.BACKUP -> BackupSettingsSection()
                     SettingsPage.ABOUT -> AboutPage()
                     SettingsPage.GESTURES -> PlusGate(
                         "Double tap, two-finger swipes and a pinch on the start screen can open search, the app list, an app, " +

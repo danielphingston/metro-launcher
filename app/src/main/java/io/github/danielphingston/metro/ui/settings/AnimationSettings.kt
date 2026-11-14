@@ -88,7 +88,7 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         ) { repository.setTiltDegrees(it) }
     }
 
-    Section("live tiles")
+    Section("live tile flips")
     MetroToggle(
         "Live tile flips",
         settings.liveTileFlips,
