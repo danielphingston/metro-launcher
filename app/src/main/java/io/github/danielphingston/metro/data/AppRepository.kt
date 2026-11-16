@@ -50,15 +50,15 @@ class AppInfo(
         fun from(info: LauncherActivityInfo, serial: Long, pm: PackageManager? = null): AppInfo {
             val flags = info.applicationInfo.flags
             val iconRes = info.activityInfo.iconResource
-            // This install's resources, kept once read (an update makes a new AppInfo); a failed read is not kept.
-            var resources: Resources? = null
-            fun ownResources(): Resources? = resources ?: pm?.let {
+            // Read when needed and not kept: holding one Resources per app would keep every APK open.
+            // The system caches the APK assets, so reading them again is cheap.
+            fun ownResources(): Resources? = pm?.let {
                 try {
                     it.getResourcesForApplication(info.applicationInfo)
                 } catch (_: Exception) {
                     null
                 }
-            }?.also { resources = it }
+            }
             // getIcon silently hands back the system's stand-in when the app's own icon can't be read
             // (mid-update). Reading the icon resource first turns that into an explicit failure (null),
             // which IconCache never caches and tries again, instead of guessing the stand-in from pixels.
