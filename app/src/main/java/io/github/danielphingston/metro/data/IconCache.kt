@@ -51,6 +51,9 @@ class IconCache(private val context: Context) {
     var generation by mutableIntStateOf(0)
         private set
 
+    /** Bumped per package by [evict]; see [load]. */
+    private val epochs = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     /** Set when an icon could not be drawn; [retryFailed] then asks the tiles again. */
     @Volatile
     private var failed = false
@@ -119,6 +122,8 @@ class IconCache(private val context: Context) {
     fun load(app: AppInfo, sizePx: Int, monochrome: Boolean): TileIcon? {
         val key = cacheKey(app, sizePx, monochrome)
         cache.get(key)?.let { return it }
+        // A load that started before its app was updated (evict) must not cache what the old APK gave.
+        val epoch = epochs[app.key.packageName] ?: 0
         val icon = try {
             render(app, sizePx, monochrome)
         } catch (_: RuntimeException) {
@@ -132,6 +137,7 @@ class IconCache(private val context: Context) {
             icon == null -> failed = true
             // Shown for now but not kept: the themed icon is tried again on the next return.
             icon.isStandInForThemed -> failed = true
+            (epochs[app.key.packageName] ?: 0) != epoch -> Unit
             else -> cache.put(key, icon)
         }
         return icon
@@ -183,6 +189,7 @@ class IconCache(private val context: Context) {
      * cache lookup, and the other apps' icons are still cached.
      */
     fun evict(packageName: String) {
+        epochs.merge(packageName, 1, Int::plus)
         cache.snapshot().keys.filter { it.startsWith("$packageName/") }.forEach { cache.remove(it) }
         iconColors.keys.filter { it.startsWith("$packageName/") }.forEach { iconColors.remove(it) }
         returnRetries = 0
@@ -246,7 +253,7 @@ class IconCache(private val context: Context) {
                 return TileIcon(it.toBitmap(sizePx, sizePx).asImageBitmap(), isMonochrome = false)
             }
         }
-        val raw = app.loadIcon(density, false)
+        val raw = app.loadIcon(density, false) ?: return null
         // Rendered once, for the stand-in check and, for personal apps, the colour icon below.
         val rawBitmap = if (app.declaresIcon) raw.toBitmap(sizePx, sizePx) else null
         if (isStandIn(app, raw, rawBitmap)) return null
@@ -271,7 +278,10 @@ class IconCache(private val context: Context) {
         val bitmap = if (app.user == Process.myUserHandle() && rawBitmap != null) {
             rawBitmap
         } else {
-            app.loadIcon(density, true).toBitmap(sizePx, sizePx)
+            val badged = app.loadIcon(density, true) ?: return null
+            // The same backstop as the unbadged load: never keep the stand-in.
+            if (isStandIn(app, badged, if (app.declaresIcon) badged.toBitmap(sizePx, sizePx) else null)) return null
+            badged.toBitmap(sizePx, sizePx)
         }
         return TileIcon(bitmap.asImageBitmap(), isMonochrome = false, isStandInForThemed = emptyThemed)
     }

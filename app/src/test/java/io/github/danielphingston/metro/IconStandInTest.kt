@@ -26,7 +26,7 @@ import org.robolectric.annotation.Config
 class IconStandInTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
-    private fun app(declaresIcon: Boolean, icon: () -> Drawable) = AppInfo(
+    private fun app(declaresIcon: Boolean, icon: () -> Drawable?) = AppInfo(
         key = AppKey("com.example.app", "com.example.app.Main", 0L),
         label = "App",
         user = Process.myUserHandle(),
@@ -64,5 +64,31 @@ class IconStandInTest {
         assertNotNull(cache.load(app(declaresIcon = true) { ColorDrawable(Color.RED) }, 96, false))
         assertNull(cache.loadCustom("pack:com.example.notinstalled.pack:ic_phone", 96))
         assertNull(cache.peekCustom("pack:com.example.notinstalled.pack:ic_phone", 96))
+    }
+
+    /** An icon that can't be read right now (its app mid-update) is not cached, and loads once it can be. */
+    @Test
+    fun unreadableIconIsNotCachedAndLoadsLater() {
+        val cache = IconCache(context)
+        var readable = false
+        val app = app(declaresIcon = true) { if (readable) ColorDrawable(Color.RED) else null }
+        assertNull(cache.load(app, 96, false))
+        assertNull(cache.peek(app, 96, false))
+        readable = true
+        assertNotNull(cache.load(app, 96, false))
+        assertNotNull(cache.peek(app, 96, false))
+    }
+
+    /** A load that started before its app was updated must not cache what the old install gave. */
+    @Test
+    fun loadFinishingAfterAnUpdateIsNotCached() {
+        val cache = IconCache(context)
+        lateinit var app: AppInfo
+        app = app(declaresIcon = true) {
+            cache.evict("com.example.app") // The update lands while this icon is being drawn.
+            ColorDrawable(Color.RED)
+        }
+        assertNotNull(cache.load(app, 96, false))
+        assertNull(cache.peek(app, 96, false))
     }
 }

@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
+import android.content.pm.PackageManager
+import android.content.res.Resources
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.net.Uri
@@ -38,12 +40,33 @@ class AppInfo(
      * means loading failed (the app is mid-update), not that the app has no icon.
      */
     val declaresIcon: Boolean = false,
-    /** Loads the raw icon at a screen density; `badged` adds the work-profile badge. */
-    internal val loadIcon: (density: Int, badged: Boolean) -> Drawable,
+    /**
+     * Loads the raw icon at a screen density; `badged` adds the work-profile badge. Null when the
+     * app's own icon can't be read right now (it is being updated).
+     */
+    internal val loadIcon: (density: Int, badged: Boolean) -> Drawable?,
 ) {
     companion object {
-        fun from(info: LauncherActivityInfo, serial: Long): AppInfo {
+        fun from(info: LauncherActivityInfo, serial: Long, pm: PackageManager? = null): AppInfo {
             val flags = info.applicationInfo.flags
+            val iconRes = info.activityInfo.iconResource
+            // Read when needed and not kept: holding one Resources per app would keep every APK open.
+            // The system caches the APK assets, so reading them again is cheap.
+            fun ownResources(): Resources? = pm?.let {
+                try {
+                    it.getResourcesForApplication(info.applicationInfo)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            // getIcon silently hands back the system's stand-in when the app's own icon can't be read
+            // (mid-update). Reading the icon resource first turns that into an explicit failure (null),
+            // which IconCache never caches and tries again, instead of guessing the stand-in from pixels.
+            fun ownIconReadable(density: Int): Boolean = pm == null || iconRes == 0 || try {
+                ownResources()?.getDrawableForDensity(iconRes, density, null) != null
+            } catch (_: Exception) {
+                false
+            }
             return AppInfo(
                 key = AppKey(info.componentName.packageName, info.componentName.className, serial),
                 label = info.label?.toString()?.trim().orEmpty().ifEmpty { info.componentName.packageName },
@@ -55,7 +78,13 @@ class AppInfo(
                 installTime = info.firstInstallTime,
                 // The activity's own icon, else the app's: an app may set its icon on the launch activity only.
                 declaresIcon = info.activityInfo.iconResource != 0,
-                loadIcon = { density, badged -> if (badged) info.getBadgedIcon(density) else info.getIcon(density) },
+                loadIcon = { density, badged ->
+                    when {
+                        !ownIconReadable(density) -> null
+                        badged -> info.getBadgedIcon(density)
+                        else -> info.getIcon(density)
+                    }
+                },
             )
         }
     }
@@ -134,7 +163,7 @@ class AppRepository(
         val result = launcherApps.profiles.flatMap { user ->
             try {
                 val serial = serialOf(user)
-                launcherApps.getActivityList(null, user).map { AppInfo.from(it, serial) }
+                launcherApps.getActivityList(null, user).map { AppInfo.from(it, serial, context.packageManager) }
             } catch (_: RuntimeException) {
                 // A profile that is stopped, locked or being removed can refuse (SecurityException,
                 // IllegalStateException, binder failures); the others still load. This runs at start.
