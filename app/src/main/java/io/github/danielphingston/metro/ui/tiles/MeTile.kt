@@ -185,7 +185,8 @@ internal object MeTiles {
         }
     }
 
-    private fun send(context: Context, intent: PendingIntent, options: android.os.Bundle?): Boolean {
+    /** Sends another app's [intent]; false (never a crash) when it is cancelled or refused. */
+    internal fun send(context: Context, intent: PendingIntent, options: android.os.Bundle?): Boolean {
         val bundle = android.os.Bundle()
         options?.let(bundle::putAll)
         // The launcher is visible when the tile is tapped; Android 14+ wants that said explicitly.
@@ -200,6 +201,9 @@ internal object MeTiles {
             intent.send(context, 0, null, null, null, null, bundle)
             true
         } catch (_: PendingIntent.CanceledException) {
+            false
+        } catch (_: RuntimeException) {
+            // A creator that is gone or a start the system refuses (SecurityException, IllegalStateException).
             false
         }
     }

@@ -57,6 +57,9 @@ class MetroApplication : Application(), Configuration.Provider {
 
     /** The last question asked from search, kept beside the reply; see [LastAskedStore]. */
     lateinit var lastAsked: LastAskedStore
+
+    /** Parcels the tracking tile caught "arriving today", kept until delivered or midnight; not backed up. */
+    lateinit var parcels: io.github.danielphingston.metro.live.tracking.ParcelStore
         private set
 
     /** Undo for start screen edits; widget ids and shortcuts it may bring back stay held. See [TileUndo]. */
@@ -122,6 +125,8 @@ class MetroApplication : Application(), Configuration.Provider {
         })
         assistantReply = AssistantReplyStore(this, appScope)
         lastAsked = LastAskedStore(this, appScope, legacy = settings::takeLegacyLastAsked)
+        parcels = io.github.danielphingston.metro.live.tracking.ParcelStore(this, appScope)
+        if (!NotificationAccess.isGranted(this)) appScope.launch(Dispatchers.IO) { parcels.clear() }
         NotificationAccess.rebindIfNeeded(this)
         // The saved reply goes when its reasons go: another assistant chosen, previews off, or no notification access.
         if (!NotificationAccess.isGranted(this)) assistantReply.clear()
@@ -133,7 +138,12 @@ class MetroApplication : Application(), Configuration.Provider {
             }
         }
         appScope.launch {
-            settings.settings.map { it.showNotificationContent }.distinctUntilChanged().collect { if (!it) assistantReply.clear() }
+            settings.settings.map { it.showNotificationContent }.distinctUntilChanged().collect {
+                if (!it) {
+                    assistantReply.clear()
+                    withContext(Dispatchers.IO) { parcels.forgetText() }
+                }
+            }
         }
         appScope.launch {
             // Lowering the number of remembered searches trims what is stored at once.

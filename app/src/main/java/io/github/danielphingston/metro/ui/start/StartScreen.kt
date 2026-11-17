@@ -119,6 +119,12 @@ import io.github.danielphingston.metro.ui.tiles.ActionTile
 import io.github.danielphingston.metro.ui.tiles.AssistantTile
 import io.github.danielphingston.metro.ui.tiles.MeModel
 import io.github.danielphingston.metro.ui.tiles.MeTile
+import io.github.danielphingston.metro.ui.tiles.TrackingModel
+import io.github.danielphingston.metro.ui.tiles.TrackingReveal
+import io.github.danielphingston.metro.ui.tiles.TrackingTile
+import io.github.danielphingston.metro.ui.tiles.TrackingTiles
+import io.github.danielphingston.metro.live.tracking.TrackingClock
+import io.github.danielphingston.metro.live.tracking.TrackingFeed
 import io.github.danielphingston.metro.ui.tiles.MeTiles
 import io.github.danielphingston.metro.data.AssistantModel
 import io.github.danielphingston.metro.ui.settings.SettingsActivity
@@ -337,6 +343,9 @@ fun StartScreen(
     // Read lazily by the me tile's own composition, so a notification does not recompose the screen.
     val meFeed = viewModel.meFeed.collectAsStateWithLifecycle()
     val meApps = viewModel.apps.collectAsStateWithLifecycle()
+    // The tracking tile's sources, read lazily like the me tile's.
+    val trackingFeed = TrackingFeed.snapshot.collectAsStateWithLifecycle()
+    val parcels = viewModel.parcels.collectAsStateWithLifecycle()
     val notices = rememberStartNotices(viewModel, isCurrentPage, state.editing)
     val undoNext by viewModel.undoNext.collectAsStateWithLifecycle()
     val tileKeys = viewModel.tileKeys
@@ -363,6 +372,17 @@ fun StartScreen(
     val nowPlaying by remember(needsMedia) {
         if (needsMedia) MediaSource.nowPlaying(context) else flowOf(emptyMap())
     }.collectAsStateWithLifecycle(emptyMap())
+    // A tracking tile counts its ETAs down once a minute, but only while this page is on screen
+    // (collection stops below STARTED) and only while something on it has an ETA.
+    val hasTrackingTile = (tiles + openChildren).any { it.spec.content == TileContent.Tracking }
+    val trackingTicks by remember(hasTrackingTile) {
+        derivedStateOf { hasTrackingTile && trackingFeed.value.items.any { it.etaAt != null } }
+    }
+    val trackingNow by remember(trackingTicks, isCurrentPage) {
+        if (trackingTicks && isCurrentPage) TrackingClock.minutes() else flowOf(System.currentTimeMillis())
+    }.collectAsStateWithLifecycle(System.currentTimeMillis())
+    // A shown OTP hides again once another page is in front.
+    LaunchedEffect(isCurrentPage) { if (!isCurrentPage) TrackingReveal.hide() }
     // The live states (clock, events, media, notifications) are only read when this runs, which
     // the tiles do from their own composition: a notification or a clock tick recomposes the
     // tiles it concerns, not the whole screen.
@@ -381,6 +401,13 @@ fun StartScreen(
                     savedReply,
                     tile.app?.key?.packageName,
                 ),
+            )
+        } else if (tile.spec.content == TileContent.Tracking) {
+            val snapshot = trackingFeed.value
+            LiveContent.Tracking(
+                TrackingModel.of(snapshot.items, parcels.value, listenerConnected, settings.showNotificationContent, maxOf(trackingNow, System.currentTimeMillis())),
+                meApps.value.associateBy { it.key.notificationKey },
+                snapshot.images,
             )
         } else if (tile.spec.content == TileContent.Me) {
             LiveContent.Me(
@@ -1110,6 +1137,10 @@ internal fun TileHost(
                     (liveContent as? LiveContent.Notifications)?.let { append(", ${it.data.count} new") }
                     (liveContent as? LiveContent.Assistant)?.let { clear(); append(it.model.description()) }
                     (liveContent as? LiveContent.Me)?.let { clear(); append(it.model.description()) }
+                    (liveContent as? LiveContent.Tracking)?.let { live ->
+                        clear()
+                        append(live.model.description { row -> live.apps[row.appKey]?.label ?: row.packageName })
+                    }
                 }
                 if (grouping) {
                     // Grouping mode: tiles are picked, not opened; only those that can join respond.
@@ -1374,6 +1405,7 @@ private fun TileBody(
         TileContent.Assistant -> AssistantTile(tile, live as? LiveContent.Assistant, flipped, monochromeIcons, icons, cell)
         is TileContent.Folder -> FolderTile(tile, cell, icons, monochromeIcons, folderOpen)
         TileContent.Me -> MeTile(tile, live as? LiveContent.Me, flipped, monochromeIcons, icons, cell)
+        TileContent.Tracking -> TrackingTile(tile, live as? LiveContent.Tracking, monochromeIcons, icons, cell, editing)
         is TileContent.LayoutSwitch -> LayoutSwitchTile(tile, cell)
     }
 }
@@ -1412,6 +1444,7 @@ private fun activateTile(
         }
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
         TileContent.Me -> MeTiles.activate(context, bounds, launcher)
+        TileContent.Tracking -> TrackingTiles.activate(context, bounds, launcher)
         is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, content)
     }
 }

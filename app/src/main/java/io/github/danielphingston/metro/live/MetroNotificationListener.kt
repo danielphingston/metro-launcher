@@ -9,6 +9,15 @@ import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.AppKey
 import io.github.danielphingston.metro.data.AssistantChoice
 import io.github.danielphingston.metro.data.AssistantLastReply
+import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.live.tracking.ParcelStage
+import io.github.danielphingston.metro.live.tracking.TrackImages
+import io.github.danielphingston.metro.live.tracking.TrackItem
+import io.github.danielphingston.metro.live.tracking.TrackKind
+import io.github.danielphingston.metro.live.tracking.TrackingFeed
+import io.github.danielphingston.metro.live.tracking.TrackingParser
+import io.github.danielphingston.metro.live.tracking.TrackingReader
+import io.github.danielphingston.metro.live.tracking.TrackingSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +25,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -30,6 +42,7 @@ class MetroNotificationListener : NotificationListenerService() {
      */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
     private val requests = Channel<Unit>(Channel.CONFLATED)
+    private val trackingReader by lazy { TrackingReader(this) }
 
     override fun onCreate() {
         super.onCreate()
@@ -47,6 +60,19 @@ class MetroNotificationListener : NotificationListenerService() {
                 }
             }
         }
+        watchTrackingTile()
+    }
+
+    /** A tracking tile just pinned (or unpinned) gets its content from one rebuild, not from the next notification. */
+    private fun watchTrackingTile() {
+        val app = application as? MetroApplication ?: return
+        scope.launch {
+            app.tiles.tiles
+                .map { list -> list.orEmpty().flatMap { listOf(it) + ((it.content as? TileContent.Folder)?.children.orEmpty()) }.any { it.content == TileContent.Tracking } }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { requests.trySend(Unit) }
+        }
     }
 
     override fun onDestroy() {
@@ -62,8 +88,12 @@ class MetroNotificationListener : NotificationListenerService() {
     override fun onListenerDisconnected() {
         NotificationHub.setConnected(false)
         MeFeed.clear()
+        TrackingFeed.clear()
         // Access taken away (not just a rebind): the saved assistant reply goes with it.
-        if (!NotificationAccess.isGranted(this)) (application as? MetroApplication)?.assistantReply?.clear()
+        if (!NotificationAccess.isGranted(this)) {
+            (application as? MetroApplication)?.assistantReply?.clear()
+            (application as? MetroApplication)?.parcels?.let { store -> scope.launch { store.clear() } }
+        }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -110,6 +140,53 @@ class MetroNotificationListener : NotificationListenerService() {
             ),
         )
         saveAssistantReply(published)
+        // Its own failure must not cost the other tiles their update, nor theirs this one.
+        try {
+            updateTracking(active)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            TrackingFeed.clear()
+        }
+    }
+
+    /**
+     * Feeds the tracking tile from the notifications already in hand: no extra work is scheduled,
+     * and nothing is read at all unless a tracking tile is on the start screen. Only apps known to
+     * post trips, orders or parcels (and Android 16's promoted Live Updates) get their extras read.
+     */
+    private suspend fun updateTracking(active: Array<StatusBarNotification>) {
+        val app = application as? MetroApplication ?: return
+        if (!app.tiles.isPinned(TileContent.Tracking)) {
+            TrackingFeed.clear()
+            trackingReader.retain(emptySet())
+            return
+        }
+        val showContent = app.settings.settings.first().showNotificationContent
+        val now = System.currentTimeMillis()
+        val items = ArrayList<TrackItem>()
+        val intents = HashMap<String, android.app.PendingIntent>()
+        val images = HashMap<String, TrackImages>()
+        for (sbn in active) {
+            if (items.size >= MAX_TRACKED) break
+            if (!trackingReader.isCandidate(sbn, packageName)) continue
+            val appKey = AppKey.notificationKey(sbn.packageName, UserSerials.of(this, sbn.user))
+            val input = trackingReader.input(sbn, appKey) ?: continue
+            val item = try {
+                TrackingParser.parse(input, now)
+            } catch (_: RuntimeException) {
+                null
+            } ?: continue
+            items += item
+            trackingReader.intent(sbn)?.let { intents[item.key] = it }
+            // Pictures are content too: none for SECRET notifications or with content turned off.
+            if (showContent && !item.secret && item.stage != ParcelStage.DELIVERED) {
+                trackingReader.images(sbn, item.kind, TRACK_IMAGE_PX)?.let { images[item.key] = it }
+            }
+        }
+        trackingReader.retain(images.keys)
+        app.parcels.update(items.filter { it.kind == TrackKind.PARCEL }, now, showContent)
+        TrackingFeed.publish(TrackingSnapshot(items.filter { it.stage != ParcelStage.DELIVERED }, intents, images))
     }
 
     /**
@@ -185,5 +262,8 @@ class MetroNotificationListener : NotificationListenerService() {
     private companion object {
         const val REBUILD_DEBOUNCE_MS = 150L
         const val MAX_PREVIEWS = 3
+        const val MAX_TRACKED = 12
+        /** Tile pictures are at most this many pixels on a side (a large tile's picture on a dense screen). */
+        const val TRACK_IMAGE_PX = 240
     }
 }
