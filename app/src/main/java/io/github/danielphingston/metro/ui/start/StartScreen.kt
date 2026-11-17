@@ -376,7 +376,7 @@ fun StartScreen(
     // (collection stops below STARTED) and only while something on it has an ETA.
     val hasTrackingTile = (tiles + openChildren).any { it.spec.content == TileContent.Tracking }
     val trackingTicks by remember(hasTrackingTile) {
-        derivedStateOf { hasTrackingTile && trackingFeed.value.items.any { it.etaAt != null } }
+        derivedStateOf { hasTrackingTile && quickUnlocked && trackingFeed.value.items.any { it.etaAt != null } }
     }
     val trackingNow by remember(trackingTicks, isCurrentPage) {
         if (trackingTicks && isCurrentPage) TrackingClock.minutes() else flowOf(System.currentTimeMillis())
@@ -402,6 +402,9 @@ fun StartScreen(
                     tile.app?.key?.packageName,
                 ),
             )
+        } else if (tile.spec.content == TileContent.Tracking && !quickUnlocked) {
+            // After a refund the tile shows nothing it caught.
+            LiveContent.Tracking(TrackingModel.LOCKED, emptyMap(), emptyMap())
         } else if (tile.spec.content == TileContent.Tracking) {
             val snapshot = trackingFeed.value
             LiveContent.Tracking(
@@ -1444,7 +1447,11 @@ private fun activateTile(
         }
         is TileContent.Folder -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
         TileContent.Me -> MeTiles.activate(context, bounds, launcher)
-        TileContent.Tracking -> TrackingTiles.activate(context, bounds, launcher)
+        TileContent.Tracking -> if (quickUnlocked) {
+            TrackingTiles.activate(context, bounds, launcher)
+        } else {
+            android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
+        }
         is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, content)
     }
 }

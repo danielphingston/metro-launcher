@@ -34,7 +34,7 @@ data class TrackRow(
 
 /** What the tracking tile shows; pure, so its rules are unit tested. */
 data class TrackingModel(val state: State, val rows: List<TrackRow>, val now: Long) {
-    enum class State { NO_ACCESS, EMPTY, ACTIVE }
+    enum class State { LOCKED, NO_ACCESS, EMPTY, ACTIVE }
 
     val top: TrackRow? get() = rows.firstOrNull()
     val live: List<TrackRow> get() = rows.filter { it.isLive }
@@ -45,6 +45,7 @@ data class TrackingModel(val state: State, val rows: List<TrackRow>, val now: Lo
 
     /** For TalkBack: what the tile says at a glance. */
     fun description(appName: (TrackRow) -> String): String = when (state) {
+        State.LOCKED -> "tracking, unlock metro plus to use"
         State.NO_ACCESS -> "tracking, turn on notification access"
         State.EMPTY -> "tracking, nothing on the way"
         State.ACTIVE -> buildString {
@@ -58,6 +59,9 @@ data class TrackingModel(val state: State, val rows: List<TrackRow>, val now: Lo
 
     companion object {
         val EMPTY = TrackingModel(State.EMPTY, emptyList(), 0L)
+
+        /** A Metro Plus tile after a refund: it shows nothing it caught. */
+        val LOCKED = TrackingModel(State.LOCKED, emptyList(), 0L)
 
         /**
          * The tile for the [live] trips from the listener and the [parcels] kept for today, at [now].

@@ -146,6 +146,12 @@ class MetroApplication : Application(), Configuration.Provider {
             }
         }
         appScope.launch {
+            // The tracking tile is Metro Plus: nothing it caught stays kept while locked (after a refund).
+            purchases.quickTilesUnlocked.collect { unlocked ->
+                if (!unlocked) withContext(Dispatchers.IO) { parcels.clear() }
+            }
+        }
+        appScope.launch {
             // Lowering the number of remembered searches trims what is stored at once.
             settings.settings.map { it.searchHistorySize }.distinctUntilChanged().collect { searchHistory.trimSearches(it) }
         }

@@ -28,7 +28,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -63,12 +62,16 @@ class MetroNotificationListener : NotificationListenerService() {
         watchTrackingTile()
     }
 
-    /** A tracking tile just pinned (or unpinned) gets its content from one rebuild, not from the next notification. */
+    /**
+     * A tracking tile just pinned (or unpinned), or Metro Plus just unlocked, gets its content from
+     * one rebuild, not from the next notification.
+     */
     private fun watchTrackingTile() {
         val app = application as? MetroApplication ?: return
         scope.launch {
-            app.tiles.tiles
-                .map { list -> list.orEmpty().flatMap { listOf(it) + ((it.content as? TileContent.Folder)?.children.orEmpty()) }.any { it.content == TileContent.Tracking } }
+            kotlinx.coroutines.flow.combine(app.tiles.tiles, app.purchases.quickTilesUnlocked) { list, unlocked ->
+                unlocked && list.orEmpty().flatMap { listOf(it) + ((it.content as? TileContent.Folder)?.children.orEmpty()) }.any { it.content == TileContent.Tracking }
+            }
                 .distinctUntilChanged()
                 .drop(1)
                 .collect { requests.trySend(Unit) }
@@ -160,6 +163,13 @@ class MetroNotificationListener : NotificationListenerService() {
         if (!app.tiles.isPinned(TileContent.Tracking)) {
             TrackingFeed.clear()
             trackingReader.retain(emptySet())
+            return
+        }
+        // A Metro Plus tile: without it nothing is read or kept (and nothing stays kept after a refund).
+        if (!app.purchases.quickTilesUnlocked.value) {
+            TrackingFeed.clear()
+            trackingReader.retain(emptySet())
+            app.parcels.clear()
             return
         }
         val showContent = app.settings.settings.first().showNotificationContent

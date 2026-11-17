@@ -11,6 +11,7 @@ import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
 import android.service.notification.StatusBarNotification
+import androidx.annotation.RequiresApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -138,7 +139,7 @@ internal class TrackingReader(private val context: Context) {
 
     /** Android 16's ProgressStyle (segments and points) when the app used it, else the standard progress extras. */
     private fun progress(n: Notification, extras: Bundle): TrackProgress? {
-        progressStyle(n)?.let { style ->
+        if (Build.VERSION.SDK_INT >= 36) progressStyle(n)?.let { style ->
             try {
                 return TrackProgress.of(
                     style.progress, style.progressMax, style.isProgressIndeterminate,
@@ -155,8 +156,8 @@ internal class TrackingReader(private val context: Context) {
         )
     }
 
+    @RequiresApi(36)
     private fun progressStyle(n: Notification): Notification.ProgressStyle? {
-        if (Build.VERSION.SDK_INT < 36) return null
         // Only rebuild the style for notifications that use it: recovering a builder is not free.
         if (n.extras?.getString(Notification.EXTRA_TEMPLATE) != Notification.ProgressStyle::class.java.name) return null
         return try {
@@ -167,7 +168,7 @@ internal class TrackingReader(private val context: Context) {
     }
 
     private fun trackerIcon(n: Notification, px: Int): Bitmap? = try {
-        progressStyle(n)?.progressTrackerIcon?.let { icon(it, px) }
+        if (Build.VERSION.SDK_INT >= 36) progressStyle(n)?.progressTrackerIcon?.let { icon(it, px) } else null
     } catch (_: RuntimeException) {
         null
     }

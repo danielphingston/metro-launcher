@@ -182,6 +182,14 @@ class TrackingTileTest {
     }
 
     @Test
+    fun aLockedTileShowsNothingItCaught() {
+        assertEquals(TrackingModel.State.LOCKED, TrackingModel.LOCKED.state)
+        assertTrue(TrackingModel.LOCKED.rows.isEmpty())
+        assertFalse(TrackingModel.LOCKED.ticks)
+        assertEquals("tracking, unlock metro plus to use", TrackingModel.LOCKED.description { "x" })
+    }
+
+    @Test
     fun contentOffHidesWordsCodesAndPictures() {
         val on = TrackingModel.of(listOf(ride("a", now + 60_000)), emptyList(), true, showContent = true, now = now).rows.single()
         assertEquals("Driver arriving", on.status)

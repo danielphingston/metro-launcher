@@ -169,6 +169,7 @@ private class TrackFace(
         val top = model.top
         Box(Modifier.fillMaxSize()) {
             when {
+                model.state == TrackingModel.State.LOCKED -> Notice("unlock to use", 16f)
                 model.state == TrackingModel.State.NO_ACCESS -> NoAccess(16f)
                 top == null -> PinGlyph(m.dp(48f), Modifier.align(Alignment.Center))
                 top.isLive -> {
@@ -207,6 +208,7 @@ private class TrackFace(
         val top = model.top
         Box(Modifier.fillMaxSize()) {
             when {
+                model.state == TrackingModel.State.LOCKED -> Notice("unlock metro plus to use", 18f)
                 model.state == TrackingModel.State.NO_ACCESS -> NoAccess(18f)
                 top == null -> Empty()
                 top.isLive -> {
@@ -227,6 +229,7 @@ private class TrackFace(
         val top = model.top
         Box(Modifier.fillMaxSize()) {
             when {
+                model.state == TrackingModel.State.LOCKED -> Notice("unlock metro plus to use", 22f)
                 model.state == TrackingModel.State.NO_ACCESS -> NoAccess(22f)
                 top == null -> Empty()
                 top.isLive -> {
@@ -254,9 +257,12 @@ private class TrackFace(
     }
 
     @Composable
-    private fun androidx.compose.foundation.layout.BoxScope.NoAccess(size: Float) {
+    private fun androidx.compose.foundation.layout.BoxScope.NoAccess(size: Float) = Notice("turn on notification access", size)
+
+    @Composable
+    private fun androidx.compose.foundation.layout.BoxScope.Notice(text: String, size: Float) {
         MetroText(
-            "turn on notification access",
+            text,
             MetroType.style(m.text(size), FontWeight.SemiBold),
             color = Metro.colors.onAccent,
             maxLines = 3,

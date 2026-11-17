@@ -28,8 +28,6 @@ internal fun liveTileEntries(defaults: DefaultApps, appKeys: List<AppKey>): List
         LiveTileEntry("photos", TileContent.Photos, TileSize.WIDE),
         LiveTileEntry("people", TileContent.People, TileSize.MEDIUM),
         LiveTileEntry("me", TileContent.Me, TileSize.WIDE),
-        // Wide: the top trip with its countdown, OTP and bar.
-        LiveTileEntry("tracking", TileContent.Tracking, TileSize.WIDE),
     )
 }
 

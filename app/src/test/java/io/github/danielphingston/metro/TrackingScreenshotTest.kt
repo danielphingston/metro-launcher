@@ -155,6 +155,8 @@ class TrackingScreenshotTest {
                 Item(0, 2, TileSize.MEDIUM, none),
                 Item(2, 2, TileSize.SMALL, none),
                 Item(0, 4, TileSize.WIDE, TrackingModel.of(emptyList(), emptyList(), accessGranted = false, showContent = true, now = NOW)),
+                // A Metro Plus tile after a refund.
+                Item(0, 6, TileSize.MEDIUM, TrackingModel.LOCKED),
             ),
         )
     }
