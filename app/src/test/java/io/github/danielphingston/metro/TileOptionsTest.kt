@@ -354,10 +354,11 @@ class TileOptionsTest {
             TileContent.QuickSetting(QuickSettingKind.FLASHLIGHT) to nameAndSurface,
             TileContent.Assistant to nameAndSurface,
             TileContent.Me to nameAndSurface,
+            TileContent.Tracking to nameAndSurface,
             TileContent.LayoutSwitch(null) to nameAndSurface,
         )
-        // All twelve kinds of tile.
-        assertEquals(12, expected.keys.map { it::class }.toSet().size)
+        // All thirteen kinds of tile.
+        assertEquals(13, expected.keys.map { it::class }.toSet().size)
         for ((content, set) in expected) assertEquals(content.toString(), set, options(content))
     }
 

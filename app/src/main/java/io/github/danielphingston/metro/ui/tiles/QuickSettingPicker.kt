@@ -88,7 +88,7 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     }
 }
 
-/** The picker's panel without the view model: a "quick settings tiles" section and an "assistant" section. */
+/** The picker's panel without the view model: "quick settings tiles", "assistant" and "tracking" sections. */
 @Composable
 internal fun MetroPlusPanel(
     unlocked: Boolean,
@@ -158,6 +158,19 @@ internal fun MetroPlusPanel(
                 } else {
                     "choose an assistant app in settings"
                 },
+            )
+        }
+        item { SectionTitle("tracking") }
+        item {
+            PickerRow(
+                onClickLabel = if (unlocked) "add tracking tile" else "unlock metro plus",
+                onClick = { if (unlocked) onAdd(TileContent.Tracking, TileSize.WIDE) else onBuy() },
+                preview = {
+                    val tile = ResolvedTile(TileSpec(0, TileSize.SMALL, TileContent.Tracking), null, "tracking")
+                    Box(Modifier.size(PreviewSize)) { TrackingTile(tile, null, monochrome, icons, PreviewSize, editing = true) }
+                },
+                title = "tracking",
+                subtitle = "rides, food and parcels on their way, with ETA and OTP, from their notifications",
             )
         }
     }

@@ -76,6 +76,12 @@ sealed interface TileContent {
     data object Me : TileContent
 
     /**
+     * Rides, food orders and parcels on their way, from the notification listener. Persists nothing
+     * in the layout (parcels caught earlier live in their own unbacked store); one per layout.
+     */
+    data object Tracking : TileContent
+
+    /**
      * Something pinned from the search results that isn't an app or an app shortcut: a contact, a
      * settings page, a timer, a web search. [target] says what it opens and [icon] what it shows.
      */
@@ -703,6 +709,7 @@ internal object TileJson {
             is TileContent.QuickSetting -> obj.put("type", "quick").put("kind", c.kind.id)
             TileContent.Assistant -> obj.put("type", "assistant")
             TileContent.Me -> obj.put("type", "me")
+            TileContent.Tracking -> obj.put("type", "tracking")
             is TileContent.Action -> obj.put("type", "action").put("label", c.label).put("target", c.target.toJson()).apply {
                 when (val icon = c.icon) {
                     is ActionIcon.Glyph -> put("glyph", icon.id)
@@ -736,6 +743,7 @@ internal object TileJson {
             "quick" -> TileContent.QuickSetting(QuickSettingKind.fromId(obj.optString("kind")) ?: return null)
             "assistant" -> TileContent.Assistant
             "me" -> TileContent.Me
+            "tracking" -> TileContent.Tracking
             "action" -> TileContent.Action(
                 obj.optString("label"),
                 when {

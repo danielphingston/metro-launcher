@@ -165,7 +165,7 @@ object TileOptions {
             is TileContent.Folder -> options += setOf(TileOption.SHOW_NAME, TileOption.SHOW_ICON, TileOption.PHOTO)
             is TileContent.Widget -> Unit
             TileContent.Weather, TileContent.Photos, TileContent.People, is TileContent.QuickSetting,
-            TileContent.Assistant, TileContent.Me, is TileContent.LayoutSwitch,
+            TileContent.Assistant, TileContent.Me, TileContent.Tracking, is TileContent.LayoutSwitch,
             -> options += TileOption.SHOW_NAME
         }
         options += SURFACE

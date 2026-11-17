@@ -148,6 +148,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** The assistant tile's saved last reply, shown when its notification is gone. */
     val assistantReply: StateFlow<SavedReply?> = metro.assistantReply.reply
+
+    /** Parcels the tracking tile caught for today. */
+    val parcels: StateFlow<List<io.github.danielphingston.metro.live.tracking.ParcelEntry>> = metro.parcels.entries
     val lastAsked: StateFlow<LastAsked?> = metro.lastAsked.asked
 
     /** The saved assistant choice (null: never chose); a change re-resolves the assistant tile. */
@@ -188,6 +191,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 spec, null, c.name.ifBlank { "folder" }, c.children.mapNotNull(::resolve),
             )
             TileContent.Me -> ResolvedTile(spec, null, "me")
+            TileContent.Tracking -> ResolvedTile(spec, null, "tracking")
             is TileContent.LayoutSwitch -> ResolvedTile(spec, null, LayoutSwitchTiles.label(c, layouts))
         }
         specs.mapNotNull(::resolve)
