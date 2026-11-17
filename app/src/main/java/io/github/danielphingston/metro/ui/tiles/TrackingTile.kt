@@ -149,7 +149,7 @@ private class TrackFace(
         val top = model.top
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             if (model.state != TrackingModel.State.ACTIVE || top == null) {
-                PinGlyph(m.dp(34f))
+                RouteGlyph(m.dp(40f))
                 return@Box
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -171,7 +171,17 @@ private class TrackFace(
             when {
                 model.state == TrackingModel.State.LOCKED -> Notice("unlock to use", 16f)
                 model.state == TrackingModel.State.NO_ACCESS -> NoAccess(16f)
-                top == null -> PinGlyph(m.dp(48f), Modifier.align(Alignment.Center))
+                top == null -> {
+                    RouteGlyph(m.dp(44f), Modifier.align(Alignment.TopStart).padding(start = m.dp(8f), top = m.dp(8f)))
+                    Column(Modifier.align(Alignment.BottomStart).padding(start = m.dp(8f), end = m.dp(8f), bottom = m.dp(26f))) {
+                        MetroText("nothing on the way", MetroType.style(m.text(17f), FontWeight.Light), color = Metro.colors.onAccent, maxLines = 2)
+                        MetroText(
+                            "rides, food and parcels", MetroType.style(m.text(12.5f)),
+                            color = Metro.colors.onAccent.copy(alpha = 0.78f), maxLines = 1,
+                        )
+                    }
+                    TileLabel(label, m, Modifier.align(Alignment.BottomStart))
+                }
                 top.isLive -> {
                     Column(Modifier.padding(start = m.dp(8f), top = m.dp(6f), end = m.dp(8f))) {
                         val min = minutes(top)
@@ -278,7 +288,7 @@ private class TrackFace(
             MetroText("nothing on the way", MetroType.style(m.text(22f), FontWeight.Light), color = white, maxLines = 1)
             MetroText("rides, food and parcels show up here", MetroType.style(m.text(13f)), color = white.copy(alpha = 0.78f), maxLines = 2)
         }
-        PinGlyph(m.dp(40f), Modifier.align(Alignment.TopEnd).padding(top = m.dp(12f), end = m.dp(12f)))
+        RouteGlyph(m.dp(44f), Modifier.align(Alignment.TopEnd).padding(top = m.dp(10f), end = m.dp(12f)))
         TileLabel(label, m, Modifier.align(Alignment.BottomStart))
     }
 
@@ -517,22 +527,35 @@ private class TrackFace(
         }
     }
 
+    /** A dotted route from a start dot to a destination pin: something on its way, whether a ride, food or a parcel. */
     @Composable
-    fun PinGlyph(size: Dp, modifier: Modifier = Modifier) {
+    fun RouteGlyph(size: Dp, modifier: Modifier = Modifier) {
         val white = Metro.colors.onAccent
         Canvas(modifier.size(size)) {
-            val w = this.size.width
-            val h = this.size.height
+            // Drawn on a 24-unit grid, like a Material icon.
+            val u = this.size.width / 24f
+            val stroke = Stroke(1.4f * u, cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+            drawCircle(white, 2f * u, Offset(5f * u, 18f * u), style = stroke)
+            val route = Path().apply {
+                moveTo(7f * u, 17.5f * u)
+                cubicTo(11f * u, 16.5f * u, 10f * u, 11.5f * u, 14f * u, 10.5f * u)
+            }
+            drawPath(
+                route, white,
+                style = Stroke(
+                    1.4f * u, cap = StrokeCap.Round,
+                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(1.5f * u, 2.2f * u)),
+                ),
+            )
             val pin = Path().apply {
-                moveTo(w * 0.5f, h * 0.92f)
-                cubicTo(w * 0.28f, h * 0.68f, w * 0.2f, h * 0.55f, w * 0.2f, h * 0.4f)
-                cubicTo(w * 0.2f, h * 0.2f, w * 0.34f, h * 0.08f, w * 0.5f, h * 0.08f)
-                cubicTo(w * 0.66f, h * 0.08f, w * 0.8f, h * 0.2f, w * 0.8f, h * 0.4f)
-                cubicTo(w * 0.8f, h * 0.55f, w * 0.72f, h * 0.68f, w * 0.5f, h * 0.92f)
+                moveTo(18f * u, 14f * u)
+                cubicTo(18f * u, 14f * u, 14.5f * u, 11f * u, 14.5f * u, 8.4f * u)
+                arcTo(androidx.compose.ui.geometry.Rect(14.5f * u, 4.9f * u, 21.5f * u, 11.9f * u), 180f, 180f, false)
+                cubicTo(21.5f * u, 11f * u, 18f * u, 14f * u, 18f * u, 14f * u)
                 close()
             }
-            drawPath(pin, white, style = Stroke(w * 0.055f))
-            drawCircle(white, w * 0.09f, Offset(w * 0.5f, h * 0.4f), style = Stroke(w * 0.055f))
+            drawPath(pin, white, style = stroke)
+            drawCircle(white, 1f * u, Offset(18f * u, 8.4f * u), style = stroke)
         }
     }
 }
