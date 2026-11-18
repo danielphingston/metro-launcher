@@ -58,7 +58,7 @@ class FeedEditorScreenshotTest {
     private fun show() = rule.setContent {
         MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
             Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
-                FeedEditor(null, isTaken = { false }, onDone = {}, onCancel = {})
+                FeedEditor(null, lemmyApp = null, isTaken = { false }, onDone = {}, onCancel = {})
             }
         }
     }
@@ -71,11 +71,11 @@ class FeedEditorScreenshotTest {
             setOf(
                 "https://lemmy.ml/feeds/c/linux.xml?sort=Hot",
                 "https://lemmy.world/feeds/c/technology.xml?sort=Hot",
-                "https://theverge.com/rss/index.xml",
+                "https://programming.dev/feeds/c/programming.xml?sort=Hot",
             ),
         )
         show()
-        rule.onNode(hasSetTextAction()).performTextInput("!linux@lemmy.ml lemmy.world/c/technology theverge.com/rss/index.xml !linuxx@lemmy.ml")
+        rule.onNode(hasSetTextAction()).performTextInput("!linux@lemmy.ml lemmy.world/c/technology programming.dev/c/programming !linuxx@lemmy.ml")
         rule.onNodeWithText("add").performClick()
         waitFor("!linuxx@lemmy.ml wasn't found on lemmy.ml")
         rule.onNodeWithText("active").performClick()
@@ -87,6 +87,7 @@ class FeedEditorScreenshotTest {
     fun webPage() {
         network(emptySet())
         show()
+        rule.onNodeWithText("rss or atom").performClick()
         rule.onNode(hasSetTextAction()).performTextInput("example.com")
         rule.onNodeWithText("add tile").performClick()
         waitFor("that's a web page without a feed")

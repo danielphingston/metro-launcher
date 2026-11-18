@@ -136,6 +136,8 @@ data class LauncherSettings(
     val swingPages: Boolean = true,
     /** The assistant app: null while the user never chose, [AssistantChoice.OFF] for off, else a package; see [AssistantChoice.resolve]. */
     val assistant: String? = null,
+    /** The app that opens Lemmy feed tiles' posts (a package), or null for the system's choice (usually the browser). */
+    val lemmyApp: String? = null,
     /** The smart search features that are switched on; they only act while Metro Plus is unlocked. */
     val smartFeatures: Set<SmartFeature> = SmartFeature.defaults,
     /** The built-in apps "search in apps" offers; it only acts while that smart feature is on. */
@@ -290,6 +292,7 @@ class SettingsRepository(private val context: Context) {
         val searchHistorySize = intPreferencesKey("search_history_size")
         val swingPages = booleanPreferencesKey("swing_pages")
         val assistant = stringPreferencesKey("assistant_package")
+        val lemmyApp = stringPreferencesKey("lemmy_app")
         val lastQuestion = stringPreferencesKey("assistant_last_question")
         val lastAskedAt = longPreferencesKey("assistant_last_asked_at")
 
@@ -373,6 +376,7 @@ class SettingsRepository(private val context: Context) {
                 ?: defaults.searchHistorySize,
             swingPages = this[Keys.swingPages] ?: defaults.swingPages,
             assistant = this[Keys.assistant],
+            lemmyApp = this[Keys.lemmyApp],
             smartFeatures = SmartFeature.entries.filterTo(LinkedHashSet()) { this[Keys.smart(it)] ?: it.defaultOn },
             searchInApps = SearchInApp.entries.filterTo(LinkedHashSet()) { this[Keys.searchInApp(it)] ?: it.defaultOn },
             searchInOtherApps = this[Keys.searchInOtherApps].orEmpty(),
@@ -476,6 +480,11 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setSearchHistorySize(count: Int) = context.metroDataStore.edit {
         it[Keys.searchHistorySize] = LauncherSettings.clampSearchHistory(count)
+    }
+
+    /** The app for Lemmy posts; null goes back to the system's choice. */
+    suspend fun setLemmyApp(packageName: String?) = context.metroDataStore.edit {
+        if (packageName == null) it.remove(Keys.lemmyApp) else it[Keys.lemmyApp] = packageName
     }
 
     /** [packageName] null switches the assistant off; a package chooses it. Either ends the automatic default. */

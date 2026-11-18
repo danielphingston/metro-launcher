@@ -69,37 +69,54 @@ internal sealed interface FeedEditorStatus {
     data class Error(val text: String, val addAnyway: (() -> Unit)? = null) : FeedEditorStatus
 }
 
+/** The two kinds of feed tile. */
+internal enum class FeedKind { LEMMY, RSS }
+
 /**
- * Sets up a feed tile, over a dimmed start screen: a list of feeds, Lemmy communities
- * ("!linux@lemmy.ml" or a community link) and RSS or Atom addresses alike, each downloaded and
- * read as it is added; how communities are sorted; and which app opens the posts. Problems are
- * said under the field, with "add anyway" when they may pass (no connection, an empty feed).
- * [isTaken] refuses the same feeds another tile already shows. Back or a tap outside cancels.
+ * Sets up a feed tile, over a dimmed start screen. Two kinds: Lemmy, a list of communities
+ * ("!linux@lemmy.ml" or a community link) with their sort, whose posts open in [lemmyApp] (chosen
+ * in settings); or RSS and Atom addresses. Each feed is downloaded and read as it is added;
+ * problems are said under the field, with "add anyway" when they may pass (no connection, an
+ * empty feed). [isTaken] refuses the same feeds another tile already shows. Back or a tap
+ * outside cancels.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun FeedEditor(
     initial: TileContent.Feed?,
+    lemmyApp: String?,
     isTaken: (List<String>) -> Boolean,
     onDone: (TileContent.Feed) -> Unit,
     onCancel: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val urls = remember { mutableStateListOf<String>().apply { initial?.urls?.let(::addAll) } }
+    var kind by remember { mutableStateOf(if (initial == null || initial.isLemmy) FeedKind.LEMMY else FeedKind.RSS) }
+    // Each kind keeps its own list, so trying the other kind loses nothing.
+    val lemmyUrls = remember { mutableStateListOf<String>().apply { if (initial?.isLemmy == true) addAll(initial.urls) } }
+    val rssUrls = remember { mutableStateListOf<String>().apply { if (initial != null && !initial.isLemmy) addAll(initial.urls) } }
+    val urls = if (kind == FeedKind.LEMMY) lemmyUrls else rssUrls
     var sort by remember { mutableStateOf(initial?.urls?.firstNotNullOfOrNull { FeedAddress.lemmy(it)?.second } ?: LemmySort.HOT) }
-    var openWith by remember { mutableStateOf(initial?.openWith) }
     var input by remember { mutableStateOf(TextFieldValue("")) }
     var status by remember { mutableStateOf<FeedEditorStatus>(FeedEditorStatus.None) }
     var job by remember { mutableStateOf<Job?>(null) }
     // Read when a tap happens, not when the screen was last drawn: a finished check doesn't redraw it.
     fun busy() = job?.isActive == true
 
-    // The apps that open these feeds' posts; looked up again as feeds come and go.
-    var apps by remember { mutableStateOf<List<FeedTiles.LinkApp>>(emptyList()) }
-    val hosts = urls.map { FeedAddress.samplePostLink(it) }.distinct()
-    LaunchedEffect(hosts) {
-        apps = withContext(Dispatchers.Default) { FeedTiles.linkApps(context, urls.toList()) }
+    // Where the communities' posts will open, and the instances that app doesn't take.
+    val instances = lemmyUrls.mapNotNull { FeedAddress.lemmy(it)?.first?.instance }.distinct()
+    var appName by remember { mutableStateOf<String?>(null) }
+    var notOpened by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(lemmyApp, instances) {
+        if (lemmyApp == null) {
+            appName = null
+            notOpened = emptyList()
+            return@LaunchedEffect
+        }
+        withContext(Dispatchers.Default) {
+            appName = runCatching { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(lemmyApp, 0)).toString() }.getOrNull()
+            notOpened = instances.filterNot { FeedTiles.opens(context, lemmyApp, it) }
+        }
     }
 
     fun setInput(text: String) {
@@ -114,14 +131,20 @@ internal fun FeedEditor(
             val left = pieces.drop(i).joinToString(" ")
             val rest = pieces.drop(i + 1).joinToString(" ")
             val entry = FeedAddress.parse(piece)
-            val (url, community) = when (entry) {
-                is FeedAddress.Entry.Invalid -> {
+            val wrongKind = when {
+                entry is FeedAddress.Entry.Address && kind == FeedKind.LEMMY ->
+                    "that isn't a community, like !linux@lemmy.ml. For a site's feed, choose rss or atom."
+                entry is FeedAddress.Entry.Lemmy && kind == FeedKind.RSS -> "${entry.community} is a Lemmy community: choose lemmy above."
+                else -> null
+            }
+            val (url, community) = when {
+                entry is FeedAddress.Entry.Invalid || wrongKind != null -> {
                     setInput(left)
-                    status = FeedEditorStatus.Error(entry.message)
+                    status = FeedEditorStatus.Error(wrongKind ?: (entry as FeedAddress.Entry.Invalid).message)
                     return false
                 }
-                is FeedAddress.Entry.Lemmy -> FeedAddress.lemmyUrl(entry.community, sort) to entry.community
-                is FeedAddress.Entry.Address -> entry.url to null
+                entry is FeedAddress.Entry.Lemmy -> FeedAddress.lemmyUrl(entry.community, sort) to entry.community
+                else -> (entry as FeedAddress.Entry.Address).url to null
             }
             if (urls.any { FeedAddress.key(it) == FeedAddress.key(url) }) continue
             if (urls.size >= FeedAddress.MAX_FEEDS) {
@@ -172,7 +195,7 @@ internal fun FeedEditor(
             status = FeedEditorStatus.Error("another tile already shows these feeds")
             return@check
         }
-        onDone(TileContent.Feed(list, openWith?.takeIf { pkg -> apps.any { it.packageName == pkg } }))
+        onDone(TileContent.Feed(list))
     }
 
     val colors = Metro.colors
@@ -191,7 +214,19 @@ internal fun FeedEditor(
                 .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 20.dp),
         ) {
             MetroText("feed", MetroType.pageTitle, modifier = Modifier.padding(bottom = 12.dp))
-            Caption("FEEDS")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FeedKind.entries.forEach { k ->
+                    MetroChoice(if (k == FeedKind.LEMMY) "lemmy" else "rss or atom", kind == k, {
+                        if (!busy()) {
+                            kind = k
+                            setInput("")
+                            status = FeedEditorStatus.None
+                        }
+                    })
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Caption(if (kind == FeedKind.LEMMY) "COMMUNITIES" else "FEEDS")
             urls.forEachIndexed { index, url ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                     MetroText(FeedAddress.shown(url), MetroType.listItem, maxLines = 1, modifier = Modifier.weight(1f))
@@ -221,7 +256,11 @@ internal fun FeedEditor(
                         input = it
                         if (status is FeedEditorStatus.Error) status = FeedEditorStatus.None
                     },
-                    placeholder = if (urls.isEmpty()) "!linux@lemmy.ml" else "add another",
+                    placeholder = when {
+                        urls.isNotEmpty() -> "add another"
+                        kind == FeedKind.LEMMY -> "!linux@lemmy.ml"
+                        else -> "example.com/feed"
+                    },
                     onAction = { launchCheck { addTyped() } },
                     focusFirst = initial == null,
                     modifier = Modifier.weight(1f),
@@ -229,31 +268,37 @@ internal fun FeedEditor(
                 MetroButton("add", { launchCheck { addTyped() } })
             }
             MetroText(
-                "a Lemmy community, or any RSS or Atom address (a site's page works if it names its feed)",
+                if (kind == FeedKind.LEMMY) {
+                    "!name@instance, or the community's link"
+                } else {
+                    "any RSS or Atom address; a site's page works if it names its feed"
+                },
                 MetroType.caption,
                 color = colors.subtle,
                 modifier = Modifier.padding(top = 8.dp),
             )
             StatusLine(status)
-            if (urls.any { FeedAddress.lemmy(it) != null }) {
+            if (kind == FeedKind.LEMMY) {
                 Spacer(Modifier.height(20.dp))
-                Caption("COMMUNITIES SHOW")
+                Caption("SHOW")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     LemmySort.entries.forEach { s ->
                         MetroChoice(s.label, sort == s, {
                             sort = s
-                            for (i in urls.indices) urls[i] = FeedAddress.withSort(urls[i], s)
+                            for (i in lemmyUrls.indices) lemmyUrls[i] = FeedAddress.withSort(lemmyUrls[i], s)
                         })
                     }
                 }
-            }
-            if (apps.isNotEmpty()) {
-                Spacer(Modifier.height(20.dp))
-                Caption("OPEN POSTS IN")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MetroChoice("browser or default", openWith == null || apps.none { it.packageName == openWith }, { openWith = null })
-                    apps.forEach { app -> MetroChoice(app.label, openWith == app.packageName, { openWith = app.packageName }) }
-                }
+                Spacer(Modifier.height(16.dp))
+                MetroText(
+                    when {
+                        lemmyApp == null || appName == null -> "Posts open in your browser. Choose a Lemmy app in settings, Metro Plus."
+                        notOpened.isEmpty() -> "Posts open in $appName (settings, Metro Plus)."
+                        else -> "Posts open in $appName, except on ${notOpened.joinToString()}, which it doesn't list: those open in your browser."
+                    },
+                    MetroType.caption,
+                    color = colors.subtle,
+                )
             }
             Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetroButton(if (initial == null) "add tile" else "done", ::done)

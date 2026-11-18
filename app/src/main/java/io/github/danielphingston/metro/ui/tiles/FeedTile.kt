@@ -96,27 +96,35 @@ object FeedTiles {
 
     /**
      * What tapping the feed tile [tileId] opens: the headline on it, else its first feed's page.
-     * With an app chosen ([TileContent.Feed.openWith]) the link goes to that app, as long as it
-     * still takes such links; otherwise the system decides (a verified app, else the browser).
+     * A Lemmy tile's links go to [lemmyApp] (chosen in settings) as long as it takes them: Lemmy
+     * apps list the instances they open, and Android only sends a web link to an app on its own
+     * when the site verified the app, which no instance does. Otherwise the system decides,
+     * usually the browser.
      */
-    fun intent(context: Context, tileId: Long, feed: TileContent.Feed): Intent {
+    fun intent(context: Context, tileId: Long, feed: TileContent.Feed, lemmyApp: String?): Intent {
         val link = shown[tileId] ?: FeedAddress.homePage(feed.urls.first())
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link)).addCategory(Intent.CATEGORY_BROWSABLE)
-        val app = feed.openWith ?: return intent
-        val direct = Intent(intent).setPackage(app)
+        if (lemmyApp == null || !feed.isLemmy) return intent
+        val direct = Intent(intent).setPackage(lemmyApp)
         val handled = runCatching { context.packageManager.resolveActivity(direct, PackageManager.MATCH_ALL) }.getOrNull() != null
         return if (handled) direct else intent
     }
 
-    /** An app that opens a tile's links: [packageName] and the name to show. */
+    /** An app that opens Lemmy links: [packageName] and the name to show. */
     data class LinkApp(val packageName: String, val label: String)
 
+    /** Large instances, to ask which apps open Lemmy links; with [lemmyApps]' extra hosts, those of the pinned tiles. */
+    private val knownInstances = listOf(
+        "lemmy.world", "lemmy.ml", "programming.dev", "sh.itjust.works", "lemm.ee", "beehaw.org",
+        "feddit.org", "lemmy.zip", "lemmy.ca", "discuss.tchncs.de", "lemmy.dbzer0.com", "slrpnk.net",
+    )
+
     /**
-     * The apps that open links to these feeds' posts, browsers left out: the Lemmy apps, a news
-     * site's own app. Android only sends web links to an app it verified for the site, which
-     * Lemmy apps can't be for every instance; choosing one here sends the tile's links to it.
+     * The installed apps that open Lemmy post links (Jerboa, Voyager, Thunder...), browsers left
+     * out, with how many of [hosts] (instances the user follows) each one takes. Blocking binder
+     * work: call off the main thread.
      */
-    fun linkApps(context: Context, urls: List<String>): List<LinkApp> {
+    fun lemmyApps(context: Context, hosts: Collection<String> = emptyList()): List<LinkApp> {
         val pm = context.packageManager
         fun handlers(link: String): Set<String> = runCatching {
             pm.queryIntentActivities(
@@ -127,14 +135,22 @@ object FeedTiles {
         // Browsers open any address; an app that also opens one on a made-up site is a browser.
         val browsers = handlers("https://metro-launcher.invalid/")
         val own = context.packageName
-        return urls.mapNotNull(FeedAddress::samplePostLink).distinct()
-            .flatMap { handlers(it) - browsers - own }
+        return (knownInstances + hosts).distinct()
+            .flatMap { handlers("https://$it/post/1") - browsers - own }
             .distinct()
             .mapNotNull { pkg ->
                 runCatching { LinkApp(pkg, pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()) }.getOrNull()
             }
             .sortedBy { it.label.lowercase() }
     }
+
+    /** Whether [app] opens posts on [instance]: a Lemmy app only takes the instances it lists. */
+    fun opens(context: Context, app: String, instance: String): Boolean = runCatching {
+        context.packageManager.resolveActivity(
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://$instance/post/1")).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(app),
+            PackageManager.MATCH_ALL,
+        ) != null
+    }.getOrDefault(false)
 
     /**
      * Several feeds' posts as one list, taken in turn (first of each, then second of each...),

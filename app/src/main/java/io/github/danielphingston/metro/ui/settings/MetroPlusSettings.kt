@@ -1,5 +1,10 @@
 package io.github.danielphingston.metro.ui.settings
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import io.github.danielphingston.metro.ui.components.MetroChoice
+import io.github.danielphingston.metro.ui.tiles.FeedTiles
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -36,6 +41,7 @@ internal val MetroPlusContents = listOf(
     "smart search: calculator, settings, timers, launcher actions",
     "layouts, each with its own tiles, wallpaper and settings",
     "gestures: double tap, two-finger swipes, sleep",
+    "a feed tile for Lemmy communities and RSS feeds",
 )
 
 /**
@@ -120,6 +126,44 @@ fun MetroPlusSettingsSection(
     )
     Spacer(Modifier.height(10.dp))
     MetroButton("gesture settings", onClick = onOpenGestureSettings)
+
+    FeedTileSettings(settings, repository)
+}
+
+/** The "feed tiles" section: which app Lemmy tiles open their posts in. */
+@Composable
+internal fun FeedTileSettings(settings: LauncherSettings, repository: SettingsRepository) {
+    Section("feed tiles")
+    MetroText(
+        "Lemmy feed tiles open their posts in this app. Lemmy apps only open the instances they list; " +
+            "posts on other instances, and RSS feeds, open in your browser.",
+        MetroType.caption,
+        color = Metro.colors.subtle,
+    )
+    Spacer(Modifier.height(10.dp))
+    LemmyAppControl(settings, repository)
+}
+
+/** The app Lemmy feed tiles open posts in: the browser (the system's choice) or an installed Lemmy app. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun LemmyAppControl(settings: LauncherSettings, repository: SettingsRepository) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // Installed and removed apps show up when the page comes back.
+    val apps = rememberOnResume { FeedTiles.lemmyApps(context) }
+    val current = settings.lemmyApp
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MetroChoice("browser", current == null || apps.none { it.packageName == current }, { scope.launch { repository.setLemmyApp(null) } })
+        apps.forEach { app -> MetroChoice(app.label, current == app.packageName, { scope.launch { repository.setLemmyApp(app.packageName) } }) }
+    }
+    if (apps.isEmpty()) {
+        Spacer(Modifier.height(8.dp))
+        MetroText("No Lemmy app found. Jerboa, Voyager and Thunder are some.", MetroType.caption, color = Metro.colors.subtle)
+    } else if (current != null && apps.none { it.packageName == current }) {
+        Spacer(Modifier.height(8.dp))
+        MetroText("The app chosen before is no longer installed: posts open in your browser.", MetroType.caption, color = Metro.colors.subtle)
+    }
 }
 
 /**

@@ -680,7 +680,7 @@ fun StartScreen(
             onUnpin = { viewModel.unpin(tile.spec.id) },
             onResize = { viewModel.resize(tile.spec.id) },
             onSetSpan = { w, h -> viewModel.setSpan(tile.spec.id, w, h) },
-            onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state, quickUnlocked) },
+            onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state, quickUnlocked, settings.lemmyApp) },
             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
             appearFrom = appearFrom,
             onRemoveFromFolder = onRemoveFromFolder,
@@ -997,6 +997,7 @@ fun StartScreen(
             } else {
                 FeedEditor(
                     initial = feed,
+                    lemmyApp = settings.lemmyApp,
                     isTaken = { urls -> viewModel.feedTaken(urls, exceptId = id) },
                     onDone = { changed ->
                         state.feedAddressId = null
@@ -1456,6 +1457,7 @@ private fun activateTile(
     defaults: DefaultApps,
     state: StartState,
     quickUnlocked: Boolean,
+    lemmyApp: String?,
 ) {
     when (val content = tile.spec.content) {
         is TileContent.App -> tile.app?.let { launcher.launch(it, bounds) }
@@ -1488,7 +1490,7 @@ private fun activateTile(
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, content)
         is TileContent.Feed -> if (quickUnlocked) {
-            launcher.start(FeedTiles.intent(context, tile.spec.id, content), bounds)
+            launcher.start(FeedTiles.intent(context, tile.spec.id, content, lemmyApp), bounds)
         } else {
             android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
         }

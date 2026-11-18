@@ -78,7 +78,6 @@ class FeedTest {
         assertEquals("!linux@lemmy.ml", FeedAddress.shown(linux))
         assertEquals("https://lemmy.ml/c/linux", FeedAddress.homePage(linux))
         assertEquals("https://www.theverge.com/", FeedAddress.homePage("https://www.theverge.com/rss/index.xml"))
-        assertEquals("https://lemmy.ml/post/1", FeedAddress.samplePostLink(linux))
         // The same feeds in any order are the same tile; a different sort is not.
         val tech = "https://lemmy.world/feeds/c/technology.xml?sort=Hot"
         assertTrue(FeedAddress.sameFeeds(listOf(linux, tech), listOf(tech, "https://LEMMY.ml/feeds/c/Linux.xml")))
@@ -274,17 +273,17 @@ class FeedTest {
     fun aTapOpensTheShownHeadlineElseTheFeedsPage() {
         val feed = TileContent.Feed(listOf("https://lemmy.ml/feeds/c/linux.xml?sort=Hot"))
         val context = RuntimeEnvironment.getApplication()
-        assertEquals("https://lemmy.ml/c/linux", FeedTiles.intent(context, 77, feed).data.toString())
-        // An app that can't take the link (here: not installed) is passed over for the system's choice.
-        assertNull(FeedTiles.intent(context, 77, feed.copy(openWith = "com.example.gone")).`package`)
+        assertEquals("https://lemmy.ml/c/linux", FeedTiles.intent(context, 77, feed, null).data.toString())
+        // A Lemmy app that can't take the link (here: not installed) is passed over for the system's choice.
+        assertNull(FeedTiles.intent(context, 77, feed, "com.example.gone").`package`)
+        assertTrue(feed.isLemmy)
+        assertFalse(TileContent.Feed(listOf("https://example.com/feed")).isLemmy)
+        assertFalse(TileContent.Feed(listOf("https://lemmy.ml/feeds/c/linux.xml", "https://example.com/feed")).isLemmy)
     }
 
     // ---- layout and backups ----
 
-    private val twoFeeds = TileContent.Feed(
-        listOf("https://lemmy.ml/feeds/c/linux.xml?sort=New", "https://example.com/feed.xml"),
-        openWith = "com.jerboa",
-    )
+    private val twoFeeds = TileContent.Feed(listOf("https://lemmy.ml/feeds/c/linux.xml?sort=New", "https://lemmy.world/feeds/c/technology.xml?sort=New"))
 
     @Test
     fun theTileIsSavedAsTypeFeedWithItsAddresses() {
@@ -292,7 +291,6 @@ class FeedTest {
         val json = TileJson.encode(tiles)
         assertEquals("feed", json.getJSONObject(0).getString("type"))
         assertEquals(2, json.getJSONObject(0).getJSONArray("urls").length())
-        assertEquals("com.jerboa", json.getJSONObject(0).getString("openWith"))
         assertEquals(tiles, TileJson.decode(json))
         val one = TileContent.Feed(listOf("https://example.com/feed.xml"))
         assertEquals(one, TileJson.decode(TileJson.encode(listOf(TileSpec(1, TileSize.WIDE, one)))).single().content)

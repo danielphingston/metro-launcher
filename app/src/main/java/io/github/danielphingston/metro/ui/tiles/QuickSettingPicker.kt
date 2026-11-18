@@ -79,6 +79,7 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     if (askingFeed) {
         FeedEditor(
             initial = null,
+            lemmyApp = settings.lemmyApp,
             isTaken = viewModel::feedTaken,
             onDone = { feed ->
                 viewModel.addTile(feed, TileSize.WIDE)

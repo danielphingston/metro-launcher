@@ -150,13 +150,6 @@ object FeedAddress {
         return "https://${uri.host}/"
     }
 
-    /** A link like the ones a feed's posts have, to ask which apps open them; see [FeedTiles]. */
-    fun samplePostLink(url: String): String? {
-        lemmy(url)?.let { (community, _) -> return "https://${community.instance}/post/1" }
-        val h = uri(url)?.host ?: return null
-        return "https://$h/"
-    }
-
     /** What makes two addresses the same feed: a community's name, instance and sort, else the address without case in the host or a trailing slash. */
     fun key(url: String): String {
         lemmy(url)?.let { (community, sort) -> return "lemmy:$community:${sort.param}" }

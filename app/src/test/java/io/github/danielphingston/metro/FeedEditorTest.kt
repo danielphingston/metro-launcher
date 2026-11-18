@@ -9,7 +9,9 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.data.TileContent
@@ -143,30 +145,34 @@ class FeedEditorTest {
         rule.setContent {
             MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
-                    FeedEditor(initial, isTaken = { urls -> taken.any { FeedAddress.sameFeeds(it, urls) } }, onDone = onDone, onCancel = {})
+                    FeedEditor(initial, lemmyApp = null, isTaken = { urls -> taken.any { FeedAddress.sameFeeds(it, urls) } }, onDone = onDone, onCancel = {})
                 }
             }
         }
     }
 
     private fun field() = rule.onNode(hasSetTextAction())
+
+    /** Taps [text], scrolling the editor to it first: the test window is shorter than a phone. */
+    private fun tap(text: String) {
+        rule.onNodeWithText(text).performScrollTo().performClick()
+    }
     private fun waitFor(text: String) = rule.waitUntil(5_000) { rule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
 
     @Test
-    fun communitiesAndFeedsAreCheckedAsTheyAreAdded() {
-        network(community("linux") to rss("a"), community("technology", "lemmy.world") to rss("b"), "https://example.com/feed" to rss("c"))
+    fun communitiesAreCheckedAsTheyAreAdded() {
+        network(community("linux") to rss("a"), community("technology", "lemmy.world") to rss("b"))
         var saved: TileContent.Feed? = null
         editor { saved = it }
-        field().performTextInput("!linux@lemmy.ml lemmy.world/c/technology example.com/feed !nope@lemmy.ml")
+        field().performTextInput("!linux@lemmy.ml lemmy.world/c/technology !nope@lemmy.ml")
         rule.onNodeWithText("add").performClick()
         waitFor("!nope@lemmy.ml wasn't found on lemmy.ml")
         rule.onNodeWithText("!linux@lemmy.ml").assertExists()
         rule.onNodeWithText("!technology@lemmy.world").assertExists()
-        rule.onNodeWithText("https://example.com/feed").assertExists()
         rule.onNodeWithText("add anyway").assertDoesNotExist()
         // The entry that failed stays in the field to fix, and "add tile" tries it again rather than dropping it.
         rule.onNodeWithText("!nope@lemmy.ml").assertExists()
-        rule.onNodeWithText("add tile").performClick()
+        tap("add tile")
         rule.waitUntil(5_000) { rule.onAllNodesWithText("checking !nope@lemmy.ml…").fetchSemanticsNodes().isEmpty() }
         assertNull(saved)
         // Removing one takes it off the list.
@@ -175,20 +181,44 @@ class FeedEditorTest {
     }
 
     @Test
-    fun theTileIsSavedWithItsSortAndFeeds() {
-        network(community("linux") to rss("a"), "https://example.com/feed" to rss("c"))
+    fun aLemmyTileIsSavedWithItsSort() {
+        // Added after "top today" is chosen, technology is checked at its top-today address.
+        network(community("linux") to rss("a"), FeedAddress.lemmyUrl(Community("technology", "lemmy.world"), FeedAddress.LemmySort.TOP_DAY) to rss("b"))
         var saved: TileContent.Feed? = null
         editor { saved = it }
+        rule.onNodeWithText("Posts open in your browser. Choose a Lemmy app in settings, Metro Plus.").assertExists()
         field().performTextInput("linux@lemmy.ml")
         rule.onNodeWithText("add").performClick()
         waitFor("!linux@lemmy.ml")
-        // The sort shows once there is a community, and applies to all of them.
-        rule.onNodeWithText("top today").performClick()
+        // The sort applies to all the communities.
+        tap("top today")
         // Typed but not yet added: "add tile" adds it too.
-        field().performTextInput("example.com/feed")
-        rule.onNodeWithText("add tile").performClick()
+        field().performTextInput("!technology@lemmy.world")
+        tap("add tile")
         rule.waitUntil(5_000) { saved != null }
-        assertEquals(TileContent.Feed(listOf("https://lemmy.ml/feeds/c/linux.xml?sort=TopDay", "https://example.com/feed")), saved)
+        assertEquals(
+            TileContent.Feed(listOf("https://lemmy.ml/feeds/c/linux.xml?sort=TopDay", "https://lemmy.world/feeds/c/technology.xml?sort=TopDay")),
+            saved,
+        )
+    }
+
+    @Test
+    fun eachKindTakesItsOwnFeeds() {
+        network("https://example.com/feed" to rss("c"))
+        var saved: TileContent.Feed? = null
+        editor { saved = it }
+        field().performTextInput("example.com/feed")
+        rule.onNodeWithText("add").performClick()
+        waitFor("that isn't a community, like !linux@lemmy.ml. For a site's feed, choose rss or atom.")
+        rule.onNodeWithText("rss or atom").performClick()
+        field().performTextInput("!linux@lemmy.ml")
+        rule.onNodeWithText("add").performClick()
+        waitFor("!linux@lemmy.ml is a Lemmy community: choose lemmy above.")
+        rule.onNodeWithText("hot").assertDoesNotExist()
+        field().performTextReplacement("example.com/feed")
+        tap("add tile")
+        rule.waitUntil(5_000) { saved != null }
+        assertEquals(TileContent.Feed(listOf("https://example.com/feed")), saved)
     }
 
     @Test
@@ -199,7 +229,7 @@ class FeedEditorTest {
         rule.onNodeWithText("add").performClick()
         waitFor(FeedAddress.REDDIT_ENDED)
         field().performTextInput("x")
-        rule.onNodeWithText("add tile").performClick()
+        tap("add tile")
         assertNull(saved)
     }
 
@@ -211,9 +241,9 @@ class FeedEditorTest {
         field().performTextInput("!linux@lemmy.ml")
         rule.onNodeWithText("add").performClick()
         waitFor("couldn't reach lemmy.ml, check your connection")
-        rule.onNodeWithText("add anyway").performClick()
+        tap("add anyway")
         rule.onNodeWithText("!linux@lemmy.ml").assertExists()
-        rule.onNodeWithText("add tile").performClick()
+        tap("add tile")
         rule.waitUntil(5_000) { saved != null }
         assertEquals(listOf(community("linux")), saved?.urls)
     }
@@ -224,7 +254,7 @@ class FeedEditorTest {
         var saved: TileContent.Feed? = null
         editor(taken = listOf(listOf("https://LEMMY.ml/feeds/c/Linux.xml?sort=Hot"))) { saved = it }
         field().performTextInput("!linux@lemmy.ml")
-        rule.onNodeWithText("add tile").performClick()
+        tap("add tile")
         waitFor("another tile already shows these feeds")
         assertNull(saved)
     }
@@ -236,7 +266,7 @@ class FeedEditorTest {
         editor(initial = TileContent.Feed(listOf("https://example.com/old"))) { saved = it }
         rule.onNodeWithText("https://example.com/old").assertExists()
         field().performTextInput("example.com/page")
-        rule.onNodeWithText("done").performClick()
+        tap("done")
         waitFor("that's a web page without a feed")
         assertNull(saved)
     }
