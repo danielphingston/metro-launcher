@@ -21,6 +21,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -43,6 +46,7 @@ import io.github.danielphingston.metro.ui.components.findActivity
 import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
+import io.github.danielphingston.metro.ui.theme.tileSurface
 
 private val PreviewSize = 72.dp
 
@@ -70,6 +74,21 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
         context.findActivity()?.let(viewModel::buyQuickTiles)
     }
 
+    // The feed tile asks for its address first; back from there returns to the panel.
+    var askingFeed by remember { mutableStateOf(false) }
+    if (askingFeed) {
+        FeedEditor(
+            initial = null,
+            lemmyApp = settings.lemmyApp,
+            isTaken = viewModel::feedTaken,
+            onDone = { feed ->
+                viewModel.addTile(feed, TileSize.WIDE)
+                onDismiss()
+            },
+            onCancel = { askingFeed = false },
+        )
+        return
+    }
     BackHandler(onBack = onDismiss)
     MetroFlyout(onDismiss) {
         MetroPlusPanel(
@@ -83,12 +102,13 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
                 viewModel.addTile(content, size)
                 onDismiss()
             },
+            onAddFeed = { askingFeed = true },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
 }
 
-/** The picker's panel without the view model: "quick settings tiles", "assistant" and "tracking" sections. */
+/** The picker's panel without the view model: the newest tiles first ("feed", "tracking", "assistant"), then "quick settings tiles". */
 @Composable
 internal fun MetroPlusPanel(
     unlocked: Boolean,
@@ -99,6 +119,7 @@ internal fun MetroPlusPanel(
     onBuy: () -> Unit,
     onAdd: (TileContent, TileSize) -> Unit,
     modifier: Modifier = Modifier,
+    onAddFeed: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
 ) {
     val assistantName = assistantApp?.let { AssistantChoice.displayName(it.key.packageName, it.label) }
@@ -131,14 +152,31 @@ internal fun MetroPlusPanel(
                 )
             }
         }
-        item { SectionTitle("quick settings tiles") }
-        items(QuickSettingKind.entries, key = { it.id }) { kind ->
+        item { SectionTitle("feed") }
+        item {
             PickerRow(
-                onClickLabel = if (unlocked) "add ${kind.label}" else "unlock metro plus",
-                onClick = { if (unlocked) onAdd(TileContent.QuickSetting(kind), TileSize.MEDIUM) else onBuy() },
-                preview = { QuickSettingFace(kind, TileSize.SMALL, kind.label, PreviewSize, Modifier.size(PreviewSize)) },
-                title = kind.label,
-                subtitle = kind.action(),
+                onClickLabel = if (unlocked) "add feed tile" else "unlock metro plus",
+                onClick = { if (unlocked) onAddFeed() else onBuy() },
+                preview = {
+                    Box(Modifier.size(PreviewSize).tileSurface()) {
+                        FeedFace(TileSize.SMALL, "feed", null, null, unlocked, rememberTileMetrics(PreviewSize))
+                    }
+                },
+                title = "feed",
+                subtitle = "headlines from Lemmy communities and RSS or Atom feeds, with their pictures, points and comments",
+            )
+        }
+        item { SectionTitle("tracking") }
+        item {
+            PickerRow(
+                onClickLabel = if (unlocked) "add tracking tile" else "unlock metro plus",
+                onClick = { if (unlocked) onAdd(TileContent.Tracking, TileSize.WIDE) else onBuy() },
+                preview = {
+                    val tile = ResolvedTile(TileSpec(0, TileSize.SMALL, TileContent.Tracking), null, "tracking")
+                    Box(Modifier.size(PreviewSize)) { TrackingTile(tile, null, monochrome, icons, PreviewSize, editing = true) }
+                },
+                title = "tracking",
+                subtitle = "rides, food and parcels on their way, with ETA and OTP, from their notifications",
             )
         }
         item { SectionTitle("assistant") }
@@ -160,17 +198,14 @@ internal fun MetroPlusPanel(
                 },
             )
         }
-        item { SectionTitle("tracking") }
-        item {
+        item { SectionTitle("quick settings tiles") }
+        items(QuickSettingKind.entries, key = { it.id }) { kind ->
             PickerRow(
-                onClickLabel = if (unlocked) "add tracking tile" else "unlock metro plus",
-                onClick = { if (unlocked) onAdd(TileContent.Tracking, TileSize.WIDE) else onBuy() },
-                preview = {
-                    val tile = ResolvedTile(TileSpec(0, TileSize.SMALL, TileContent.Tracking), null, "tracking")
-                    Box(Modifier.size(PreviewSize)) { TrackingTile(tile, null, monochrome, icons, PreviewSize, editing = true) }
-                },
-                title = "tracking",
-                subtitle = "rides, food and parcels on their way, with ETA and OTP, from their notifications",
+                onClickLabel = if (unlocked) "add ${kind.label}" else "unlock metro plus",
+                onClick = { if (unlocked) onAdd(TileContent.QuickSetting(kind), TileSize.MEDIUM) else onBuy() },
+                preview = { QuickSettingFace(kind, TileSize.SMALL, kind.label, PreviewSize, Modifier.size(PreviewSize)) },
+                title = kind.label,
+                subtitle = kind.action(),
             )
         }
     }

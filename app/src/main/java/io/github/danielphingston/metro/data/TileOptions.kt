@@ -138,6 +138,9 @@ enum class TileOption {
     /** The hosted widget's own settings activity. */
     WIDGET_SETTINGS,
 
+    /** The feed tile's address. */
+    FEED_ADDRESS,
+
     /** Group into a folder (or add to this folder): a badge, and a TalkBack action. */
     GROUP,
 }
@@ -167,6 +170,7 @@ object TileOptions {
             TileContent.Weather, TileContent.Photos, TileContent.People, is TileContent.QuickSetting,
             TileContent.Assistant, TileContent.Me, TileContent.Tracking, is TileContent.LayoutSwitch,
             -> options += TileOption.SHOW_NAME
+            is TileContent.Feed -> options += setOf(TileOption.SHOW_NAME, TileOption.FEED_ADDRESS)
         }
         options += SURFACE
         if (spec.content is TileContent.Widget && widgetSettings) options += TileOption.WIDGET_SETTINGS

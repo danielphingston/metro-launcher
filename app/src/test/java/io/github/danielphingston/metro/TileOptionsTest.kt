@@ -355,10 +355,11 @@ class TileOptionsTest {
             TileContent.Assistant to nameAndSurface,
             TileContent.Me to nameAndSurface,
             TileContent.Tracking to nameAndSurface,
+            TileContent.Feed(listOf("https://example.com/feed")) to setOf(TileOption.SHOW_NAME, TileOption.FEED_ADDRESS) + surface,
             TileContent.LayoutSwitch(null) to nameAndSurface,
         )
-        // All thirteen kinds of tile.
-        assertEquals(13, expected.keys.map { it::class }.toSet().size)
+        // All fourteen kinds of tile.
+        assertEquals(14, expected.keys.map { it::class }.toSet().size)
         for ((content, set) in expected) assertEquals(content.toString(), set, options(content))
     }
 

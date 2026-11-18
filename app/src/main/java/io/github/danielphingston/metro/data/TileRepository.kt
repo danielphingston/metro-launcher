@@ -82,6 +82,17 @@ sealed interface TileContent {
     data object Tracking : TileContent
 
     /**
+     * Headlines from [urls] (Metro Plus), their posts taken in turn: either Lemmy community feeds
+     * (whose posts open in the app chosen in settings) or RSS and Atom addresses; see
+     * [io.github.danielphingston.metro.live.feed.FeedAddress]. The downloaded copies are not part
+     * of the layout.
+     */
+    data class Feed(val urls: List<String>) : TileContent {
+        /** A Lemmy tile: every feed a community. */
+        val isLemmy: Boolean get() = urls.isNotEmpty() && urls.all { io.github.danielphingston.metro.live.feed.FeedAddress.lemmy(it) != null }
+    }
+
+    /**
      * Something pinned from the search results that isn't an app or an app shortcut: a contact, a
      * settings page, a timer, a web search. [target] says what it opens and [icon] what it shows.
      */
@@ -710,6 +721,7 @@ internal object TileJson {
             TileContent.Assistant -> obj.put("type", "assistant")
             TileContent.Me -> obj.put("type", "me")
             TileContent.Tracking -> obj.put("type", "tracking")
+            is TileContent.Feed -> obj.put("type", "feed").put("urls", JSONArray(c.urls))
             is TileContent.Action -> obj.put("type", "action").put("label", c.label).put("target", c.target.toJson()).apply {
                 when (val icon = c.icon) {
                     is ActionIcon.Glyph -> put("glyph", icon.id)
@@ -744,6 +756,11 @@ internal object TileJson {
             "assistant" -> TileContent.Assistant
             "me" -> TileContent.Me
             "tracking" -> TileContent.Tracking
+            "feed" -> {
+                val list = obj.optJSONArray("urls")
+                val urls = (0 until (list?.length() ?: 0)).mapNotNull { list?.optString(it)?.ifEmpty { null } }
+                TileContent.Feed(urls.ifEmpty { return null })
+            }
             "action" -> TileContent.Action(
                 obj.optString("label"),
                 when {

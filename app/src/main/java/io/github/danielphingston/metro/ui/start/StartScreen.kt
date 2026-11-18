@@ -122,6 +122,10 @@ import io.github.danielphingston.metro.ui.tiles.MeTile
 import io.github.danielphingston.metro.ui.tiles.TrackingModel
 import io.github.danielphingston.metro.ui.tiles.TrackingReveal
 import io.github.danielphingston.metro.ui.tiles.TrackingTile
+import io.github.danielphingston.metro.ui.tiles.FeedTile
+import io.github.danielphingston.metro.ui.tiles.FeedTiles
+import io.github.danielphingston.metro.ui.tiles.FeedEditor
+import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.ui.tiles.TrackingTiles
 import io.github.danielphingston.metro.live.tracking.TrackingClock
 import io.github.danielphingston.metro.live.tracking.TrackingFeed
@@ -228,6 +232,9 @@ class StartState(val scroll: ScrollState) {
     /** Folder whose name is being edited. */
     var renamingFolderId by mutableStateOf<Long?>(null)
 
+    /** Feed tile whose address is being edited. */
+    var feedAddressId by mutableStateOf<Long?>(null)
+
     /**
      * Grouping mode, which makes or fills a folder: the tile the group is built around (a folder
      * to add to, or an app or shortcut to start a new one) and the tiles picked for it, in the
@@ -275,7 +282,7 @@ class StartState(val scroll: ScrollState) {
     }
 
     /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || grouping || layoutsMenuOpen
+    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || feedAddressId != null || grouping || layoutsMenuOpen
 
     /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
@@ -287,6 +294,7 @@ class StartState(val scroll: ScrollState) {
         widgetPickerOpen = false
         quickPickerOpen = false
         renamingFolderId = null
+        feedAddressId = null
         endGrouping()
         layoutsMenuOpen = false
         return any
@@ -569,7 +577,7 @@ fun StartScreen(
                 val top = state.scroll.value - topInsetPx
                 liveTiles.filter { (tile, p) ->
                     p.y * cellPx < top + viewportPx && (p.y + p.height) * cellPx > top && when (tile.spec.content) {
-                        TileContent.Weather, TileContent.Photos, TileContent.People -> tile.spec.size != TileSize.SMALL
+                        TileContent.Weather, TileContent.Photos, TileContent.People, is TileContent.Feed -> tile.spec.size != TileSize.SMALL
                         else -> currentLiveFor(tile)?.hasBack(tile.spec.size) == true
                     }
                 }.map { it.first.spec.id }
@@ -672,7 +680,7 @@ fun StartScreen(
             onUnpin = { viewModel.unpin(tile.spec.id) },
             onResize = { viewModel.resize(tile.spec.id) },
             onSetSpan = { w, h -> viewModel.setSpan(tile.spec.id, w, h) },
-            onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state, quickUnlocked) },
+            onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state, quickUnlocked, settings.lemmyApp) },
             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
             appearFrom = appearFrom,
             onRemoveFromFolder = onRemoveFromFolder,
@@ -871,6 +879,10 @@ fun StartScreen(
                         state.iconPickerId = id
                     },
                     onWidgetSettings = widget?.let { { WidgetTiles.reconfigure(context, it.appWidgetId) } },
+                    onFeedAddress = {
+                        state.stylingId = null
+                        state.feedAddressId = id
+                    },
                     onDismiss = { state.stylingId = null },
                 )
             }
@@ -978,6 +990,23 @@ fun StartScreen(
             )
         }
         if (!state.grouping) UndoPill(notices, viewModel, state.editing, Modifier.align(Alignment.TopCenter))
+        state.feedAddressId?.let { id ->
+            val feed = (tiles.map { it.spec } + openChildren.map { it.spec }).firstOrNull { it.id == id }?.content as? TileContent.Feed
+            if (feed == null) {
+                state.feedAddressId = null
+            } else {
+                FeedEditor(
+                    initial = feed,
+                    lemmyApp = settings.lemmyApp,
+                    isTaken = { urls -> viewModel.feedTaken(urls, exceptId = id) },
+                    onDone = { changed ->
+                        state.feedAddressId = null
+                        if (changed != feed) viewModel.updateTile(id, StartEdit.FEED) { it.copy(content = changed) }
+                    },
+                    onCancel = { state.feedAddressId = null },
+                )
+            }
+        }
         tiles.firstOrNull { it.spec.id == state.renamingFolderId }?.let { folder ->
             FolderRename((folder.spec.content as? TileContent.Folder)?.name.orEmpty()) { name ->
                 viewModel.renameFolder(folder.spec.id, name)
@@ -1409,6 +1438,12 @@ private fun TileBody(
         is TileContent.Folder -> FolderTile(tile, cell, icons, monochromeIcons, folderOpen)
         TileContent.Me -> MeTile(tile, live as? LiveContent.Me, flipped, monochromeIcons, icons, cell)
         TileContent.Tracking -> TrackingTile(tile, live as? LiveContent.Tracking, monochromeIcons, icons, cell, editing)
+        is TileContent.Feed -> {
+            val context = LocalContext.current
+            val unlocked by remember { (context.applicationContext as MetroApplication).purchases.quickTilesUnlocked }
+                .collectAsStateWithLifecycle()
+            FeedTile(tile, tile.spec.content.urls, cell, flipped, unlocked)
+        }
         is TileContent.LayoutSwitch -> LayoutSwitchTile(tile, cell)
     }
 }
@@ -1422,6 +1457,7 @@ private fun activateTile(
     defaults: DefaultApps,
     state: StartState,
     quickUnlocked: Boolean,
+    lemmyApp: String?,
 ) {
     when (val content = tile.spec.content) {
         is TileContent.App -> tile.app?.let { launcher.launch(it, bounds) }
@@ -1453,6 +1489,11 @@ private fun activateTile(
             android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, content)
+        is TileContent.Feed -> if (quickUnlocked) {
+            launcher.start(FeedTiles.intent(context, tile.spec.id, content, lemmyApp), bounds)
+        } else {
+            android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 }
 

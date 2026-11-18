@@ -38,6 +38,7 @@ import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.tiles.acquireTileResources
 import io.github.danielphingston.metro.live.AppNotifications
+import io.github.danielphingston.metro.live.feed.FeedAddress
 import io.github.danielphingston.metro.live.MeFeed
 import io.github.danielphingston.metro.live.MeSnapshot
 import io.github.danielphingston.metro.live.CalendarSource
@@ -192,6 +193,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             )
             TileContent.Me -> ResolvedTile(spec, null, "me")
             TileContent.Tracking -> ResolvedTile(spec, null, "tracking")
+            is TileContent.Feed -> ResolvedTile(spec, null, FeedAddress.label(c.urls))
             is TileContent.LayoutSwitch -> ResolvedTile(spec, null, LayoutSwitchTiles.label(c, layouts))
         }
         specs.mapNotNull(::resolve)
@@ -285,6 +287,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     /** Pins any kind of tile and scrolls the start screen to it. */
+    /**
+     * Whether a feed tile other than [exceptId] already shows the feeds [urls] (see
+     * [FeedAddress.sameFeeds]), anywhere in the layout, folders included.
+     */
+    fun feedTaken(urls: List<String>, exceptId: Long? = null): Boolean =
+        metro.tiles.tiles.value.orEmpty()
+            .flatMap { listOf(it) + ((it.content as? TileContent.Folder)?.children.orEmpty()) }
+            .any { it.id != exceptId && (it.content as? TileContent.Feed)?.urls?.let { u -> FeedAddress.sameFeeds(u, urls) } == true }
+
     fun addTile(content: TileContent, size: TileSize, span: TileSpan? = null) {
         metro.tiles.add(content, size, span)
         _pinned.tryEmit(Unit)

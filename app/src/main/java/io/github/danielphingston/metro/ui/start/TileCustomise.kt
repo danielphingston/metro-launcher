@@ -38,6 +38,7 @@ import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileOption
 import io.github.danielphingston.metro.data.TileOptions
 import io.github.danielphingston.metro.data.TileSpec
+import io.github.danielphingston.metro.live.feed.FeedAddress
 import io.github.danielphingston.metro.ui.LauncherViewModel
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroChoice
@@ -85,6 +86,7 @@ internal fun TileCustomise(
     viewModel: LauncherViewModel,
     onChooseIconPack: () -> Unit,
     onWidgetSettings: (() -> Unit)?,
+    onFeedAddress: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -139,6 +141,7 @@ internal fun TileCustomise(
         onColour = { colour -> viewModel.updateTile(id, StartEdit.COLOUR) { it.copy(color = io.github.danielphingston.metro.data.TileColors.parse(colour)) } },
         onTransparency = { percent -> viewModel.updateTile(id, StartEdit.TRANSPARENCY) { TileOptions.withTransparency(it, percent) } },
         onWidgetSettings = onWidgetSettings,
+        onFeedAddress = onFeedAddress,
         onDismiss = onDismiss,
     )
 }
@@ -163,6 +166,7 @@ internal fun TileCustomiseSheet(
     onColour: (String?) -> Unit,
     onTransparency: (Int?) -> Unit,
     onWidgetSettings: (() -> Unit)?,
+    onFeedAddress: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     MetroFlyout(onDismiss, paneTitle = "customise tile") {
@@ -182,7 +186,7 @@ internal fun TileCustomiseSheet(
                 ),
         ) {
             MetroText("CUSTOMISE", MetroType.appName, color = Metro.colors.subtle)
-            CustomiseSections(spec, options, startTransparency, onShowName, onShowIcon, onIconSource, onPhoto, onBackground, onColour, onTransparency, onWidgetSettings)
+            CustomiseSections(spec, options, startTransparency, onShowName, onShowIcon, onIconSource, onPhoto, onBackground, onColour, onTransparency, onWidgetSettings, onFeedAddress)
         }
     }
 }
@@ -206,10 +210,16 @@ private fun CustomiseSections(
     onColour: (String?) -> Unit,
     onTransparency: (Int?) -> Unit,
     onWidgetSettings: (() -> Unit)?,
+    onFeedAddress: () -> Unit,
 ) {
     val look = spec.look
     val folder = spec.content is TileContent.Folder
     val hasLook = TileOption.SHOW_ICON in options
+    (spec.content as? TileContent.Feed)?.takeIf { TileOption.FEED_ADDRESS in options }?.let { feed ->
+        SheetSection("feed")
+        MetroText(feed.urls.joinToString("\n", transform = FeedAddress::shown), MetroType.body, maxLines = 4, modifier = Modifier.padding(bottom = 8.dp))
+        MetroButton("change feeds…", onFeedAddress)
+    }
     if (TileOption.SHOW_NAME in options || hasLook) {
         SheetSection("content")
         if (TileOption.SHOW_NAME in options) {
