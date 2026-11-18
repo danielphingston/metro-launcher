@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -213,9 +212,8 @@ class AssistantScreenshotTest {
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
                     MetroPlusPanel(
                         unlocked = true, price = null, assistantApp = claude, icons = icons, monochrome = true,
+                        // From the top: the newest tiles (feed, tracking, assistant) come first, quick settings after.
                         onBuy = {}, onAdd = { _, _ -> }, modifier = Modifier.align(Alignment.BottomCenter),
-                        // The end of the quick settings section and the assistant section below it.
-                        listState = rememberLazyListState(initialFirstVisibleItemIndex = 5),
                     )
                 }
             }

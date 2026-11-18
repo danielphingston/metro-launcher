@@ -108,7 +108,7 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     }
 }
 
-/** The picker's panel without the view model: "quick settings tiles", "assistant" and "tracking" sections. */
+/** The picker's panel without the view model: the newest tiles first ("feed", "tracking", "assistant"), then "quick settings tiles". */
 @Composable
 internal fun MetroPlusPanel(
     unlocked: Boolean,
@@ -152,14 +152,31 @@ internal fun MetroPlusPanel(
                 )
             }
         }
-        item { SectionTitle("quick settings tiles") }
-        items(QuickSettingKind.entries, key = { it.id }) { kind ->
+        item { SectionTitle("feed") }
+        item {
             PickerRow(
-                onClickLabel = if (unlocked) "add ${kind.label}" else "unlock metro plus",
-                onClick = { if (unlocked) onAdd(TileContent.QuickSetting(kind), TileSize.MEDIUM) else onBuy() },
-                preview = { QuickSettingFace(kind, TileSize.SMALL, kind.label, PreviewSize, Modifier.size(PreviewSize)) },
-                title = kind.label,
-                subtitle = kind.action(),
+                onClickLabel = if (unlocked) "add feed tile" else "unlock metro plus",
+                onClick = { if (unlocked) onAddFeed() else onBuy() },
+                preview = {
+                    Box(Modifier.size(PreviewSize).tileSurface()) {
+                        FeedFace(TileSize.SMALL, "feed", null, null, unlocked, rememberTileMetrics(PreviewSize))
+                    }
+                },
+                title = "feed",
+                subtitle = "headlines from Lemmy communities and RSS or Atom feeds, with their pictures, points and comments",
+            )
+        }
+        item { SectionTitle("tracking") }
+        item {
+            PickerRow(
+                onClickLabel = if (unlocked) "add tracking tile" else "unlock metro plus",
+                onClick = { if (unlocked) onAdd(TileContent.Tracking, TileSize.WIDE) else onBuy() },
+                preview = {
+                    val tile = ResolvedTile(TileSpec(0, TileSize.SMALL, TileContent.Tracking), null, "tracking")
+                    Box(Modifier.size(PreviewSize)) { TrackingTile(tile, null, monochrome, icons, PreviewSize, editing = true) }
+                },
+                title = "tracking",
+                subtitle = "rides, food and parcels on their way, with ETA and OTP, from their notifications",
             )
         }
         item { SectionTitle("assistant") }
@@ -181,31 +198,14 @@ internal fun MetroPlusPanel(
                 },
             )
         }
-        item { SectionTitle("tracking") }
-        item {
+        item { SectionTitle("quick settings tiles") }
+        items(QuickSettingKind.entries, key = { it.id }) { kind ->
             PickerRow(
-                onClickLabel = if (unlocked) "add tracking tile" else "unlock metro plus",
-                onClick = { if (unlocked) onAdd(TileContent.Tracking, TileSize.WIDE) else onBuy() },
-                preview = {
-                    val tile = ResolvedTile(TileSpec(0, TileSize.SMALL, TileContent.Tracking), null, "tracking")
-                    Box(Modifier.size(PreviewSize)) { TrackingTile(tile, null, monochrome, icons, PreviewSize, editing = true) }
-                },
-                title = "tracking",
-                subtitle = "rides, food and parcels on their way, with ETA and OTP, from their notifications",
-            )
-        }
-        item { SectionTitle("feed") }
-        item {
-            PickerRow(
-                onClickLabel = if (unlocked) "add feed tile" else "unlock metro plus",
-                onClick = { if (unlocked) onAddFeed() else onBuy() },
-                preview = {
-                    Box(Modifier.size(PreviewSize).tileSurface()) {
-                        FeedFace(TileSize.SMALL, "feed", null, null, unlocked, rememberTileMetrics(PreviewSize))
-                    }
-                },
-                title = "feed",
-                subtitle = "headlines from Lemmy communities and RSS or Atom feeds, with their pictures, points and comments",
+                onClickLabel = if (unlocked) "add ${kind.label}" else "unlock metro plus",
+                onClick = { if (unlocked) onAdd(TileContent.QuickSetting(kind), TileSize.MEDIUM) else onBuy() },
+                preview = { QuickSettingFace(kind, TileSize.SMALL, kind.label, PreviewSize, Modifier.size(PreviewSize)) },
+                title = kind.label,
+                subtitle = kind.action(),
             )
         }
     }
