@@ -212,6 +212,15 @@ class FeedTest {
     }
 
     @Test
+    fun onlyWebLinksAreKept() {
+        val rss = "<rss><channel><title>t</title>" +
+            "<item><title>a</title><link>intent://x#Intent;scheme=x;end</link></item>" +
+            "<item><title>b</title><link>javascript:alert(1)</link></item>" +
+            "<item><title>c</title><link> https://example.com/c </link></item></channel></rss>"
+        assertEquals(listOf(null, null, "https://example.com/c"), FeedParser.parse(rss).items.map { it.link })
+    }
+
+    @Test
     fun atMostTwentyFiveItems() {
         val items = (1..40).joinToString("") { "<item><title>n$it</title></item>" }
         assertEquals(FeedParser.MAX_ITEMS, FeedParser.parse("<rss><channel><title>t</title>$items</channel></rss>").items.size)

@@ -184,6 +184,49 @@ class BackupTest {
     }
 
     @Test
+    fun oldBackupsHaveNoLemmyAppAndNoFeedTile() {
+        // Exported before the feed tile: posts open in the browser, and the layout reads unchanged.
+        val repository = SettingsRepository(RuntimeEnvironment.getApplication())
+        for (file in fixtures()) {
+            val prefs = Backup.decode(file.readText())
+            assertEquals(file.name, null, repository.settingsOf(prefs).lemmyApp)
+            val tiles = prefs[stringPreferencesKey("tiles")]?.let { TileJson.read(it) }
+            assertTrue(file.name, tiles?.tiles.orEmpty().none { it.content is TileContent.Feed })
+        }
+    }
+
+    @Test
+    fun feedTilesAndTheLemmyAppRoundTrip() {
+        val lemmy = TileContent.Feed(listOf("https://programming.dev/feeds/c/programming.xml?sort=Hot", "https://lemmy.ml/feeds/c/linux.xml?sort=Hot"))
+        val rss = TileContent.Feed(listOf("https://example.com/feed.xml"))
+        val tiles = TileJson.encode(
+            listOf(
+                io.github.danielphingston.metro.data.TileSpec(1, io.github.danielphingston.metro.data.TileSize.WIDE, lemmy, 0, 0),
+                io.github.danielphingston.metro.data.TileSpec(2, io.github.danielphingston.metro.data.TileSize.MEDIUM, rss, 0, 2),
+            ),
+        ).toString()
+        val prefs = mutablePreferencesOf(stringPreferencesKey("tiles") to tiles, stringPreferencesKey("lemmy_app") to "com.jerboa")
+        val restored = Backup.decode(Backup.encode(prefs, "test", 0L))
+        assertEquals("com.jerboa", SettingsRepository(RuntimeEnvironment.getApplication()).settingsOf(restored).lemmyApp)
+        assertEquals(listOf(lemmy, rss), TileJson.read(restored[stringPreferencesKey("tiles")]!!)!!.tiles.map { it.content })
+        assertEquals(null, message { Backup.checkKeyTypes(restored) })
+    }
+
+    @Test
+    fun aWronglyTypedLemmyAppIsCaughtBeforeImport() {
+        // Backup.import reads the settings first and turns this into "damaged" instead of restoring a launcher that crashes.
+        val json = """{"app":"metro-launcher","format":1,"prefs":{"lemmy_app":{"type":"int","value":3}}}"""
+        val restored = Backup.decode(json)
+        val threw = try {
+            SettingsRepository(RuntimeEnvironment.getApplication()).settingsOf(restored)
+            false
+        } catch (_: ClassCastException) {
+            true
+        }
+        assertTrue(threw)
+    }
+
+    @Test
     fun formatOneNeedsNoMigration() {
         val root = org.json.JSONObject("""{"app":"metro-launcher","format":1,"prefs":{}}""")
         assertTrue(Backup.migrate(1, root) === root)

@@ -133,7 +133,9 @@ object FeedParser {
         }
         val text = title?.takeIf { it.isNotEmpty() } ?: return null
         val picture = (image ?: htmlImage)?.let(::unescape)?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
-        return FeedItem(text, link, author, date, picture, counts?.first, counts?.second)
+        // Only web links are opened from a tile: a feed can't make a tap run "intent:" or "javascript:".
+        val web = link?.trim()?.takeIf { it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true) }
+        return FeedItem(text, web, author, date, picture, counts?.first, counts?.second)
     }
 
     /** The element name without its namespace prefix ("media:thumbnail" -> "thumbnail"). */
