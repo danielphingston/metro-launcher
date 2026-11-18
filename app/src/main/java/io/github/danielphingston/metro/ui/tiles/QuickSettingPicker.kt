@@ -77,8 +77,9 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     // The feed tile asks for its address first; back from there returns to the panel.
     var askingFeed by remember { mutableStateOf(false) }
     if (askingFeed) {
-        FeedAddressField(
+        FeedEditor(
             initial = null,
+            isTaken = viewModel::feedTaken,
             onDone = { url ->
                 viewModel.addTile(TileContent.Feed(url), TileSize.WIDE)
                 onDismiss()

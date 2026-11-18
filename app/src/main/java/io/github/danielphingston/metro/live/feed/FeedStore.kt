@@ -24,6 +24,69 @@ import java.net.URL
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
+/** Why a feed couldn't be read. [retryable]: it may work later, so the user may add it anyway. */
+enum class FeedProblem(val retryable: Boolean) {
+    NOT_FOUND(false), REFUSED(false), BUSY(true), SERVER(true), OFFLINE(true), INSECURE(false),
+    TOO_LARGE(false), WEB_PAGE(false), NOT_A_FEED(false), EMPTY(true), BAD_ADDRESS(false),
+    ;
+
+    /** For a feed address; [code] is the HTTP status where there was one. */
+    fun message(code: Int? = null): String = when (this) {
+        NOT_FOUND -> "nothing at that address" + (code?.let { " ($it)" } ?: "")
+        REFUSED -> "the site refused access" + (code?.let { " ($it)" } ?: "")
+        BUSY -> "the site is busy, try again in a minute"
+        SERVER -> "the site has a problem" + (code?.let { " ($it)" } ?: "")
+        OFFLINE -> "couldn't connect, check your connection"
+        INSECURE -> "couldn't make a secure connection to the site"
+        TOO_LARGE -> "the feed is too large (over 2 MB)"
+        WEB_PAGE -> "that's a web page without a feed"
+        NOT_A_FEED -> "that isn't an RSS or Atom feed"
+        EMPTY -> "the feed has no posts"
+        BAD_ADDRESS -> "that isn't a web address"
+    }
+
+    /** For subreddit [name]. */
+    fun subredditMessage(name: String): String = when (this) {
+        NOT_FOUND -> "r/$name doesn't exist"
+        REFUSED -> "r/$name is private, quarantined or banned"
+        EMPTY -> "r/$name has no posts"
+        BUSY -> "reddit is busy, try again in a minute"
+        SERVER -> "reddit has a problem, try again later"
+        else -> message()
+    }
+
+    /** The tile's short text after a failed refresh. */
+    val short: String
+        get() = when (this) {
+            NOT_FOUND -> "feed not found"
+            REFUSED -> "feed refused access"
+            OFFLINE -> "no connection"
+            EMPTY -> "nothing new"
+            BUSY, SERVER -> "feed unavailable"
+            else -> "not a feed"
+        }
+}
+
+/** What [FeedStore.check] found. */
+sealed interface FeedCheck {
+    /** [url] may differ from the one checked: the feed a web page pointed to. */
+    data class Ok(val url: String, val feed: Feed) : FeedCheck
+    data class Failed(val problem: FeedProblem, val code: Int? = null) : FeedCheck {
+        val message: String get() = problem.message(code)
+    }
+}
+
+/** A downloaded body, the address it finally came from (after redirects) and its type. */
+internal class Fetched(val bytes: ByteArray, val finalUrl: String, val contentType: String?)
+
+/** The network, replaceable in tests. Throws [HttpStatusException] for a non-2xx answer. */
+internal fun interface FeedHttp {
+    fun get(url: String, maxBytes: Int, accept: String): Fetched
+}
+
+class HttpStatusException(val code: Int) : IOException("HTTP $code")
+class TooLargeException : IOException("too large")
+
 /** The last download of a feed. [fetchedAt] epoch millis; [error] says why the latest attempt failed. */
 data class CachedFeed(
     val url: String,
@@ -52,6 +115,12 @@ object FeedStore {
     private val _feeds = MutableStateFlow<Map<String, CachedFeed>>(emptyMap())
     val feeds: StateFlow<Map<String, CachedFeed>> = _feeds.asStateFlow()
 
+    internal var http: FeedHttp = FeedHttp(::download)
+
+    private const val FEED_ACCEPT = "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8"
+    private val alternate = Regex("""<link\b[^>]*>""", RegexOption.IGNORE_CASE)
+    private val attribute = Regex("""([a-zA-Z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
+
     private val lock = Mutex()
     private val inFlight = HashSet<String>()
 
@@ -73,14 +142,14 @@ object FeedStore {
         try {
             val now = System.currentTimeMillis()
             val result = withContext(Dispatchers.IO) {
-                runCatching { FeedParser.parse(download(url, MAX_FEED_BYTES, "application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8").toString(Charsets.UTF_8)) }
+                runCatching { FeedParser.parse(http.get(url, MAX_FEED_BYTES, FEED_ACCEPT).bytes.toString(Charsets.UTF_8)) }
             }
             val feed = result.getOrNull()
             val cached = if (feed != null) {
                 CachedFeed(url, feed, fetchedAt = now)
             } else {
                 // Keep the headlines we had; just remember the failure so it isn't retried every resume.
-                (_feeds.value[url] ?: CachedFeed(url, null)).copy(failedAt = now, error = describe(result.exceptionOrNull()))
+                (_feeds.value[url] ?: CachedFeed(url, null)).copy(failedAt = now, error = classify(result.exceptionOrNull()).short)
             }
             _feeds.update { it + (url to cached) }
             if (feed != null) withContext(Dispatchers.IO) { runCatching { save(app, cached) } }
@@ -89,10 +158,78 @@ object FeedStore {
         }
     }
 
-    private fun describe(e: Throwable?): String = when (e) {
-        is FeedFormatException -> "not a feed"
-        is HttpStatusException -> if (e.code == 404) "feed not found" else "feed unavailable (${e.code})"
-        else -> "no connection"
+    /** What went wrong, from a download or parse failure. */
+    internal fun classify(e: Throwable?): FeedProblem = when (e) {
+        is HttpStatusException -> when (e.code) {
+            404, 410 -> FeedProblem.NOT_FOUND
+            401, 403, 451 -> FeedProblem.REFUSED
+            429 -> FeedProblem.BUSY
+            in 500..599 -> FeedProblem.SERVER
+            else -> FeedProblem.NOT_FOUND
+        }
+        is TooLargeException -> FeedProblem.TOO_LARGE
+        is javax.net.ssl.SSLException -> FeedProblem.INSECURE
+        is FeedFormatException, is org.xmlpull.v1.XmlPullParserException -> FeedProblem.NOT_A_FEED
+        else -> FeedProblem.OFFLINE
+    }
+
+    /**
+     * Downloads and reads [url] to tell whether it is a feed worth a tile, the way the user
+     * would see it: an error names the problem (see [FeedProblem]). A web page that names its
+     * feed (a <link rel="alternate"> to RSS or Atom) leads to that feed. A good result is kept,
+     * so the new tile shows it at once. Blocking work runs on the IO dispatcher.
+     */
+    suspend fun check(context: Context, url: String, keep: Boolean = true): FeedCheck = withContext(Dispatchers.IO) {
+        val result = checkNow(url)
+        if (keep && result is FeedCheck.Ok) {
+            val cached = CachedFeed(result.url, result.feed, fetchedAt = System.currentTimeMillis())
+            _feeds.update { it + (result.url to cached) }
+            runCatching { save(context.applicationContext, cached) }
+        }
+        result
+    }
+
+    /** [followPage]: a web page may still lead to its feed (once, so two pages can't send each other round). */
+    private fun checkNow(url: String, followPage: Boolean = true): FeedCheck {
+        val fetched = try {
+            http.get(url, MAX_FEED_BYTES, FEED_ACCEPT)
+        } catch (e: HttpStatusException) {
+            return FeedCheck.Failed(classify(e), e.code)
+        } catch (e: Exception) {
+            return FeedCheck.Failed(classify(e))
+        }
+        val text = fetched.bytes.toString(Charsets.UTF_8)
+        val feed = try {
+            FeedParser.parse(text)
+        } catch (e: Exception) {
+            if (!looksLikeHtml(text, fetched.contentType)) return FeedCheck.Failed(FeedProblem.NOT_A_FEED)
+            val found = discover(text, fetched.finalUrl)?.takeIf { followPage && it != url } ?: return FeedCheck.Failed(FeedProblem.WEB_PAGE)
+            // The page named a feed: that one is checked, and a failure says what is wrong with it.
+            return checkNow(found, followPage = false)
+        }
+        if (feed.items.isEmpty()) return FeedCheck.Failed(FeedProblem.EMPTY)
+        return FeedCheck.Ok(url, feed)
+    }
+
+    private fun looksLikeHtml(text: String, contentType: String?): Boolean =
+        contentType?.contains("html", ignoreCase = true) == true ||
+            text.trimStart().take(512).let { it.startsWith("<!doctype html", ignoreCase = true) || it.contains("<html", ignoreCase = true) }
+
+    /** The first RSS or Atom feed a web page names, resolved against [base]; https only. */
+    internal fun discover(html: String, base: String): String? {
+        for (tag in alternate.findAll(html)) {
+            val attrs = attribute.findAll(tag.value).associate { m ->
+                m.groupValues[1].lowercase() to (m.groups[2]?.value ?: m.groups[3]?.value ?: m.groups[4]?.value.orEmpty())
+            }
+            val rel = attrs["rel"]?.lowercase()?.split(' ').orEmpty()
+            val type = attrs["type"]?.lowercase().orEmpty()
+            val href = attrs["href"]?.let(FeedParser::unescape) ?: continue
+            if ("alternate" !in rel || (type != "application/rss+xml" && type != "application/atom+xml")) continue
+            val resolved = runCatching { URL(URL(base), href).toString() }.getOrNull() ?: continue
+            val secure = if (resolved.startsWith("http://")) "https://" + resolved.removePrefix("http://") else resolved
+            if (secure.startsWith("https://")) return secure
+        }
+        return null
     }
 
     /**
@@ -103,7 +240,7 @@ object FeedStore {
         val dir = File(context.cacheDir, "feed_images").apply { mkdirs() }
         val file = File(dir, hash(url))
         if (!file.exists()) {
-            val bytes = download(url, MAX_IMAGE_BYTES, "image/*")
+            val bytes = http.get(url, MAX_IMAGE_BYTES, "image/*").bytes
             val tmp = File(dir, file.name + ".tmp")
             tmp.writeBytes(bytes)
             tmp.renameTo(file)
@@ -121,9 +258,7 @@ object FeedStore {
         files.drop(MAX_CACHED_IMAGES).forEach { it.delete() }
     }
 
-    private class HttpStatusException(val code: Int) : IOException("HTTP $code")
-
-    private fun download(url: String, maxBytes: Int, accept: String): ByteArray {
+    private fun download(url: String, maxBytes: Int, accept: String): Fetched {
         var target = URL(url)
         // Follows https redirects only (HttpURLConnection won't change protocol by itself anyway).
         repeat(5) {
@@ -143,7 +278,8 @@ object FeedStore {
                     return@repeat
                 }
                 if (code !in 200..299) throw HttpStatusException(code)
-                return connection.inputStream.use { readLimited(it, maxBytes) }
+                val bytes = connection.inputStream.use { readLimited(it, maxBytes) }
+                return Fetched(bytes, target.toString(), connection.contentType)
             } finally {
                 connection.disconnect()
             }
@@ -158,7 +294,7 @@ object FeedStore {
             val n = input.read(buffer)
             if (n < 0) break
             out.write(buffer, 0, n)
-            if (out.size() > maxBytes) throw IOException("too large")
+            if (out.size() > maxBytes) throw TooLargeException()
         }
         return out.toByteArray()
     }

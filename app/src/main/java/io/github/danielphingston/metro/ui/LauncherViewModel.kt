@@ -287,6 +287,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     /** Pins any kind of tile and scrolls the start screen to it. */
+    /**
+     * Whether a feed tile other than [exceptId] already shows the feed at [url] (see
+     * [FeedAddress.sameFeed]), anywhere in the layout, folders included.
+     */
+    fun feedTaken(url: String, exceptId: Long? = null): Boolean =
+        metro.tiles.tiles.value.orEmpty()
+            .flatMap { listOf(it) + ((it.content as? TileContent.Folder)?.children.orEmpty()) }
+            .any { it.id != exceptId && (it.content as? TileContent.Feed)?.url?.let { u -> FeedAddress.sameFeed(u, url) } == true }
+
     fun addTile(content: TileContent, size: TileSize, span: TileSpan? = null) {
         metro.tiles.add(content, size, span)
         _pinned.tryEmit(Unit)

@@ -124,7 +124,7 @@ import io.github.danielphingston.metro.ui.tiles.TrackingReveal
 import io.github.danielphingston.metro.ui.tiles.TrackingTile
 import io.github.danielphingston.metro.ui.tiles.FeedTile
 import io.github.danielphingston.metro.ui.tiles.FeedTiles
-import io.github.danielphingston.metro.ui.tiles.FeedAddressField
+import io.github.danielphingston.metro.ui.tiles.FeedEditor
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.ui.tiles.TrackingTiles
 import io.github.danielphingston.metro.live.tracking.TrackingClock
@@ -995,8 +995,9 @@ fun StartScreen(
             if (feed == null) {
                 state.feedAddressId = null
             } else {
-                FeedAddressField(
+                FeedEditor(
                     initial = feed.url,
+                    isTaken = { url -> viewModel.feedTaken(url, exceptId = id) },
                     onDone = { url ->
                         state.feedAddressId = null
                         if (url != feed.url) viewModel.updateTile(id, StartEdit.FEED) { it.copy(content = TileContent.Feed(url)) }
