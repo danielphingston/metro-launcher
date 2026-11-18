@@ -38,6 +38,7 @@ import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.tiles.acquireTileResources
 import io.github.danielphingston.metro.live.AppNotifications
+import io.github.danielphingston.metro.live.feed.FeedAddress
 import io.github.danielphingston.metro.live.MeFeed
 import io.github.danielphingston.metro.live.MeSnapshot
 import io.github.danielphingston.metro.live.CalendarSource
@@ -192,6 +193,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             )
             TileContent.Me -> ResolvedTile(spec, null, "me")
             TileContent.Tracking -> ResolvedTile(spec, null, "tracking")
+            is TileContent.Feed -> ResolvedTile(spec, null, FeedAddress.label(c.url))
             is TileContent.LayoutSwitch -> ResolvedTile(spec, null, LayoutSwitchTiles.label(c, layouts))
         }
         specs.mapNotNull(::resolve)

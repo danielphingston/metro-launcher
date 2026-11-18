@@ -21,6 +21,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -43,6 +46,7 @@ import io.github.danielphingston.metro.ui.components.findActivity
 import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
+import io.github.danielphingston.metro.ui.theme.tileSurface
 
 private val PreviewSize = 72.dp
 
@@ -70,6 +74,19 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
         context.findActivity()?.let(viewModel::buyQuickTiles)
     }
 
+    // The feed tile asks for its address first; back from there returns to the panel.
+    var askingFeed by remember { mutableStateOf(false) }
+    if (askingFeed) {
+        FeedAddressField(
+            initial = null,
+            onDone = { url ->
+                viewModel.addTile(TileContent.Feed(url), TileSize.WIDE)
+                onDismiss()
+            },
+            onCancel = { askingFeed = false },
+        )
+        return
+    }
     BackHandler(onBack = onDismiss)
     MetroFlyout(onDismiss) {
         MetroPlusPanel(
@@ -83,6 +100,7 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
                 viewModel.addTile(content, size)
                 onDismiss()
             },
+            onAddFeed = { askingFeed = true },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
@@ -99,6 +117,7 @@ internal fun MetroPlusPanel(
     onBuy: () -> Unit,
     onAdd: (TileContent, TileSize) -> Unit,
     modifier: Modifier = Modifier,
+    onAddFeed: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
 ) {
     val assistantName = assistantApp?.let { AssistantChoice.displayName(it.key.packageName, it.label) }
@@ -171,6 +190,20 @@ internal fun MetroPlusPanel(
                 },
                 title = "tracking",
                 subtitle = "rides, food and parcels on their way, with ETA and OTP, from their notifications",
+            )
+        }
+        item { SectionTitle("feed") }
+        item {
+            PickerRow(
+                onClickLabel = if (unlocked) "add feed tile" else "unlock metro plus",
+                onClick = { if (unlocked) onAddFeed() else onBuy() },
+                preview = {
+                    Box(Modifier.size(PreviewSize).tileSurface()) {
+                        FeedFace(TileSize.SMALL, "feed", null, null, unlocked, rememberTileMetrics(PreviewSize))
+                    }
+                },
+                title = "feed",
+                subtitle = "headlines from a subreddit or any RSS or Atom feed, with their pictures",
             )
         }
     }

@@ -33,7 +33,7 @@ internal class UndoStack<T>(private val capacity: Int) {
 
 /** The start screen edits that can be taken back, and what the bar says after each. */
 enum class StartEdit {
-    UNPIN, RESIZE, MOVE, FOLDER_CREATED, FOLDER_ADDED, FOLDER_REMOVED_FROM, FOLDER_RENAMED, STYLE, ICON, COLOUR, BACKGROUND, TRANSPARENCY;
+    UNPIN, RESIZE, MOVE, FOLDER_CREATED, FOLDER_ADDED, FOLDER_REMOVED_FROM, FOLDER_RENAMED, STYLE, ICON, COLOUR, BACKGROUND, TRANSPARENCY, FEED;
 
     /** The bar's text; [name] is the tile's label (for unpin). Lowercase, like the rest of Metro. */
     fun label(name: String? = null): String = when (this) {
@@ -49,6 +49,7 @@ enum class StartEdit {
         COLOUR -> "tile colour changed"
         BACKGROUND -> "tile background changed"
         TRANSPARENCY -> "tile transparency changed"
+        FEED -> "feed changed"
     }.lowercase()
 
     /**

@@ -82,6 +82,12 @@ sealed interface TileContent {
     data object Tracking : TileContent
 
     /**
+     * A feed's headlines (Metro Plus): [url] is an RSS or Atom address, Reddit's included (see
+     * [io.github.danielphingston.metro.live.feed.FeedAddress]). The downloaded copy is not part of the layout.
+     */
+    data class Feed(val url: String) : TileContent
+
+    /**
      * Something pinned from the search results that isn't an app or an app shortcut: a contact, a
      * settings page, a timer, a web search. [target] says what it opens and [icon] what it shows.
      */
@@ -710,6 +716,7 @@ internal object TileJson {
             TileContent.Assistant -> obj.put("type", "assistant")
             TileContent.Me -> obj.put("type", "me")
             TileContent.Tracking -> obj.put("type", "tracking")
+            is TileContent.Feed -> obj.put("type", "feed").put("url", c.url)
             is TileContent.Action -> obj.put("type", "action").put("label", c.label).put("target", c.target.toJson()).apply {
                 when (val icon = c.icon) {
                     is ActionIcon.Glyph -> put("glyph", icon.id)
@@ -744,6 +751,7 @@ internal object TileJson {
             "assistant" -> TileContent.Assistant
             "me" -> TileContent.Me
             "tracking" -> TileContent.Tracking
+            "feed" -> TileContent.Feed(obj.getString("url").ifEmpty { return null })
             "action" -> TileContent.Action(
                 obj.optString("label"),
                 when {
