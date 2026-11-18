@@ -193,7 +193,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             )
             TileContent.Me -> ResolvedTile(spec, null, "me")
             TileContent.Tracking -> ResolvedTile(spec, null, "tracking")
-            is TileContent.Feed -> ResolvedTile(spec, null, FeedAddress.label(c.url))
+            is TileContent.Feed -> ResolvedTile(spec, null, FeedAddress.label(c.urls))
             is TileContent.LayoutSwitch -> ResolvedTile(spec, null, LayoutSwitchTiles.label(c, layouts))
         }
         specs.mapNotNull(::resolve)
@@ -288,13 +288,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** Pins any kind of tile and scrolls the start screen to it. */
     /**
-     * Whether a feed tile other than [exceptId] already shows the feed at [url] (see
-     * [FeedAddress.sameFeed]), anywhere in the layout, folders included.
+     * Whether a feed tile other than [exceptId] already shows the feeds [urls] (see
+     * [FeedAddress.sameFeeds]), anywhere in the layout, folders included.
      */
-    fun feedTaken(url: String, exceptId: Long? = null): Boolean =
+    fun feedTaken(urls: List<String>, exceptId: Long? = null): Boolean =
         metro.tiles.tiles.value.orEmpty()
             .flatMap { listOf(it) + ((it.content as? TileContent.Folder)?.children.orEmpty()) }
-            .any { it.id != exceptId && (it.content as? TileContent.Feed)?.url?.let { u -> FeedAddress.sameFeed(u, url) } == true }
+            .any { it.id != exceptId && (it.content as? TileContent.Feed)?.urls?.let { u -> FeedAddress.sameFeeds(u, urls) } == true }
 
     fun addTile(content: TileContent, size: TileSize, span: TileSpan? = null) {
         metro.tiles.add(content, size, span)

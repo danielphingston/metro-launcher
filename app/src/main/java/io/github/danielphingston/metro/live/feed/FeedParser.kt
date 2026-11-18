@@ -15,12 +15,15 @@ data class FeedItem(
     val author: String? = null,
     val publishedAt: Long? = null,
     val image: String? = null,
+    /** Lemmy's score and comment count, when the feed says them. */
+    val points: Int? = null,
+    val comments: Int? = null,
 )
 
 data class Feed(val title: String?, val items: List<FeedItem>)
 
 /**
- * Reads RSS 2.0, RSS 1.0 (RDF) and Atom, Reddit's feeds included. Lenient: unknown elements are
+ * Reads RSS 2.0, RSS 1.0 (RDF) and Atom, Lemmy's community feeds included. Lenient: unknown elements are
  * skipped, an item without a title is dropped, and HTML in titles is reduced to text. Throws
  * [FeedFormatException] when the document is no feed at all.
  */
@@ -65,6 +68,7 @@ object FeedParser {
         var date: Long? = null
         var image: String? = null
         var htmlImage: String? = null
+        var counts: Pair<Int, Int>? = null
         var event = parser.next()
         while (!(event == XmlPullParser.END_TAG && parser.depth == depth) && event != XmlPullParser.END_DOCUMENT) {
             if (event == XmlPullParser.START_TAG) {
@@ -113,7 +117,11 @@ object FeedParser {
                             if (htmlImage == null) htmlImage = firstImage(readText(parser))
                         }
                     }
-                    "description", "summary", "encoded" -> if (htmlImage == null) htmlImage = firstImage(readText(parser))
+                    "description", "summary", "encoded" -> {
+                        val html = readText(parser)
+                        if (htmlImage == null) htmlImage = firstImage(html)
+                        if (counts == null) counts = counts(html)
+                    }
                     "enclosure" -> {
                         val url = parser.getAttributeValue(null, "url")
                         if (url != null && image == null && isImage(parser.getAttributeValue(null, "type"))) image = url
@@ -124,7 +132,8 @@ object FeedParser {
             event = parser.next()
         }
         val text = title?.takeIf { it.isNotEmpty() } ?: return null
-        return FeedItem(text, link, author, date, (image ?: htmlImage)?.let(::unescape)?.takeIf { it.startsWith("https://") || it.startsWith("http://") })
+        val picture = (image ?: htmlImage)?.let(::unescape)?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+        return FeedItem(text, link, author, date, picture, counts?.first, counts?.second)
     }
 
     /** The element name without its namespace prefix ("media:thumbnail" -> "thumbnail"). */
@@ -150,7 +159,7 @@ object FeedParser {
 
     /**
      * An author: RSS has plain text (often "mail@example.com (Name)"), Atom a person whose <name>
-     * is the part to show (Reddit: "/u/someone"). Leaves the parser on the author's end tag.
+     * is the part to show (as "/u/someone" or a profile link). Leaves the parser on the author's end tag.
      */
     private fun readAuthor(parser: XmlPullParser): String? {
         val depth = parser.depth
@@ -168,8 +177,18 @@ object FeedParser {
         val raw = clean(name ?: text.toString())
         // "mail@example.com (Name)" shows the name.
         val shown = Regex("""^\S+@\S+\s+\((.+)\)$""").matchEntire(raw)?.groupValues?.get(1) ?: raw
+        // Lemmy names the author by their profile link: "https://lemmy.ml/u/someone" shows "someone".
+        if (shown.startsWith("https://") || shown.startsWith("http://")) {
+            return shown.trimEnd('/').substringAfterLast('/').ifEmpty { null }
+        }
         return shown.removePrefix("/").ifEmpty { null }
     }
+
+    private val countsLine = Regex("""(-?\d+) points?\s*\|\s*(?:<a[^>]*>)?\s*(\d+) comments?""", RegexOption.IGNORE_CASE)
+
+    /** Lemmy's "479 points | 94 comments" line, as (points, comments). */
+    internal fun counts(html: String): Pair<Int, Int>? =
+        countsLine.find(html)?.let { m -> m.groupValues[1].toIntOrNull()?.let { p -> m.groupValues[2].toIntOrNull()?.let { c -> p to c } } }
 
     private fun firstImage(html: String): String? = imgSrc.find(html)?.groupValues?.get(1)
 

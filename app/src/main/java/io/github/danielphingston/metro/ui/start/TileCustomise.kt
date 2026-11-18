@@ -217,8 +217,8 @@ private fun CustomiseSections(
     val hasLook = TileOption.SHOW_ICON in options
     (spec.content as? TileContent.Feed)?.takeIf { TileOption.FEED_ADDRESS in options }?.let { feed ->
         SheetSection("feed")
-        MetroText(FeedAddress.shown(feed.url), MetroType.body, maxLines = 2, modifier = Modifier.padding(bottom = 8.dp))
-        MetroButton("change feed…", onFeedAddress)
+        MetroText(feed.urls.joinToString("\n", transform = FeedAddress::shown), MetroType.body, maxLines = 4, modifier = Modifier.padding(bottom = 8.dp))
+        MetroButton("change feeds…", onFeedAddress)
     }
     if (TileOption.SHOW_NAME in options || hasLook) {
         SheetSection("content")

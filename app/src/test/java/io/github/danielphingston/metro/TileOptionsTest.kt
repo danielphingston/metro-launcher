@@ -355,7 +355,7 @@ class TileOptionsTest {
             TileContent.Assistant to nameAndSurface,
             TileContent.Me to nameAndSurface,
             TileContent.Tracking to nameAndSurface,
-            TileContent.Feed("https://example.com/feed") to setOf(TileOption.SHOW_NAME, TileOption.FEED_ADDRESS) + surface,
+            TileContent.Feed(listOf("https://example.com/feed")) to setOf(TileOption.SHOW_NAME, TileOption.FEED_ADDRESS) + surface,
             TileContent.LayoutSwitch(null) to nameAndSurface,
         )
         // All fourteen kinds of tile.

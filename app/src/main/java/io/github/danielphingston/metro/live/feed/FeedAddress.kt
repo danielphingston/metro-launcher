@@ -4,159 +4,166 @@ import java.net.URI
 import java.util.Locale
 
 /**
- * What the user types for a feed tile, turned into the address it downloads. Any RSS or Atom
- * address works; Reddit has shorthands, since its feeds hide behind a ".rss" suffix:
- * "r/android", "/r/android/top", "reddit.com/r/android", "u/spez" and Reddit page links all
- * become the matching ".rss" feed.
+ * What the user types for a feed tile, turned into the addresses it downloads. Two kinds:
+ *
+ * - A Lemmy community: "!linux@lemmy.ml", "linux@lemmy.ml", "c/linux@lemmy.ml" or a community
+ *   link ("lemmy.world/c/linux@lemmy.ml" goes to lemmy.ml, the community's own instance, since
+ *   an instance only serves the feeds of its own communities). Its feed is
+ *   "https://lemmy.ml/feeds/c/linux.xml?sort=Hot".
+ * - Any RSS or Atom address.
+ *
+ * Reddit ended its RSS feeds on 13 November 2026; Reddit addresses are refused with that reason.
  */
 object FeedAddress {
-    private const val REDDIT = "https://www.reddit.com"
-    private val shorthand = Regex("^/?(r|u|user)/([A-Za-z0-9_+-]{2,})(/[A-Za-z0-9_/.-]*)?$")
-    private val redditHosts = setOf("reddit.com", "www.reddit.com", "old.reddit.com", "new.reddit.com", "m.reddit.com", "np.reddit.com")
+    const val REDDIT_ENDED = "Reddit ended its RSS feeds in November 2026"
 
-    /** The feed address for [input], or null when it can't be one. Plain http is upgraded: Android refuses it. */
+    /** How many feeds one tile may combine. */
+    const val MAX_FEEDS = 12
+
+    private val redditHosts = setOf("reddit.com", "www.reddit.com", "old.reddit.com", "new.reddit.com", "m.reddit.com", "np.reddit.com", "redd.it")
+    private val host = Regex("^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}$")
+    private val name = Regex("^[A-Za-z0-9_]{1,50}$")
+    private val handle = Regex("^!?(?:/?c/)?([A-Za-z0-9_]{1,50})@([A-Za-z0-9.-]+)$")
+    private val communityPath = Regex("^/c/([A-Za-z0-9_]{1,50})(?:@([A-Za-z0-9.-]+))?/?$")
+    private val feedPath = Regex("^/feeds/c/([A-Za-z0-9_]{1,50})\\.xml$")
+
+    /** A Lemmy community [name] living on [instance]. */
+    data class Community(val name: String, val instance: String) {
+        override fun toString() = "!$name@$instance"
+    }
+
+    /** Which posts a community feed lists; [param] is Lemmy's own name for it. */
+    enum class LemmySort(val param: String, val label: String) {
+        HOT("Hot", "hot"), ACTIVE("Active", "active"), NEW("New", "new"), TOP_DAY("TopDay", "top today");
+
+        companion object {
+            fun fromParam(param: String?): LemmySort? = entries.firstOrNull { it.param.equals(param, ignoreCase = true) }
+        }
+    }
+
+    /** What one typed entry means. */
+    sealed interface Entry {
+        data class Lemmy(val community: Community) : Entry
+        data class Address(val url: String) : Entry
+        data class Invalid(val message: String) : Entry
+    }
+
+    fun parse(input: String): Entry {
+        val text = input.trim()
+        if (text.isEmpty()) return Entry.Invalid("type a community or an address")
+        if (isReddit(text)) return Entry.Invalid(REDDIT_ENDED)
+        community(text)?.let { return Entry.Lemmy(it) }
+        if (name.matches(text.removePrefix("!").removePrefix("c/"))) {
+            return Entry.Invalid("add the community's instance, like ${text.removePrefix("!").removePrefix("c/")}@lemmy.world")
+        }
+        return normalize(text)?.let { Entry.Address(it) } ?: Entry.Invalid("that isn't a community or a web address")
+    }
+
+    /** Several entries typed at once, separated by spaces or commas (neither occurs in a community or an address). */
+    fun split(input: String): List<String> = input.split(Regex("[\\s,]+")).filter { it.isNotEmpty() }
+
+    /** The community [text] names, as a handle or a link; null when it names none. */
+    fun community(text: String): Community? {
+        handle.matchEntire(text.trim())?.let { m ->
+            val instance = m.groupValues[2].lowercase(Locale.ROOT)
+            return if (host.matches(instance)) Community(m.groupValues[1].lowercase(Locale.ROOT), instance) else null
+        }
+        val uri = uri(text) ?: return null
+        val at = uri.host?.lowercase(Locale.ROOT) ?: return null
+        val path = uri.rawPath.orEmpty()
+        communityPath.matchEntire(path)?.let { m ->
+            val home = m.groupValues[2].ifEmpty { at }.lowercase(Locale.ROOT)
+            return if (host.matches(home)) Community(m.groupValues[1].lowercase(Locale.ROOT), home) else null
+        }
+        feedPath.matchEntire(path)?.let { m -> return Community(m.groupValues[1].lowercase(Locale.ROOT), at) }
+        return null
+    }
+
+    /** The feed of [community] sorted by [sort]. */
+    fun lemmyUrl(community: Community, sort: LemmySort = LemmySort.HOT): String =
+        "https://${community.instance}/feeds/c/${community.name}.xml?sort=${sort.param}"
+
+    /** The community and sort of a community feed address; null for any other address. */
+    fun lemmy(url: String): Pair<Community, LemmySort>? {
+        val uri = uri(url) ?: return null
+        val m = feedPath.matchEntire(uri.rawPath.orEmpty()) ?: return null
+        val sortParam = uri.rawQuery.orEmpty().split('&').firstOrNull { it.startsWith("sort=") }?.removePrefix("sort=")
+        val sort = if (sortParam == null) LemmySort.HOT else LemmySort.fromParam(sortParam) ?: LemmySort.HOT
+        return Community(m.groupValues[1].lowercase(Locale.ROOT), uri.host.lowercase(Locale.ROOT)) to sort
+    }
+
+    /** [url] with [sort], if it is a community feed; any other address as it is. */
+    fun withSort(url: String, sort: LemmySort): String = lemmy(url)?.let { (community, _) -> lemmyUrl(community, sort) } ?: url
+
+    fun isReddit(text: String): Boolean {
+        val t = text.trim()
+        if (Regex("^/?r/[A-Za-z0-9_]+.*").matches(t)) return true
+        return uri(t)?.host?.lowercase(Locale.ROOT) in redditHosts
+    }
+
+    /** An RSS or Atom address for [input], or null when it can't be one. Plain http is upgraded: Android refuses it. */
     fun normalize(input: String): String? {
         val text = input.trim()
         if (text.isEmpty() || text.any { it.isWhitespace() }) return null
-        shorthand.matchEntire(text)?.let { m ->
-            val kind = if (m.groupValues[1] == "r") "r" else "user"
-            return redditFeed("/$kind/${m.groupValues[2]}${m.groupValues[3]}")
-        }
         val withScheme = when {
             text.startsWith("https://", ignoreCase = true) -> text
             text.startsWith("http://", ignoreCase = true) -> "https://" + text.substring("http://".length)
             text.contains("://") -> return null
             else -> "https://$text"
         }
-        val uri = runCatching { URI(withScheme) }.getOrNull() ?: return null
-        val host = uri.host?.lowercase(Locale.ROOT) ?: return null
-        if (!host.contains('.')) return null
-        if (host in redditHosts) {
-            val path = uri.rawPath.orEmpty()
-            if (path.isEmpty() || path == "/") return "$REDDIT/.rss"
-            return redditFeed(path, uri.rawQuery)
-        }
-        return withScheme
+        val parsed = runCatching { URI(withScheme) }.getOrNull() ?: return null
+        val h = parsed.host ?: return null
+        return if (host.matches(h)) withScheme else null
     }
 
-    /** A Reddit page [path] as its feed: "/r/android/top" -> ".../r/android/top/.rss". */
-    private fun redditFeed(path: String, query: String? = null): String {
-        val trimmed = path.trimEnd('/')
-        val feed = when {
-            trimmed.endsWith(".rss") -> trimmed
-            trimmed.endsWith(".json") -> trimmed.removeSuffix(".json") + "/.rss"
-            else -> "$trimmed/.rss"
+    private fun uri(text: String): URI? {
+        val t = text.trim()
+        if (t.isEmpty() || t.any { it.isWhitespace() }) return null
+        val withScheme = when {
+            t.startsWith("https://", ignoreCase = true) || t.startsWith("http://", ignoreCase = true) -> t
+            t.contains("://") -> return null
+            else -> "https://$t"
         }
-        return REDDIT + feed + (query?.let { "?$it" } ?: "")
+        return runCatching { URI(withScheme) }.getOrNull()?.takeIf { it.host != null }
     }
 
-    /**
-     * The tile's name for the feed at [url]: "r/android" for a subreddit, "u/name" for a user,
-     * else the site's host without "www.".
-     */
+    /** One feed's name: "c/linux" for a community, else the site's host without "www.". */
     fun label(url: String): String {
-        val uri = runCatching { URI(url) }.getOrNull()
-        val host = uri?.host?.lowercase(Locale.ROOT) ?: return "feed"
-        val parts = uri.rawPath.orEmpty().split('/').filter { it.isNotEmpty() && it != ".rss" }
-        if (host in redditHosts) {
-            return when {
-                parts.size >= 2 && parts[0] == "r" -> {
-                    val subs = parts[1].split('+').filter { it.isNotEmpty() }
-                    if (subs.size > 1) "r/${subs[0]} +${subs.size - 1}" else "r/${parts[1]}"
-                }
-                parts.size >= 2 && (parts[0] == "user" || parts[0] == "u") -> "u/${parts[1]}"
-                else -> "reddit"
-            }
-        }
-        return host.removePrefix("www.")
+        lemmy(url)?.let { (community, _) -> return "c/${community.name}" }
+        return uri(url)?.host?.lowercase(Locale.ROOT)?.removePrefix("www.") ?: "feed"
     }
 
-    /** What to open when the tile has no headline to open yet: the Reddit page itself, else the site. */
+    /** A tile's name: its feed's, or the first one's and how many more. */
+    fun label(urls: List<String>): String = when (urls.size) {
+        0 -> "feed"
+        1 -> label(urls[0])
+        else -> "${label(urls[0])} +${urls.size - 1}"
+    }
+
+    /** How a feed is listed in the editor: "!linux@lemmy.ml", or the address. */
+    fun shown(url: String): String = lemmy(url)?.first?.toString() ?: url
+
+    /** What to open when the tile has no headline to open yet: the community's page, else the site. */
     fun homePage(url: String): String {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return url
-        val host = uri.host ?: return url
-        if (host.lowercase(Locale.ROOT) in redditHosts) return url.substringBefore('?').removeSuffix(".rss").trimEnd('/') + "/"
-        return "${uri.scheme ?: "https"}://$host/"
+        lemmy(url)?.let { (community, _) -> return "https://${community.instance}/c/${community.name}" }
+        val uri = uri(url) ?: return url
+        return "https://${uri.host}/"
     }
 
-    /** The longest a subreddit name can be, and how many one tile may combine. */
-    private val subName = Regex("^[A-Za-z0-9][A-Za-z0-9_]{1,20}$")
-    const val MAX_SUBREDDITS = 30
-
-    /**
-     * A subreddit name from what the user typed: "android", "r/android", "/r/android/" or a
-     * subreddit link. Null when it can't be one.
-     */
-    fun subreddit(input: String): String? {
-        var text = input.trim()
-        val uri = if (text.contains("reddit.com", ignoreCase = true)) runCatching { URI(if ("://" in text) text else "https://$text") }.getOrNull() else null
-        if (uri != null) text = uri.rawPath.orEmpty()
-        text = text.trim('/').removePrefix("r/").removePrefix("R/").substringBefore('/')
-        return text.takeIf { subName.matches(it) }
+    /** A link like the ones a feed's posts have, to ask which apps open them; see [FeedTiles]. */
+    fun samplePostLink(url: String): String? {
+        lemmy(url)?.let { (community, _) -> return "https://${community.instance}/post/1" }
+        val h = uri(url)?.host ?: return null
+        return "https://$h/"
     }
 
-    /** Several names typed at once: separated by spaces, commas or "+". Each piece is checked by [subreddit]. */
-    fun splitSubreddits(input: String): List<String> =
-        input.split(Regex("[\\s,+]+")).map { it.trim() }.filter { it.isNotEmpty() && it != "r/" }
-
-    /** Which posts a Reddit tile shows. [path] is the listing in the address; hot is Reddit's default. */
-    enum class RedditSort(val path: String?, val label: String) {
-        HOT(null, "hot"), NEW("new", "new"), TOP("top", "top"), RISING("rising", "rising");
-
-        companion object {
-            fun fromPath(path: String?): RedditSort? = entries.firstOrNull { it.path == path }
-        }
+    /** What makes two addresses the same feed: a community's name, instance and sort, else the address without case in the host or a trailing slash. */
+    fun key(url: String): String {
+        lemmy(url)?.let { (community, sort) -> return "lemmy:$community:${sort.param}" }
+        val uri = uri(url) ?: return url
+        return uri.host.lowercase(Locale.ROOT).removePrefix("www.") + uri.rawPath.orEmpty().trimEnd('/') + (uri.rawQuery?.let { "?$it" } ?: "")
     }
 
-    /** A Reddit feed made of [subreddits], in the order they were added. */
-    data class RedditFeed(val subreddits: List<String>, val sort: RedditSort = RedditSort.HOT)
-
-    /** The subreddits and sort of a Reddit subreddit feed at [url]; null for anything else (a user, the front page, another site). */
-    fun reddit(url: String): RedditFeed? {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return null
-        if (uri.host?.lowercase(Locale.ROOT) !in redditHosts || uri.rawQuery != null) return null
-        val parts = uri.rawPath.orEmpty().split('/').filter { it.isNotEmpty() && it != ".rss" }
-        if (parts.size !in 2..3 || parts[0] != "r") return null
-        val subs = parts[1].split('+').filter { it.isNotEmpty() }
-        if (subs.isEmpty() || subs.any { !subName.matches(it) }) return null
-        val sort = RedditSort.fromPath(parts.getOrNull(2)) ?: return null
-        return RedditFeed(subs, sort)
-    }
-
-    /** The feed address of [feed]: "https://www.reddit.com/r/android+pixel/new/.rss". */
-    fun redditUrl(feed: RedditFeed): String =
-        "$REDDIT/r/${feed.subreddits.joinToString("+")}" + (feed.sort.path?.let { "/$it" } ?: "") + "/.rss"
-
-    /**
-     * Whether [a] and [b] are the same feed, so a second tile for it would only repeat the first:
-     * Reddit feeds with the same subreddits (any order or case) and sort, else the same address
-     * up to the host's case and a trailing slash.
-     */
-    fun sameFeed(a: String, b: String): Boolean {
-        val ra = reddit(a)
-        val rb = reddit(b)
-        if (ra != null || rb != null) {
-            return ra != null && rb != null && ra.sort == rb.sort &&
-                ra.subreddits.map { it.lowercase(Locale.ROOT) }.toSet() == rb.subreddits.map { it.lowercase(Locale.ROOT) }.toSet()
-        }
-        fun key(url: String): String {
-            val uri = runCatching { URI(url) }.getOrNull() ?: return url
-            return (uri.host?.lowercase(Locale.ROOT).orEmpty().removePrefix("www.")) + uri.rawPath.orEmpty().trimEnd('/') + (uri.rawQuery?.let { "?$it" } ?: "")
-        }
-        return key(a) == key(b)
-    }
-
-    /** How the address is shown in the field for editing: Reddit feeds as their shorthand. */
-    fun shown(url: String): String {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return url
-        if (uri.host?.lowercase(Locale.ROOT) !in redditHosts || uri.rawQuery != null) return url
-        val parts = uri.rawPath.orEmpty().split('/').filter { it.isNotEmpty() && it != ".rss" }
-        val kind = when (parts.getOrNull(0)) {
-            "r" -> "r"
-            "user", "u" -> "u"
-            else -> return url
-        }
-        if (parts.size < 2) return url
-        return (listOf("$kind/${parts[1]}") + parts.drop(2)).joinToString("/")
-    }
+    /** Whether two tiles' feeds are the same, in any order. */
+    fun sameFeeds(a: List<String>, b: List<String>): Boolean = a.map(::key).toSet() == b.map(::key).toSet()
 }

@@ -80,8 +80,8 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
         FeedEditor(
             initial = null,
             isTaken = viewModel::feedTaken,
-            onDone = { url ->
-                viewModel.addTile(TileContent.Feed(url), TileSize.WIDE)
+            onDone = { feed ->
+                viewModel.addTile(feed, TileSize.WIDE)
                 onDismiss()
             },
             onCancel = { askingFeed = false },
@@ -204,7 +204,7 @@ internal fun MetroPlusPanel(
                     }
                 },
                 title = "feed",
-                subtitle = "headlines from a subreddit or any RSS or Atom feed, with their pictures",
+                subtitle = "headlines from Lemmy communities and RSS or Atom feeds, with their pictures, points and comments",
             )
         }
     }

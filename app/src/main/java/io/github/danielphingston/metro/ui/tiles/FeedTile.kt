@@ -1,6 +1,8 @@
 package io.github.danielphingston.metro.ui.tiles
 
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -64,6 +66,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.feed.CachedFeed
 import io.github.danielphingston.metro.live.feed.FeedAddress
@@ -78,6 +81,7 @@ import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -90,11 +94,70 @@ object FeedTiles {
         if (link == null) shown.remove(tileId) else shown[tileId] = link
     }
 
-    /** What tapping the feed tile [tileId] for [url] opens: the headline on it, else the feed's site. */
-    fun intent(tileId: Long, url: String): Intent {
-        val link = shown[tileId] ?: FeedAddress.homePage(url)
-        return Intent(Intent.ACTION_VIEW, Uri.parse(link)).addCategory(Intent.CATEGORY_BROWSABLE)
+    /**
+     * What tapping the feed tile [tileId] opens: the headline on it, else its first feed's page.
+     * With an app chosen ([TileContent.Feed.openWith]) the link goes to that app, as long as it
+     * still takes such links; otherwise the system decides (a verified app, else the browser).
+     */
+    fun intent(context: Context, tileId: Long, feed: TileContent.Feed): Intent {
+        val link = shown[tileId] ?: FeedAddress.homePage(feed.urls.first())
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(link)).addCategory(Intent.CATEGORY_BROWSABLE)
+        val app = feed.openWith ?: return intent
+        val direct = Intent(intent).setPackage(app)
+        val handled = runCatching { context.packageManager.resolveActivity(direct, PackageManager.MATCH_ALL) }.getOrNull() != null
+        return if (handled) direct else intent
     }
+
+    /** An app that opens a tile's links: [packageName] and the name to show. */
+    data class LinkApp(val packageName: String, val label: String)
+
+    /**
+     * The apps that open links to these feeds' posts, browsers left out: the Lemmy apps, a news
+     * site's own app. Android only sends web links to an app it verified for the site, which
+     * Lemmy apps can't be for every instance; choosing one here sends the tile's links to it.
+     */
+    fun linkApps(context: Context, urls: List<String>): List<LinkApp> {
+        val pm = context.packageManager
+        fun handlers(link: String): Set<String> = runCatching {
+            pm.queryIntentActivities(
+                Intent(Intent.ACTION_VIEW, Uri.parse(link)).addCategory(Intent.CATEGORY_BROWSABLE),
+                PackageManager.MATCH_ALL,
+            ).mapTo(HashSet()) { it.activityInfo.packageName }
+        }.getOrDefault(emptySet())
+        // Browsers open any address; an app that also opens one on a made-up site is a browser.
+        val browsers = handlers("https://metro-launcher.invalid/")
+        val own = context.packageName
+        return urls.mapNotNull(FeedAddress::samplePostLink).distinct()
+            .flatMap { handlers(it) - browsers - own }
+            .distinct()
+            .mapNotNull { pkg ->
+                runCatching { LinkApp(pkg, pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()) }.getOrNull()
+            }
+            .sortedBy { it.label.lowercase() }
+    }
+
+    /**
+     * Several feeds' posts as one list, taken in turn (first of each, then second of each...),
+     * so each feed keeps its own order (hot, new) and none crowds out the rest. A post that two
+     * feeds share is shown once.
+     */
+    fun merge(lists: List<List<FeedItem>>): List<FeedItem> {
+        val out = ArrayList<FeedItem>()
+        val seen = HashSet<String>()
+        val longest = lists.maxOfOrNull { it.size } ?: 0
+        for (i in 0 until longest) for (list in lists) {
+            val item = list.getOrNull(i) ?: continue
+            if (seen.add(item.link ?: item.title)) out += item
+        }
+        return out
+    }
+
+    /**
+     * The state a tile with no headline to show describes: a feed that loaded (it is just empty),
+     * else the first failure, else none yet (loading).
+     */
+    fun summary(cached: List<CachedFeed?>): CachedFeed? =
+        cached.firstOrNull { it?.feed != null } ?: cached.firstOrNull { it?.error != null }
 
     /** "5m", "3h", "2d": how long ago [at] was, as Windows Phone's tiles put it. */
     fun age(at: Long, now: Long): String {
@@ -105,6 +168,16 @@ object FeedTiles {
             minutes < 60 * 24 -> "${minutes / 60}h"
             else -> "${minutes / (60 * 24)}d"
         }
+    }
+
+    /** The line under a headline: Lemmy's points and comments when the feed has them, else who wrote it; then how long ago. */
+    fun byline(item: FeedItem, now: Long): String {
+        val who = if (item.points != null && item.comments != null) {
+            "${item.points} points · ${item.comments} comments"
+        } else {
+            item.author
+        }
+        return listOfNotNull(who, item.publishedAt?.let { age(it, now) }).joinToString(" · ")
     }
 
     /** The headline the tile shows after [step] flips, of [count]. */
@@ -118,24 +191,27 @@ object FeedTiles {
  * (Metro Plus), downloads nothing and says so.
  */
 @Composable
-fun FeedTile(tile: ResolvedTile, url: String, cellSize: Dp, flipped: Boolean, unlocked: Boolean) {
+fun FeedTile(tile: ResolvedTile, urls: List<String>, cellSize: Dp, flipped: Boolean, unlocked: Boolean) {
     val context = LocalContext.current
     val m = rememberTileMetrics(cellSize)
     val feeds by FeedStore.feeds.collectAsStateWithLifecycle()
-    val cached = feeds[url]
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(url, unlocked) {
+    LaunchedEffect(urls, unlocked) {
         if (!unlocked) return@LaunchedEffect
-        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { FeedStore.refresh(context, url) }
+        // The feeds download side by side; each keeps its own age and retry time.
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { urls.forEach { launch { FeedStore.refresh(context, it) } } }
     }
+    val copies = urls.map { feeds[it] }
+    val merged = remember(copies) { FeedTiles.merge(copies.map { it?.feed?.items.orEmpty() }) }
+    val cached = FeedTiles.summary(copies)
     // Each flip moves on one headline; the first shows the newest.
-    var step by remember(url) { mutableIntStateOf(0) }
+    var step by remember(urls) { mutableIntStateOf(0) }
     var lastFlipped by remember { mutableStateOf(flipped) }
     LaunchedEffect(flipped) {
         if (flipped != lastFlipped) step++
         lastFlipped = flipped
     }
-    val items = if (unlocked) cached?.feed?.items.orEmpty() else emptyList()
+    val items = if (unlocked) merged else emptyList()
     val item = items.getOrNull(FeedTiles.index(step, items.size))
     val id = tile.spec.id
     DisposableEffect(id, item?.link) {
@@ -235,7 +311,7 @@ private fun Headline(
             TileSize.WIDE -> 3
             else -> 4
         }
-        val byline = listOfNotNull(item.author, item.publishedAt?.let { FeedTiles.age(it, now) }).joinToString(" · ")
+        val byline = FeedTiles.byline(item, now)
         Column(
             Modifier.align(if (picture != null) Alignment.BottomStart else Alignment.TopStart)
                 .fillMaxWidth()

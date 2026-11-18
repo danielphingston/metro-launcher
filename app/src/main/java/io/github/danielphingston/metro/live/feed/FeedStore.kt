@@ -45,13 +45,16 @@ enum class FeedProblem(val retryable: Boolean) {
         BAD_ADDRESS -> "that isn't a web address"
     }
 
-    /** For subreddit [name]. */
-    fun subredditMessage(name: String): String = when (this) {
-        NOT_FOUND -> "r/$name doesn't exist"
-        REFUSED -> "r/$name is private, quarantined or banned"
-        EMPTY -> "r/$name has no posts"
-        BUSY -> "reddit is busy, try again in a minute"
-        SERVER -> "reddit has a problem, try again later"
+    /** For a Lemmy [community]. */
+    fun communityMessage(community: FeedAddress.Community): String = when (this) {
+        // Lemmy answers 400 "CouldntFindCommunity" for a name it doesn't host.
+        NOT_FOUND -> "$community wasn't found on ${community.instance}"
+        REFUSED -> "${community.instance} refused access to $community"
+        EMPTY -> "$community has no posts"
+        BUSY -> "${community.instance} is busy, try again in a minute"
+        SERVER -> "${community.instance} has a problem, try again later"
+        OFFLINE -> "couldn't reach ${community.instance}, check your connection"
+        WEB_PAGE, NOT_A_FEED -> "${community.instance} doesn't look like a Lemmy instance"
         else -> message()
     }
 
@@ -161,7 +164,7 @@ object FeedStore {
     /** What went wrong, from a download or parse failure. */
     internal fun classify(e: Throwable?): FeedProblem = when (e) {
         is HttpStatusException -> when (e.code) {
-            404, 410 -> FeedProblem.NOT_FOUND
+            400, 404, 410 -> FeedProblem.NOT_FOUND
             401, 403, 451 -> FeedProblem.REFUSED
             429 -> FeedProblem.BUSY
             in 500..599 -> FeedProblem.SERVER
@@ -267,7 +270,7 @@ object FeedStore {
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 15_000
                 connection.instanceFollowRedirects = false
-                // Reddit refuses generic clients; it asks for a descriptive agent like this one.
+                // A descriptive agent, as feed hosts (Lemmy instances included) ask of automated clients.
                 connection.setRequestProperty("User-Agent", "android:${BuildConfig.APPLICATION_ID}:${BuildConfig.VERSION_NAME} (Metro launcher feed tile)")
                 connection.setRequestProperty("Accept", accept)
                 val code = connection.responseCode
@@ -330,6 +333,8 @@ object FeedStore {
                             item.author?.let { put("author", it) }
                             item.publishedAt?.let { put("publishedAt", it) }
                             item.image?.let { put("image", it) }
+                            item.points?.let { put("points", it) }
+                            item.comments?.let { put("comments", it) }
                         },
                     )
                 }
@@ -348,6 +353,8 @@ object FeedStore {
                 o.optString("author").ifEmpty { null },
                 if (o.has("publishedAt")) o.optLong("publishedAt") else null,
                 o.optString("image").ifEmpty { null },
+                if (o.has("points")) o.optInt("points") else null,
+                if (o.has("comments")) o.optInt("comments") else null,
             )
         }
         CachedFeed(obj.getString("url"), Feed(obj.optString("title").ifEmpty { null }, items), obj.optLong("fetchedAt"))

@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -44,11 +46,10 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.live.feed.FeedAddress
-import io.github.danielphingston.metro.live.feed.FeedAddress.RedditFeed
-import io.github.danielphingston.metro.live.feed.FeedAddress.RedditSort
+import io.github.danielphingston.metro.live.feed.FeedAddress.LemmySort
 import io.github.danielphingston.metro.live.feed.FeedCheck
-import io.github.danielphingston.metro.live.feed.FeedProblem
 import io.github.danielphingston.metro.live.feed.FeedStore
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroChoice
@@ -56,8 +57,10 @@ import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** What the editor says under its fields. [addAnyway]: the problem may pass, so the user may go ahead. */
 internal sealed interface FeedEditorStatus {
@@ -66,85 +69,89 @@ internal sealed interface FeedEditorStatus {
     data class Error(val text: String, val addAnyway: (() -> Unit)? = null) : FeedEditorStatus
 }
 
-/** The two kinds of feed tile the editor makes. */
-internal enum class FeedKind { REDDIT, RSS }
-
 /**
- * Sets up a feed tile, over a dimmed start screen: either a list of subreddits (added one or
- * several at a time, each checked as it is added) with a sort, or any RSS or Atom address,
- * downloaded and read before it is accepted. Problems are said under the field, with "add
- * anyway" when they may pass (no connection, an empty feed). [isTaken] refuses a feed another
- * tile already shows. Back or a tap outside cancels.
+ * Sets up a feed tile, over a dimmed start screen: a list of feeds, Lemmy communities
+ * ("!linux@lemmy.ml" or a community link) and RSS or Atom addresses alike, each downloaded and
+ * read as it is added; how communities are sorted; and which app opens the posts. Problems are
+ * said under the field, with "add anyway" when they may pass (no connection, an empty feed).
+ * [isTaken] refuses the same feeds another tile already shows. Back or a tap outside cancels.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun FeedEditor(
-    initial: String?,
-    isTaken: (String) -> Boolean,
-    onDone: (String) -> Unit,
+    initial: TileContent.Feed?,
+    isTaken: (List<String>) -> Boolean,
+    onDone: (TileContent.Feed) -> Unit,
     onCancel: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val start = remember { initial?.let(FeedAddress::reddit) }
-    var kind by remember { mutableStateOf(if (initial == null || start != null) FeedKind.REDDIT else FeedKind.RSS) }
-    val subs = remember { mutableStateListOf<String>().apply { start?.subreddits?.let(::addAll) } }
-    var sort by remember { mutableStateOf(start?.sort ?: RedditSort.HOT) }
-    var subInput by remember { mutableStateOf(TextFieldValue("")) }
-    val rssStart = if (start == null) initial?.let(FeedAddress::shown).orEmpty() else ""
-    var rssInput by remember { mutableStateOf(TextFieldValue(rssStart, TextRange(0, rssStart.length))) }
+    val urls = remember { mutableStateListOf<String>().apply { initial?.urls?.let(::addAll) } }
+    var sort by remember { mutableStateOf(initial?.urls?.firstNotNullOfOrNull { FeedAddress.lemmy(it)?.second } ?: LemmySort.HOT) }
+    var openWith by remember { mutableStateOf(initial?.openWith) }
+    var input by remember { mutableStateOf(TextFieldValue("")) }
     var status by remember { mutableStateOf<FeedEditorStatus>(FeedEditorStatus.None) }
     var job by remember { mutableStateOf<Job?>(null) }
     // Read when a tap happens, not when the screen was last drawn: a finished check doesn't redraw it.
     fun busy() = job?.isActive == true
 
-    fun taken(url: String): Boolean {
-        if (!isTaken(url)) return false
-        status = FeedEditorStatus.Error("another tile already shows this feed")
-        return true
+    // The apps that open these feeds' posts; looked up again as feeds come and go.
+    var apps by remember { mutableStateOf<List<FeedTiles.LinkApp>>(emptyList()) }
+    val hosts = urls.map { FeedAddress.samplePostLink(it) }.distinct()
+    LaunchedEffect(hosts) {
+        apps = withContext(Dispatchers.Default) { FeedTiles.linkApps(context, urls.toList()) }
     }
 
-    /** Checks and adds what the subreddit field holds; false when something couldn't be added. */
+    fun setInput(text: String) {
+        input = TextFieldValue(text, TextRange(text.length))
+    }
+
+    /** Checks and adds what the field holds; false when something couldn't be added. */
     suspend fun addTyped(): Boolean {
-        val pieces = FeedAddress.splitSubreddits(subInput.text)
-        if (pieces.isEmpty()) return true
-        val names = ArrayList<String>()
-        for (piece in pieces) {
-            val name = FeedAddress.subreddit(piece)
-            if (name == null) {
-                status = FeedEditorStatus.Error("“$piece” isn't a subreddit name")
+        val pieces = FeedAddress.split(input.text)
+        for ((i, piece) in pieces.withIndex()) {
+            // The entry that fails, and those after it, stay in the field to fix or retry.
+            val left = pieces.drop(i).joinToString(" ")
+            val rest = pieces.drop(i + 1).joinToString(" ")
+            val entry = FeedAddress.parse(piece)
+            val (url, community) = when (entry) {
+                is FeedAddress.Entry.Invalid -> {
+                    setInput(left)
+                    status = FeedEditorStatus.Error(entry.message)
+                    return false
+                }
+                is FeedAddress.Entry.Lemmy -> FeedAddress.lemmyUrl(entry.community, sort) to entry.community
+                is FeedAddress.Entry.Address -> entry.url to null
+            }
+            if (urls.any { FeedAddress.key(it) == FeedAddress.key(url) }) continue
+            if (urls.size >= FeedAddress.MAX_FEEDS) {
+                setInput(left)
+                status = FeedEditorStatus.Error("a tile holds up to ${FeedAddress.MAX_FEEDS} feeds")
                 return false
             }
-            if (subs.none { it.equals(name, ignoreCase = true) } && names.none { it.equals(name, ignoreCase = true) }) names += name
-        }
-        if (subs.size + names.size > FeedAddress.MAX_SUBREDDITS) {
-            status = FeedEditorStatus.Error("a tile holds up to ${FeedAddress.MAX_SUBREDDITS} subreddits")
-            return false
-        }
-        for ((i, name) in names.withIndex()) {
-            status = FeedEditorStatus.Checking("checking r/$name…")
-            val result = FeedStore.check(context, FeedAddress.redditUrl(RedditFeed(listOf(name))), keep = false)
-            if (result is FeedCheck.Failed) {
-                // The name that failed, and those not checked yet, stay in the field to fix or retry.
-                val left = names.drop(i).joinToString(" ")
-                subInput = TextFieldValue(left, TextRange(left.length))
-                status = FeedEditorStatus.Error(
-                    result.problem.subredditMessage(name),
-                    if (result.problem.retryable) {
-                        {
-                            subs += name
-                            val rest = names.drop(i + 1).joinToString(" ")
-                            subInput = TextFieldValue(rest, TextRange(rest.length))
-                            status = FeedEditorStatus.None
-                        }
-                    } else {
-                        null
-                    },
-                )
-                return false
+            status = FeedEditorStatus.Checking("checking ${community ?: FeedAddress.label(url)}…")
+            when (val result = FeedStore.check(context, url)) {
+                // A web page may have led to its feed: that one is added.
+                is FeedCheck.Ok -> if (urls.none { FeedAddress.key(it) == FeedAddress.key(result.url) }) urls += result.url
+                is FeedCheck.Failed -> {
+                    setInput(left)
+                    status = FeedEditorStatus.Error(
+                        community?.let(result.problem::communityMessage) ?: result.message,
+                        if (result.problem.retryable) {
+                            {
+                                urls += url
+                                setInput(rest)
+                                status = FeedEditorStatus.None
+                            }
+                        } else {
+                            null
+                        },
+                    )
+                    return false
+                }
             }
-            subs += name
         }
-        subInput = TextFieldValue("")
+        setInput("")
         status = FeedEditorStatus.None
         return true
     }
@@ -155,41 +162,17 @@ internal fun FeedEditor(
     }
 
     fun done() = launchCheck check@{
-        when (kind) {
-            FeedKind.REDDIT -> {
-                if (!addTyped()) return@check
-                if (subs.isEmpty()) {
-                    status = FeedEditorStatus.Error("add at least one subreddit")
-                    return@check
-                }
-                val url = FeedAddress.redditUrl(RedditFeed(subs.toList(), sort))
-                if (!taken(url)) onDone(url)
-            }
-            FeedKind.RSS -> {
-                val url = FeedAddress.normalize(rssInput.text)
-                if (url == null) {
-                    status = FeedEditorStatus.Error(FeedProblem.BAD_ADDRESS.message())
-                    return@check
-                }
-                if (taken(url)) return@check
-                if (url == initial) {
-                    onDone(url)
-                    return@check
-                }
-                status = FeedEditorStatus.Checking("checking the feed…")
-                when (val result = FeedStore.check(context, url)) {
-                    is FeedCheck.Ok -> if (!taken(result.url)) onDone(result.url)
-                    is FeedCheck.Failed -> status = FeedEditorStatus.Error(
-                        result.message,
-                        if (result.problem.retryable) {
-                            { onDone(url) }
-                        } else {
-                            null
-                        },
-                    )
-                }
-            }
+        if (!addTyped()) return@check
+        if (urls.isEmpty()) {
+            status = FeedEditorStatus.Error("add at least one feed")
+            return@check
         }
+        val list = urls.toList()
+        if (isTaken(list)) {
+            status = FeedEditorStatus.Error("another tile already shows these feeds")
+            return@check
+        }
+        onDone(TileContent.Feed(list, openWith?.takeIf { pkg -> apps.any { it.packageName == pkg } }))
     }
 
     val colors = Metro.colors
@@ -208,91 +191,70 @@ internal fun FeedEditor(
                 .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 20.dp),
         ) {
             MetroText("feed", MetroType.pageTitle, modifier = Modifier.padding(bottom = 12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MetroChoice("reddit", kind == FeedKind.REDDIT, {
-                    kind = FeedKind.REDDIT
-                    status = FeedEditorStatus.None
-                })
-                MetroChoice("rss or atom", kind == FeedKind.RSS, {
-                    kind = FeedKind.RSS
-                    status = FeedEditorStatus.None
-                })
-            }
-            Spacer(Modifier.height(20.dp))
-            when (kind) {
-                FeedKind.REDDIT -> {
-                    Caption("SUBREDDITS")
-                    subs.forEachIndexed { index, name ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            MetroText("r/$name", MetroType.listItem, maxLines = 1, modifier = Modifier.weight(1f))
-                            MetroText(
-                                "remove",
-                                MetroType.body,
-                                color = colors.accent,
-                                modifier = Modifier
-                                    .clickable(onClickLabel = "remove r/$name") {
-                                        if (!busy()) {
-                                            subs.removeAt(index)
-                                            status = FeedEditorStatus.None
-                                        }
-                                    }
-                                    .padding(horizontal = 4.dp, vertical = 10.dp),
-                            )
-                        }
-                    }
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = if (subs.isEmpty()) 0.dp else 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        FeedField(
-                            value = subInput,
-                            onValueChange = {
-                                subInput = it
-                                if (status is FeedEditorStatus.Error) status = FeedEditorStatus.None
-                            },
-                            placeholder = if (subs.isEmpty()) "android, pixel…" else "add another",
-                            keyboardType = KeyboardType.Text,
-                            imeAction = ImeAction.Go,
-                            onAction = { launchCheck { addTyped() } },
-                            focusFirst = initial == null,
-                            modifier = Modifier.weight(1f),
-                        )
-                        MetroButton("add", { launchCheck { addTyped() } })
-                    }
-                    Spacer(Modifier.height(20.dp))
-                    Caption("SHOW")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RedditSort.entries.forEach { s -> MetroChoice(s.label, sort == s, { sort = s }) }
-                    }
-                }
-                FeedKind.RSS -> {
-                    Caption("ADDRESS")
-                    FeedField(
-                        value = rssInput,
-                        onValueChange = {
-                            rssInput = it
-                            if (status is FeedEditorStatus.Error) status = FeedEditorStatus.None
-                        },
-                        placeholder = "example.com/feed",
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Done,
-                        onAction = ::done,
-                        focusFirst = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+            Caption("FEEDS")
+            urls.forEachIndexed { index, url ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    MetroText(FeedAddress.shown(url), MetroType.listItem, maxLines = 1, modifier = Modifier.weight(1f))
                     MetroText(
-                        "an RSS or Atom address, or a site's page if it names its feed",
-                        MetroType.caption,
-                        color = colors.subtle,
-                        modifier = Modifier.padding(top = 8.dp),
+                        "remove",
+                        MetroType.body,
+                        color = colors.accent,
+                        modifier = Modifier
+                            .clickable(onClickLabel = "remove ${FeedAddress.shown(url)}") {
+                                if (!busy()) {
+                                    urls.removeAt(index)
+                                    status = FeedEditorStatus.None
+                                }
+                            }
+                            .padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
                     )
                 }
             }
+            Row(
+                Modifier.fillMaxWidth().padding(top = if (urls.isEmpty()) 0.dp else 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FeedField(
+                    value = input,
+                    onValueChange = {
+                        input = it
+                        if (status is FeedEditorStatus.Error) status = FeedEditorStatus.None
+                    },
+                    placeholder = if (urls.isEmpty()) "!linux@lemmy.ml" else "add another",
+                    onAction = { launchCheck { addTyped() } },
+                    focusFirst = initial == null,
+                    modifier = Modifier.weight(1f),
+                )
+                MetroButton("add", { launchCheck { addTyped() } })
+            }
+            MetroText(
+                "a Lemmy community, or any RSS or Atom address (a site's page works if it names its feed)",
+                MetroType.caption,
+                color = colors.subtle,
+                modifier = Modifier.padding(top = 8.dp),
+            )
             StatusLine(status)
+            if (urls.any { FeedAddress.lemmy(it) != null }) {
+                Spacer(Modifier.height(20.dp))
+                Caption("COMMUNITIES SHOW")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LemmySort.entries.forEach { s ->
+                        MetroChoice(s.label, sort == s, {
+                            sort = s
+                            for (i in urls.indices) urls[i] = FeedAddress.withSort(urls[i], s)
+                        })
+                    }
+                }
+            }
+            if (apps.isNotEmpty()) {
+                Spacer(Modifier.height(20.dp))
+                Caption("OPEN POSTS IN")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetroChoice("browser or default", openWith == null || apps.none { it.packageName == openWith }, { openWith = null })
+                    apps.forEach { app -> MetroChoice(app.label, openWith == app.packageName, { openWith = app.packageName }) }
+                }
+            }
             Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetroButton(if (initial == null) "add tile" else "done", ::done)
                 MetroButton("cancel", onCancel)
@@ -329,8 +291,6 @@ private fun FeedField(
     value: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
     placeholder: String,
-    keyboardType: KeyboardType,
-    imeAction: ImeAction,
     onAction: () -> Unit,
     focusFirst: Boolean,
     modifier: Modifier = Modifier,
@@ -345,7 +305,7 @@ private fun FeedField(
         singleLine = true,
         textStyle = MetroType.listItem.copy(color = colors.foreground),
         cursorBrush = SolidColor(colors.accent),
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction, autoCorrectEnabled = false),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go, autoCorrectEnabled = false),
         keyboardActions = KeyboardActions(onAny = { onAction() }),
         modifier = modifier
             .focusRequester(focus)

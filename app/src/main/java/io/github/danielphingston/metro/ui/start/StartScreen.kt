@@ -996,11 +996,11 @@ fun StartScreen(
                 state.feedAddressId = null
             } else {
                 FeedEditor(
-                    initial = feed.url,
-                    isTaken = { url -> viewModel.feedTaken(url, exceptId = id) },
-                    onDone = { url ->
+                    initial = feed,
+                    isTaken = { urls -> viewModel.feedTaken(urls, exceptId = id) },
+                    onDone = { changed ->
                         state.feedAddressId = null
-                        if (url != feed.url) viewModel.updateTile(id, StartEdit.FEED) { it.copy(content = TileContent.Feed(url)) }
+                        if (changed != feed) viewModel.updateTile(id, StartEdit.FEED) { it.copy(content = changed) }
                     },
                     onCancel = { state.feedAddressId = null },
                 )
@@ -1441,7 +1441,7 @@ private fun TileBody(
             val context = LocalContext.current
             val unlocked by remember { (context.applicationContext as MetroApplication).purchases.quickTilesUnlocked }
                 .collectAsStateWithLifecycle()
-            FeedTile(tile, tile.spec.content.url, cell, flipped, unlocked)
+            FeedTile(tile, tile.spec.content.urls, cell, flipped, unlocked)
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTile(tile, cell)
     }
@@ -1488,7 +1488,7 @@ private fun activateTile(
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, content)
         is TileContent.Feed -> if (quickUnlocked) {
-            launcher.start(FeedTiles.intent(tile.spec.id, content.url), bounds)
+            launcher.start(FeedTiles.intent(context, tile.spec.id, content), bounds)
         } else {
             android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
         }

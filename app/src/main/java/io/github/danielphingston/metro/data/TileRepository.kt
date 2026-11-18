@@ -82,10 +82,12 @@ sealed interface TileContent {
     data object Tracking : TileContent
 
     /**
-     * A feed's headlines (Metro Plus): [url] is an RSS or Atom address, Reddit's included (see
-     * [io.github.danielphingston.metro.live.feed.FeedAddress]). The downloaded copy is not part of the layout.
+     * Headlines from [urls] (Metro Plus): RSS or Atom addresses, Lemmy community feeds among them
+     * (see [io.github.danielphingston.metro.live.feed.FeedAddress]), their posts taken in turn.
+     * [openWith] is the package of the app chosen to open posts, else the system decides. The
+     * downloaded copies are not part of the layout.
      */
-    data class Feed(val url: String) : TileContent
+    data class Feed(val urls: List<String>, val openWith: String? = null) : TileContent
 
     /**
      * Something pinned from the search results that isn't an app or an app shortcut: a contact, a
@@ -716,7 +718,7 @@ internal object TileJson {
             TileContent.Assistant -> obj.put("type", "assistant")
             TileContent.Me -> obj.put("type", "me")
             TileContent.Tracking -> obj.put("type", "tracking")
-            is TileContent.Feed -> obj.put("type", "feed").put("url", c.url)
+            is TileContent.Feed -> obj.put("type", "feed").put("urls", JSONArray(c.urls)).apply { c.openWith?.let { put("openWith", it) } }
             is TileContent.Action -> obj.put("type", "action").put("label", c.label).put("target", c.target.toJson()).apply {
                 when (val icon = c.icon) {
                     is ActionIcon.Glyph -> put("glyph", icon.id)
@@ -751,7 +753,11 @@ internal object TileJson {
             "assistant" -> TileContent.Assistant
             "me" -> TileContent.Me
             "tracking" -> TileContent.Tracking
-            "feed" -> TileContent.Feed(obj.getString("url").ifEmpty { return null })
+            "feed" -> {
+                val list = obj.optJSONArray("urls")
+                val urls = (0 until (list?.length() ?: 0)).mapNotNull { list?.optString(it)?.ifEmpty { null } }
+                TileContent.Feed(urls.ifEmpty { return null }, obj.optString("openWith").ifEmpty { null })
+            }
             "action" -> TileContent.Action(
                 obj.optString("label"),
                 when {

@@ -23,6 +23,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -32,92 +33,128 @@ class FeedTest {
     // ---- addresses ----
 
     @Test
-    fun redditShorthandsBecomeTheirFeeds() {
-        val android = "https://www.reddit.com/r/android/.rss"
-        for (input in listOf("r/android", "/r/android", " r/android ", "reddit.com/r/android", "https://www.reddit.com/r/android/",
-            "http://old.reddit.com/r/android", "https://www.reddit.com/r/android/.rss", "https://www.reddit.com/r/android.json")) {
-            assertEquals(input, android, FeedAddress.normalize(input))
+    fun lemmyCommunitiesFromHandlesAndLinks() {
+        val linux = FeedAddress.Community("linux", "lemmy.ml")
+        for (input in listOf("!linux@lemmy.ml", "linux@lemmy.ml", "c/linux@lemmy.ml", " !Linux@Lemmy.ML ", "lemmy.ml/c/linux",
+            "https://lemmy.ml/c/linux/", "http://lemmy.ml/c/linux", "https://lemmy.ml/feeds/c/linux.xml?sort=New",
+            // Seen through another instance: the feed comes from the community's own one.
+            "https://lemmy.world/c/linux@lemmy.ml")) {
+            assertEquals(input, FeedAddress.Entry.Lemmy(linux), FeedAddress.parse(input))
         }
-        assertEquals("https://www.reddit.com/r/android/top/.rss", FeedAddress.normalize("r/android/top"))
-        assertEquals("https://www.reddit.com/r/android/top/.rss?t=week", FeedAddress.normalize("https://www.reddit.com/r/android/top/?t=week"))
-        assertEquals("https://www.reddit.com/user/spez/.rss", FeedAddress.normalize("u/spez"))
-        assertEquals("https://www.reddit.com/r/pics+aww/.rss", FeedAddress.normalize("r/pics+aww"))
-        assertEquals("https://www.reddit.com/.rss", FeedAddress.normalize("reddit.com"))
+        assertEquals("https://lemmy.ml/feeds/c/linux.xml?sort=Hot", FeedAddress.lemmyUrl(linux))
+        assertEquals("https://lemmy.ml/feeds/c/linux.xml?sort=TopDay", FeedAddress.lemmyUrl(linux, FeedAddress.LemmySort.TOP_DAY))
+        assertEquals(linux to FeedAddress.LemmySort.NEW, FeedAddress.lemmy("https://lemmy.ml/feeds/c/linux.xml?sort=New"))
+        assertEquals(linux to FeedAddress.LemmySort.HOT, FeedAddress.lemmy("https://lemmy.ml/feeds/c/linux.xml"))
+        assertEquals("https://lemmy.ml/feeds/c/linux.xml?sort=Active", FeedAddress.withSort("https://lemmy.ml/feeds/c/linux.xml?sort=Hot", FeedAddress.LemmySort.ACTIVE))
+        assertEquals("https://example.com/feed", FeedAddress.withSort("https://example.com/feed", FeedAddress.LemmySort.NEW))
     }
 
     @Test
-    fun otherAddressesAreKeptAndUpgradedToHttps() {
-        assertEquals("https://example.com/feed.xml", FeedAddress.normalize("https://example.com/feed.xml"))
-        assertEquals("https://example.com/feed.xml", FeedAddress.normalize("http://example.com/feed.xml"))
-        assertEquals("https://blog.example.org/rss", FeedAddress.normalize("blog.example.org/rss"))
+    fun otherAddressesAreFeedsUpgradedToHttps() {
+        assertEquals(FeedAddress.Entry.Address("https://example.com/feed.xml"), FeedAddress.parse("https://example.com/feed.xml"))
+        assertEquals(FeedAddress.Entry.Address("https://example.com/feed.xml"), FeedAddress.parse("http://example.com/feed.xml"))
+        assertEquals(FeedAddress.Entry.Address("https://blog.example.org/rss"), FeedAddress.parse("blog.example.org/rss"))
+        assertEquals(listOf("!linux@lemmy.ml", "example.com/feed", "c/x@y.org"), FeedAddress.split(" !linux@lemmy.ml, example.com/feed  c/x@y.org "))
     }
 
     @Test
-    fun nonsenseIsNoAddress() {
-        for (input in listOf("", "  ", "android", "r/a", "ftp://example.com/feed", "two words.com", "javascript:alert(1)", "https://localhost/feed")) {
-            assertNull(input, FeedAddress.normalize(input))
+    fun redditAndNonsenseAreRefusedWithAReason() {
+        for (input in listOf("r/android", "https://www.reddit.com/r/android/.rss", "old.reddit.com/r/pics", "reddit.com")) {
+            assertEquals(input, FeedAddress.Entry.Invalid(FeedAddress.REDDIT_ENDED), FeedAddress.parse(input))
+        }
+        assertEquals(FeedAddress.Entry.Invalid("add the community's instance, like linux@lemmy.world"), FeedAddress.parse("!linux"))
+        assertEquals(FeedAddress.Entry.Invalid("add the community's instance, like linux@lemmy.world"), FeedAddress.parse("linux"))
+        for (input in listOf("ftp://example.com/feed", "two words.com", "javascript:alert(1)", "https://localhost/feed", "linux@nowhere")) {
+            assertTrue(input, FeedAddress.parse(input) is FeedAddress.Entry.Invalid)
         }
     }
 
     @Test
-    fun labelsHomePagesAndTheFieldText() {
-        assertEquals("r/android", FeedAddress.label("https://www.reddit.com/r/android/top/.rss"))
-        assertEquals("u/spez", FeedAddress.label("https://www.reddit.com/user/spez/.rss"))
-        assertEquals("reddit", FeedAddress.label("https://www.reddit.com/.rss"))
+    fun labelsHomePagesAndKeys() {
+        val linux = "https://lemmy.ml/feeds/c/linux.xml?sort=Hot"
+        assertEquals("c/linux", FeedAddress.label(linux))
         assertEquals("theverge.com", FeedAddress.label("https://www.theverge.com/rss/index.xml"))
-        assertEquals("https://www.reddit.com/r/android/", FeedAddress.homePage("https://www.reddit.com/r/android/.rss"))
+        assertEquals("c/linux +2", FeedAddress.label(listOf(linux, "https://a.example/f", "https://b.example/f")))
+        assertEquals("!linux@lemmy.ml", FeedAddress.shown(linux))
+        assertEquals("https://lemmy.ml/c/linux", FeedAddress.homePage(linux))
         assertEquals("https://www.theverge.com/", FeedAddress.homePage("https://www.theverge.com/rss/index.xml"))
-        assertEquals("r/android/top", FeedAddress.shown("https://www.reddit.com/r/android/top/.rss"))
-        assertEquals("https://www.theverge.com/rss/index.xml", FeedAddress.shown("https://www.theverge.com/rss/index.xml"))
-        // What the field shows reads back as the same feed.
-        for (url in listOf("https://www.reddit.com/r/android/top/.rss", "https://www.reddit.com/user/spez/.rss", "https://example.com/feed")) {
-            assertEquals(url, FeedAddress.normalize(FeedAddress.shown(url)))
-        }
+        assertEquals("https://lemmy.ml/post/1", FeedAddress.samplePostLink(linux))
+        // The same feeds in any order are the same tile; a different sort is not.
+        val tech = "https://lemmy.world/feeds/c/technology.xml?sort=Hot"
+        assertTrue(FeedAddress.sameFeeds(listOf(linux, tech), listOf(tech, "https://LEMMY.ml/feeds/c/Linux.xml")))
+        assertFalse(FeedAddress.sameFeeds(listOf(linux), listOf("https://lemmy.ml/feeds/c/linux.xml?sort=New")))
+        assertFalse(FeedAddress.sameFeeds(listOf(linux), listOf(linux, tech)))
+        assertTrue(FeedAddress.sameFeeds(listOf("https://www.Example.com/feed/"), listOf("https://example.com/feed")))
     }
 
     // ---- parsing ----
 
-    /** Trimmed from a real https://www.reddit.com/r/android/.rss response. */
-    private val reddit = """
+    /** Two items trimmed from a real https://lemmy.ml/feeds/c/linux.xml?sort=Hot response (November 2026). */
+    private val lemmy = """
+        <?xml version="1.0" encoding="utf-8"?><rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:media="http://search.yahoo.com/mrss/"><channel><title>Lemmy - linux</title><link>https://lemmy.ml/c/linux</link><description>&lt;p&gt;Linux is a family of open source Unix-like operating systems.&lt;/p&gt;</description>
+        <item><title>Canonical is Now Shipping AI-Written Security Patches to Ubuntu Pro Users</title><link>https://lemmy.ml/post/55448193</link><description><![CDATA[submitted by <a href="https://lemmy.ml/u/SocialistVibes01">SocialistVibes01</a> to <a href="https://lemmy.ml/c/linux">linux</a><br>94 points | <a href="https://lemmy.ml/post/55448193">23 comments</a><p>Body text.</p>]]></description><category domain="https://lemmy.ml/c/linux">Linux</category><comments>https://lemmy.ml/post/55448193</comments><enclosure url="https://itsfoss.com/news/canonical-surge-announcemengt/" length="0" type="text/html; charset=utf-8"/><guid>https://lemmy.ml/post/55448193</guid><pubDate>Wed, 18 Nov 2026 08:43:02 +0000</pubDate><media:content medium="image" url="https://lemmy.ml/api/v3/image_proxy?url=https%3A%2F%2Fitsfoss.com%2Fcontent%2Fimages%2F2026%2F11%2Fubuntu-surge.webp"></media:content><dc:creator>https://lemmy.ml/u/SocialistVibes01</dc:creator></item>
+        <item><title>Understanding Linux and choosing your first Linux distro, v2.0</title><link>https://lemmy.ml/post/18268622</link><description><![CDATA[submitted by <a href="https://lemm.ee/u/wfh">wfh</a> to <a href="https://lemmy.ml/c/linux">linux</a><br>479 points | <a href="https://lemmy.ml/post/18268622">94 comments</a><p>Body text.</p>]]></description><category domain="https://lemmy.ml/c/linux">Linux</category><comments>https://lemmy.ml/post/18268622</comments><guid>https://lemmy.ml/post/18268622</guid><pubDate>Mon, 22 Jul 2024 09:09:18 +0000</pubDate><dc:creator>https://lemm.ee/u/wfh</dc:creator></item>
+        </channel></rss>
+    """.trimIndent()
+
+    @Test
+    fun readsALemmyCommunity() {
+        val feed = FeedParser.parse(lemmy)
+        assertEquals("Lemmy - linux", feed.title)
+        assertEquals(2, feed.items.size)
+        val first = feed.items[0]
+        assertEquals("Canonical is Now Shipping AI-Written Security Patches to Ubuntu Pro Users", first.title)
+        assertEquals("https://lemmy.ml/post/55448193", first.link)
+        assertEquals("SocialistVibes01", first.author)
+        assertEquals(94, first.points)
+        assertEquals(23, first.comments)
+        assertEquals(java.time.OffsetDateTime.parse("2026-11-18T08:43:02Z").toInstant().toEpochMilli(), first.publishedAt)
+        // The picture comes through the instance's image proxy; the linked article (an HTML enclosure) is no picture.
+        assertEquals("https://lemmy.ml/api/v3/image_proxy?url=https%3A%2F%2Fitsfoss.com%2Fcontent%2Fimages%2F2026%2F11%2Fubuntu-surge.webp", first.image)
+        val second = feed.items[1]
+        assertEquals("wfh", second.author)
+        assertEquals(479, second.points)
+        assertEquals(94, second.comments)
+        assertNull(second.image)
+        assertEquals("94 points · 23 comments · 42m", FeedTiles.byline(first, first.publishedAt!! + 42 * 60_000L))
+        assertEquals("u · 1h", FeedTiles.byline(FeedItem("t", null, "u", 0L), 3_600_000L))
+    }
+
+    /** An Atom feed with a person as author, a thumbnail and HTML content. */
+    private val atom = """
         <?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
-        <category term="Android" label="r/Android"/><updated>2026-11-18T09:00:00+00:00</updated><icon>https://www.redditstatic.com/icon.png/</icon>
-        <id>/r/android/.rss</id><link rel="self" href="https://www.reddit.com/r/android/.rss" type="application/atom+xml" />
-        <link rel="alternate" href="https://www.reddit.com/r/android/" type="text/html" /><subtitle>Android news</subtitle><title>Android</title>
-        <entry><author><name>/u/someone</name><uri>https://www.reddit.com/user/someone</uri></author><category term="Android" label="r/Android"/>
-        <content type="html">&lt;table&gt; &lt;tr&gt;&lt;td&gt; &lt;a href=&quot;https://www.reddit.com/r/Android/comments/abc/x/&quot;&gt; &lt;img src=&quot;https://b.thumbs.redditmedia.com/pic.jpg?width=140&amp;amp;s=1&quot; alt=&quot;x&quot; /&gt; &lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</content>
-        <id>t3_abc</id><media:thumbnail url="https://b.thumbs.redditmedia.com/thumb.jpg" />
-        <link href="https://www.reddit.com/r/Android/comments/abc/pixel_11_review/" /><updated>2026-11-18T08:30:00+00:00</updated>
-        <published>2026-11-18T08:00:00+00:00</published><title>Pixel 11 review: it&amp;#39;s &amp;quot;fine&amp;quot;</title></entry>
-        <entry><author><name>/u/other</name><uri>https://www.reddit.com/user/other</uri></author>
-        <content type="html">&lt;div class=&quot;md&quot;&gt;&lt;p&gt;Text post&lt;/p&gt;&lt;/div&gt;</content><id>t3_def</id>
-        <link href="https://www.reddit.com/r/Android/comments/def/weekly_thread/" /><updated>2026-11-17T08:00:00+00:00</updated>
-        <title>Weekly thread</title></entry>
+        <updated>2026-11-18T09:00:00+00:00</updated><id>urn:x</id><link rel="self" href="https://example.com/atom.xml" />
+        <link rel="alternate" href="https://example.com/" type="text/html" /><title>Example</title>
+        <entry><author><name>/u/someone</name><uri>https://example.com/user/someone</uri></author>
+        <content type="html">&lt;table&gt; &lt;tr&gt;&lt;td&gt; &lt;img src=&quot;https://example.com/pic.jpg?width=140&amp;amp;s=1&quot; alt=&quot;x&quot; /&gt; &lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</content>
+        <id>t3_abc</id><media:thumbnail url="https://example.com/thumb.jpg" />
+        <link href="https://example.com/posts/abc/" /><updated>2026-11-18T08:30:00+00:00</updated>
+        <published>2026-11-18T08:00:00+00:00</published><title>Review: it&amp;#39;s &amp;quot;fine&amp;quot;</title></entry>
+        <entry><author><name>other</name></author><id>t3_def</id>
+        <link href="https://example.com/posts/def/" /><updated>2026-11-17T08:00:00+00:00</updated><title>Weekly thread</title></entry>
         </feed>
     """.trimIndent()
 
     @Test
-    fun readsRedditAtom() {
-        val feed = FeedParser.parse(reddit)
-        assertEquals("Android", feed.title)
+    fun readsAtom() {
+        val feed = FeedParser.parse(atom)
+        assertEquals("Example", feed.title)
         assertEquals(2, feed.items.size)
         val first = feed.items[0]
-        assertEquals("Pixel 11 review: it's \"fine\"", first.title)
-        assertEquals("https://www.reddit.com/r/Android/comments/abc/pixel_11_review/", first.link)
+        assertEquals("Review: it's \"fine\"", first.title)
+        assertEquals("https://example.com/posts/abc/", first.link)
         assertEquals("u/someone", first.author)
         assertEquals(java.time.OffsetDateTime.parse("2026-11-18T08:00:00+00:00").toInstant().toEpochMilli(), first.publishedAt)
-        assertEquals("https://b.thumbs.redditmedia.com/thumb.jpg", first.image)
-        val second = feed.items[1]
-        assertEquals("Weekly thread", second.title)
-        assertEquals("u/other", second.author)
-        assertNull(second.image)
+        assertEquals("https://example.com/thumb.jpg", first.image)
+        assertNull(first.points)
         // Only updated: that stands in for published.
-        assertEquals(java.time.OffsetDateTime.parse("2026-11-17T08:00:00+00:00").toInstant().toEpochMilli(), second.publishedAt)
+        assertEquals(java.time.OffsetDateTime.parse("2026-11-17T08:00:00+00:00").toInstant().toEpochMilli(), feed.items[1].publishedAt)
     }
 
     @Test
     fun theHtmlPictureIsAFallback() {
-        val feed = FeedParser.parse(reddit.replace("""<media:thumbnail url="https://b.thumbs.redditmedia.com/thumb.jpg" />""", ""))
-        assertEquals("https://b.thumbs.redditmedia.com/pic.jpg?width=140&s=1", feed.items[0].image)
+        val feed = FeedParser.parse(atom.replace("""<media:thumbnail url="https://example.com/thumb.jpg" />""", ""))
+        assertEquals("https://example.com/pic.jpg?width=140&s=1", feed.items[0].image)
     }
 
     @Test
@@ -186,8 +223,8 @@ class FeedTest {
     @Test
     fun theSavedCopyReadsBack() {
         val cached = CachedFeed(
-            "https://www.reddit.com/r/android/.rss",
-            Feed("Android", listOf(FeedItem("a", "https://x/a", "u/me", 5L, "https://x/a.jpg"), FeedItem("b", null))),
+            "https://lemmy.ml/feeds/c/linux.xml?sort=Hot",
+            Feed("Lemmy - linux", listOf(FeedItem("a", "https://x/a", "me", 5L, "https://x/a.jpg", 94, 23), FeedItem("b", null))),
             fetchedAt = 42,
         )
         assertEquals(cached, FeedStore.decode(FeedStore.encode(cached).toString()))
@@ -218,30 +255,57 @@ class FeedTest {
     }
 
     @Test
+    fun feedsAreTakenInTurn() {
+        fun item(t: String) = FeedItem(t, "https://x/$t")
+        val a = listOf(item("a1"), item("a2"), item("a3"))
+        val b = listOf(item("b1"), item("shared"))
+        val c = listOf(item("c1"), item("shared"))
+        assertEquals(listOf("a1", "b1", "c1", "a2", "shared", "a3"), FeedTiles.merge(listOf(a, b, c)).map { it.title })
+        assertEquals(emptyList<FeedItem>(), FeedTiles.merge(emptyList()))
+        // With nothing to show, a feed that loaded (just empty) says more than a failure, a failure more than loading.
+        val failed = CachedFeed("u1", null, failedAt = 1, error = "no connection")
+        val empty = CachedFeed("u2", Feed(null, emptyList()), fetchedAt = 1)
+        assertEquals(empty, FeedTiles.summary(listOf(null, failed, empty)))
+        assertEquals(failed, FeedTiles.summary(listOf(null, failed)))
+        assertNull(FeedTiles.summary(listOf(null, null)))
+    }
+
+    @Test
     fun aTapOpensTheShownHeadlineElseTheFeedsPage() {
-        val url = "https://www.reddit.com/r/android/.rss"
-        assertEquals("https://www.reddit.com/r/android/", FeedTiles.intent(77, url).data.toString())
+        val feed = TileContent.Feed(listOf("https://lemmy.ml/feeds/c/linux.xml?sort=Hot"))
+        val context = RuntimeEnvironment.getApplication()
+        assertEquals("https://lemmy.ml/c/linux", FeedTiles.intent(context, 77, feed).data.toString())
+        // An app that can't take the link (here: not installed) is passed over for the system's choice.
+        assertNull(FeedTiles.intent(context, 77, feed.copy(openWith = "com.example.gone")).`package`)
     }
 
     // ---- layout and backups ----
 
+    private val twoFeeds = TileContent.Feed(
+        listOf("https://lemmy.ml/feeds/c/linux.xml?sort=New", "https://example.com/feed.xml"),
+        openWith = "com.jerboa",
+    )
+
     @Test
-    fun theTileIsSavedAsTypeFeedWithItsAddress() {
-        val tiles = listOf(TileSpec(9, TileSize.WIDE, TileContent.Feed("https://www.reddit.com/r/android/.rss"), 0, 0))
+    fun theTileIsSavedAsTypeFeedWithItsAddresses() {
+        val tiles = listOf(TileSpec(9, TileSize.WIDE, twoFeeds, 0, 0))
         val json = TileJson.encode(tiles)
         assertEquals("feed", json.getJSONObject(0).getString("type"))
-        assertEquals("https://www.reddit.com/r/android/.rss", json.getJSONObject(0).getString("url"))
+        assertEquals(2, json.getJSONObject(0).getJSONArray("urls").length())
+        assertEquals("com.jerboa", json.getJSONObject(0).getString("openWith"))
         assertEquals(tiles, TileJson.decode(json))
-        // A feed tile without an address can't be drawn: it is kept as an unread entry, not loaded.
-        assertTrue(TileJson.decode(JSONArray("""[{"id":1,"size":"WIDE","type":"feed","url":""}]""")).isEmpty())
+        val one = TileContent.Feed(listOf("https://example.com/feed.xml"))
+        assertEquals(one, TileJson.decode(TileJson.encode(listOf(TileSpec(1, TileSize.WIDE, one)))).single().content)
+        // A feed tile without addresses can't be drawn: it is kept as an unread entry, not loaded.
+        assertTrue(TileJson.decode(JSONArray("""[{"id":1,"size":"WIDE","type":"feed","urls":[]}]""")).isEmpty())
+        assertTrue(TileJson.decode(JSONArray("""[{"id":1,"size":"WIDE","type":"feed"}]""")).isEmpty())
     }
 
     @Test
     fun aBackupWithAFeedTileRestoresIt() {
-        val feed = TileContent.Feed("https://www.reddit.com/r/android/.rss")
-        val tiles = TileJson.encode(listOf(TileSpec(9, TileSize.WIDE, feed, 0, 0))).toString()
+        val tiles = TileJson.encode(listOf(TileSpec(9, TileSize.WIDE, twoFeeds, 0, 0))).toString()
         val prefs = preferencesOf(stringPreferencesKey("tiles") to tiles)
         val restored = Backup.decode(Backup.encode(prefs, "test", 0L))
-        assertEquals(feed, TileJson.read(restored[stringPreferencesKey("tiles")]!!)!!.tiles.single().content)
+        assertEquals(twoFeeds, TileJson.read(restored[stringPreferencesKey("tiles")]!!)!!.tiles.single().content)
     }
 }

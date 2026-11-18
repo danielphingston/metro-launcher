@@ -42,7 +42,7 @@ import org.robolectric.annotation.GraphicsMode
 class FeedScreenshotTest {
     private companion object {
         const val NOW = 1_800_000_000_000L
-        const val URL = "https://www.reddit.com/r/android/.rss"
+        const val URL = "https://lemmy.ml/feeds/c/linux.xml?sort=Hot"
     }
 
     private class Item(
@@ -55,13 +55,15 @@ class FeedScreenshotTest {
     )
 
     private val pictured = FeedItem(
-        "Pixel 11 review: the best camera this year, and the battery finally lasts two days",
-        "https://www.reddit.com/r/Android/comments/abc/",
-        "u/someone",
+        "Canonical is now shipping AI-written security patches to Ubuntu Pro users",
+        "https://lemmy.ml/post/55448193",
+        "SocialistVibes01",
         NOW - 42 * 60_000L,
         "thumb",
+        points = 94,
+        comments = 23,
     )
-    private val plain = FeedItem("Weekly discussion thread: what apps are you using this week?", null, "u/AutoModerator", NOW - 5 * 3_600_000L)
+    private val plain = FeedItem("Understanding Linux and choosing your first Linux distro, v2.0", null, "wfh", NOW - 5 * 3_600_000L)
 
     @Test
     fun faces() {
@@ -84,7 +86,7 @@ class FeedScreenshotTest {
                             Item(2, 8, TileSize.SMALL, null, null),
                         ).forEach { item ->
                             Box(Modifier.offset(c * item.x, c * item.y).size(c * item.size.width - gap, c * item.size.height - gap).tileSurface()) {
-                                FeedFace(item.size, "r/android", item.item, item.cached, item.unlocked, m, NOW) { url, _, _ ->
+                                FeedFace(item.size, "c/linux", item.item, item.cached, item.unlocked, m, NOW) { url, _, _ ->
                                     if (url == null) null else thumbnail().asImageBitmap()
                                 }
                             }
