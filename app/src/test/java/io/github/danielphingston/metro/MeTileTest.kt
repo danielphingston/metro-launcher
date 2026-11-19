@@ -51,10 +51,10 @@ class MeTileTest {
         val feed = MeFeed.build(chatty + listOf(input("m1", "mail", 50), input("s1", "sms", 40)))
         assertEquals(22, feed.total)
         assertEquals(listOf("g20", "m1", "s1"), feed.recent.map { it.key })
-        // At most eight apps get a face, newest app first.
+        // At most five apps get a face, newest app first.
         val many = MeFeed.build((1..12).map { input("k$it", "app$it", it.toLong()) })
-        assertEquals((12 downTo 5).map { "k$it" }, many.recent.map { it.key })
-        assertEquals(8, MeModel.of(many, true, true, TileSize.WIDE, name).faces.size)
+        assertEquals((12 downTo 8).map { "k$it" }, many.recent.map { it.key })
+        assertEquals(5, MeModel.of(many, true, true, TileSize.WIDE, name).faces.size)
     }
 
     @Test

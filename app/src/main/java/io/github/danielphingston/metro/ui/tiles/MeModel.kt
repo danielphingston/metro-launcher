@@ -35,7 +35,7 @@ data class MeModel(val state: State, val count: Int, val icons: List<String>, va
     }
 
     companion object {
-        const val MAX_FACES = 8
+        const val MAX_FACES = 5
 
         /**
          * The label to show for [packageName], or null when [label] is missing or just the package name

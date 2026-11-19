@@ -45,7 +45,7 @@ class MeInput(
  * that feeds the unread counts, so both agree. It changes only on listener callbacks.
  */
 object MeFeed {
-    const val RECENT_LIMIT = 8
+    const val RECENT_LIMIT = 5
 
     private val _snapshot = MutableStateFlow(MeSnapshot.EMPTY)
     val snapshot: StateFlow<MeSnapshot> = _snapshot.asStateFlow()
