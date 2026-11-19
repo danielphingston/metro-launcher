@@ -40,8 +40,21 @@ class MeTileTest {
         assertEquals(listOf("mail", "chat", "news"), snapshot.apps.map { it.packageName })
         assertEquals(2, snapshot.apps.first().count)
         assertEquals("a2", snapshot.apps.first().newestKey)
-        assertEquals(listOf("a2", "b1", "a1", "c1"), snapshot.recent.map { it.key })
+        // Each app's newest only: mail's older a1 gives way to the other apps.
+        assertEquals(listOf("a2", "b1", "c1"), snapshot.recent.map { it.key })
         assertEquals(2, MeFeed.build(snapshot.recent.map { input(it.key, it.packageName, it.postTime) }, recentLimit = 2).recent.size)
+    }
+
+    @Test
+    fun aBusyChatDoesNotCrowdOutOtherApps() {
+        val chatty = (1..20).map { input("g$it", "groupchat", 100L + it) }
+        val feed = MeFeed.build(chatty + listOf(input("m1", "mail", 50), input("s1", "sms", 40)))
+        assertEquals(22, feed.total)
+        assertEquals(listOf("g20", "m1", "s1"), feed.recent.map { it.key })
+        // At most eight apps get a face, newest app first.
+        val many = MeFeed.build((1..12).map { input("k$it", "app$it", it.toLong()) })
+        assertEquals((12 downTo 5).map { "k$it" }, many.recent.map { it.key })
+        assertEquals(8, MeModel.of(many, true, true, TileSize.WIDE, name).faces.size)
     }
 
     @Test

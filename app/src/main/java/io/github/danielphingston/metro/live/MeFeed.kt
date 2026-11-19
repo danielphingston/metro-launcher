@@ -20,7 +20,10 @@ data class MeNotification(
 /** An app that has counted notifications; [newestKey] and [newestIntent] are those of its newest one. */
 data class MeApp(val appKey: String, val packageName: String, val count: Int, val newest: Long, val newestKey: String, val newestIntent: PendingIntent? = null)
 
-/** [apps] and [recent] are newest first; [recent] is capped so only a few notifications get their extras parsed. */
+/**
+ * [apps] and [recent] are newest first. [recent] holds each app's newest notification, so a busy
+ * chat can't crowd the others off the tile, and is capped so only a few get their extras parsed.
+ */
 data class MeSnapshot(val total: Int, val apps: List<MeApp>, val recent: List<MeNotification>) {
     companion object {
         val EMPTY = MeSnapshot(0, emptyList(), emptyList())
@@ -42,7 +45,7 @@ class MeInput(
  * that feeds the unread counts, so both agree. It changes only on listener callbacks.
  */
 object MeFeed {
-    const val RECENT_LIMIT = 5
+    const val RECENT_LIMIT = 8
 
     private val _snapshot = MutableStateFlow(MeSnapshot.EMPTY)
     val snapshot: StateFlow<MeSnapshot> = _snapshot.asStateFlow()
@@ -61,7 +64,7 @@ object MeFeed {
         val apps = sorted.groupBy { it.appKey }.map { (appKey, list) ->
             MeApp(appKey, list.first().packageName, list.size, list.first().postTime, list.first().key, list.first().intent)
         }.sortedByDescending { it.newest }
-        val recent = sorted.take(recentLimit).map {
+        val recent = sorted.distinctBy { it.appKey }.take(recentLimit).map {
             MeNotification(it.key, it.appKey, it.packageName, it.postTime, it.preview(), it.intent)
         }
         return MeSnapshot(inputs.size, apps, recent)
