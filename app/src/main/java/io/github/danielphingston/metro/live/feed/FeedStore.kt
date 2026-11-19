@@ -360,8 +360,32 @@ object FeedStore {
         CachedFeed(obj.getString("url"), Feed(obj.optString("title").ifEmpty { null }, items), obj.optLong("fetchedAt"))
     }.getOrNull()
 
+    private val postLink = Regex("^https://([A-Za-z0-9.-]+)/post/(\\d+)/?$")
+    private val canonical = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * The address a Lemmy post has where it was written, for a [link] to it on the instance whose
+     * feed listed it: "https://programming.dev/post/59546847" is that instance's copy of
+     * "https://lemmy.today/post/63466711". A Lemmy app signed in elsewhere can only look up the
+     * latter. Asks the feed's instance once (its API's post "ap_id"), then remembers; null when
+     * [link] is no Lemmy post link or the instance doesn't answer.
+     */
+    suspend fun canonicalPostLink(link: String): String? {
+        canonical[link]?.let { return it }
+        val m = postLink.matchEntire(link) ?: return null
+        val found = withContext(Dispatchers.IO) {
+            runCatching {
+                val body = http.get("https://${m.groupValues[1]}/api/v3/post?id=${m.groupValues[2]}", 512 * 1024, "application/json")
+                JSONObject(body.bytes.toString(Charsets.UTF_8)).getJSONObject("post_view").getJSONObject("post").getString("ap_id")
+            }.getOrNull()
+        }?.takeIf { it.startsWith("https://") } ?: return null
+        canonical[link] = found
+        return found
+    }
+
     /** Forgets everything held in memory; for tests. */
     internal fun clearMemory() {
         _feeds.value = emptyMap()
+        canonical.clear()
     }
 }

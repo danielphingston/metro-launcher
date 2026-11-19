@@ -132,8 +132,9 @@ internal fun FeedEditor(
             val rest = pieces.drop(i + 1).joinToString(" ")
             val entry = FeedAddress.parse(piece)
             val wrongKind = when {
-                entry is FeedAddress.Entry.Address && kind == FeedKind.LEMMY ->
-                    "that isn't a community, like !linux@lemmy.ml. For a site's feed, choose rss or atom."
+                entry is FeedAddress.Entry.Address && kind == FeedKind.LEMMY -> FeedAddress.siteHost(entry.url)?.let { host ->
+                    "that's the whole of $host: add one of its communities, like !name@$host or a link with /c/ in it"
+                } ?: "that isn't a community, like !linux@lemmy.ml. For a site's feed, choose rss or atom."
                 entry is FeedAddress.Entry.Lemmy && kind == FeedKind.RSS -> "${entry.community} is a Lemmy community: choose lemmy above."
                 else -> null
             }

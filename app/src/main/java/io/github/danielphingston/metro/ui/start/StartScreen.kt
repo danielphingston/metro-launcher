@@ -808,7 +808,6 @@ fun StartScreen(
                         onGroup = if (TileFolders.canGroup(selectedTile.spec)) ({ state.startGrouping(selectedTile.spec.id) }) else null,
                         groupLabel = if (selectedTile.spec.content is TileContent.Folder) "add to folder" else "group into folder",
                         onCustomise = { state.stylingId = selectedTile.spec.id },
-                        customiseBesideHandle = isWidget,
                     )
                     WidgetEditBadges(
                         tile = tiles[selectedIndex],
@@ -1286,8 +1285,8 @@ internal fun TileHost(
 /**
  * The corner badges of the selected tile in edit mode, the same on every tile kind: unpin (top
  * right), resize (bottom right; a widget has its drag handle there instead, see [WidgetEditBadges]),
- * group into a folder (top left, where grouping is possible) and customise (bottom left; on a
- * widget, beside its drag handle).
+ * group into a folder (top left, where grouping is possible) and customise (bottom left, widgets
+ * included).
  */
 @Composable
 internal fun EditBadges(
@@ -1299,8 +1298,6 @@ internal fun EditBadges(
     onGroup: (() -> Unit)? = null,
     groupLabel: String = "group into folder",
     onCustomise: (() -> Unit)? = null,
-    /** Puts the customise badge on the bottom edge just left of a widget's drag handle. */
-    customiseBesideHandle: Boolean = false,
 ) {
     val badgePx = with(LocalDensity.current) { EditBadgeSize.toPx() }
     val right = (placement.x + placement.width) * cellPx - gapPx
@@ -1327,11 +1324,7 @@ internal fun EditBadges(
     if (onCustomise != null) EditBadge(
         label = "customise",
         onClick = onCustomise,
-        modifier = Modifier.offset {
-            // Beside the handle: one badge and a small gap to the left of where the handle sits.
-            val x = if (customiseBesideHandle) right - badgePx * 0.85f - badgePx * 1.15f else left - badgePx * 0.15f
-            IntOffset(x.roundToInt(), (bottom - badgePx * 0.7f).roundToInt())
-        },
+        modifier = Modifier.offset { IntOffset((left - badgePx * 0.15f).roundToInt(), (bottom - badgePx * 0.7f).roundToInt()) },
     ) { color, stroke -> drawPencil(color, stroke) }
     // Resize: bottom-right corner, arrow pointing to the next size.
     if (onResize != null) EditBadge(
@@ -1490,7 +1483,7 @@ private fun activateTile(
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, content)
         is TileContent.Feed -> if (quickUnlocked) {
-            launcher.start(FeedTiles.intent(context, tile.spec.id, content, lemmyApp), bounds)
+            FeedTiles.open(context, tile.spec.id, content, lemmyApp) { intent -> launcher.start(intent, bounds) }
         } else {
             android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
         }

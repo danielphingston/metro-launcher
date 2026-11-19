@@ -113,6 +113,23 @@ class FeedEditorTest {
     }
 
     @Test
+    fun aPostIsLookedUpForItsOwnAddressOnce() = runBlocking {
+        var asked = 0
+        FeedStore.http = FeedHttp { url, _, _ ->
+            asked++
+            if (url != "https://programming.dev/api/v3/post?id=59546847") throw HttpStatusException(404)
+            Fetched("""{"post_view":{"post":{"id":59546847,"ap_id":"https://lemmy.today/post/63466711","local":false}}}""".toByteArray(), url, "application/json")
+        }
+        assertEquals("https://lemmy.today/post/63466711", FeedStore.canonicalPostLink("https://programming.dev/post/59546847"))
+        assertEquals("https://lemmy.today/post/63466711", FeedStore.canonicalPostLink("https://programming.dev/post/59546847"))
+        assertEquals(1, asked)
+        // Not a Lemmy post link (asks nothing), or the instance doesn't know it.
+        assertNull(FeedStore.canonicalPostLink("https://example.com/article"))
+        assertEquals(1, asked)
+        assertNull(FeedStore.canonicalPostLink("https://lemmy.ml/post/1"))
+    }
+
+    @Test
     fun communityProblemsNameTheCommunity() {
         val linux = Community("linux", "lemmy.world")
         assertEquals("!linux@lemmy.world wasn't found on lemmy.world", FeedProblem.NOT_FOUND.communityMessage(linux))
@@ -219,6 +236,14 @@ class FeedEditorTest {
         tap("add tile")
         rule.waitUntil(5_000) { saved != null }
         assertEquals(TileContent.Feed(listOf("https://example.com/feed")), saved)
+    }
+
+    @Test
+    fun aWholeSiteSaysToAddOneOfItsCommunities() {
+        editor { }
+        field().performTextInput("https://programming.dev/")
+        rule.onNodeWithText("add").performClick()
+        waitFor("that's the whole of programming.dev: add one of its communities, like !name@programming.dev or a link with /c/ in it")
     }
 
     @Test

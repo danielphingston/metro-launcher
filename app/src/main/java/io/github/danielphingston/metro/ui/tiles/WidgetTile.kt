@@ -564,7 +564,7 @@ private fun widgetSpanLimits(
 /**
  * The extra edit mode badge of the selected widget tile: on its bottom-right corner a handle that
  * resizes it in whole cells, within what the provider allows. (Its settings and background are in
- * the customise sheet, whose badge sits beside the handle; see [io.github.danielphingston.metro.ui.start.EditBadges].) While dragging, [state] holds the footprint to outline; the tile is only resized on
+ * the customise sheet, whose badge sits bottom left as on every tile; see [io.github.danielphingston.metro.ui.start.EditBadges].) While dragging, [state] holds the footprint to outline; the tile is only resized on
  * release, through [onSetSpan], because every size change is reported to the widget.
  */
 @Composable

@@ -92,6 +92,23 @@ class LemmyAppTest {
     }
 
     @Test
+    fun aPostSeenThroughAnotherInstanceOpensByItsOwnAddress() {
+        // The feed's link, already aimed at Jerboa (which lists programming.dev).
+        val plain = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://programming.dev/post/59546847")).setPackage("com.jerboa")
+        // Written on lemmy.ml, which Jerboa lists: its own address goes to Jerboa.
+        val listed = FeedTiles.canonicalIntent(context, "https://lemmy.ml/post/123", "com.jerboa", plain)
+        assertEquals("https://lemmy.ml/post/123", listed.data.toString())
+        assertEquals("com.jerboa", listed.`package`)
+        // Written on lemmy.today, which it doesn't: the feed's link opens in the browser instead of "can't find".
+        val unlisted = FeedTiles.canonicalIntent(context, "https://lemmy.today/post/63466711", "com.jerboa", plain)
+        assertEquals("https://programming.dev/post/59546847", unlisted.data.toString())
+        assertNull(unlisted.`package`)
+        // Written where the feed is, or not looked up: as it was.
+        assertTrue(FeedTiles.canonicalIntent(context, "https://programming.dev/post/59546847", "com.jerboa", plain) === plain)
+        assertTrue(FeedTiles.canonicalIntent(context, null, "com.jerboa", plain) === plain)
+    }
+
+    @Test
     fun theSetting() {
         captureRoboImage("src/test/screenshots/settings_lemmy_app.png", roborazziOptions = ScreenshotOptions) {
             MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {

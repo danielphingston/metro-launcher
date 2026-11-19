@@ -127,6 +127,14 @@ object FeedAddress {
         return runCatching { URI(withScheme) }.getOrNull()?.takeIf { it.host != null }
     }
 
+    /** The host of [url] when it is a site's front page ("https://programming.dev/"), else null. */
+    fun siteHost(url: String): String? {
+        val uri = uri(url) ?: return null
+        val path = uri.rawPath.orEmpty()
+        if ((path.isNotEmpty() && path != "/") || uri.rawQuery != null) return null
+        return uri.host.lowercase(Locale.ROOT)
+    }
+
     /** One feed's name: "c/linux" for a community, else the site's host without "www.". */
     fun label(url: String): String {
         lemmy(url)?.let { (community, _) -> return "c/${community.name}" }

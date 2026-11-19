@@ -388,7 +388,7 @@ class StartScreenshotTest {
                         if (resizing) {
                             // A widget tile has a drag handle where other tiles have the resize badge.
                             val badge = placements[1]
-                            EditBadges(badge, cellPx, gapPx, {}, null, onCustomise = {}, customiseBesideHandle = true)
+                            EditBadges(badge, cellPx, gapPx, {}, null, onCustomise = {})
                             EditBadge(
                                 label = "resize handle",
                                 onClick = null,
