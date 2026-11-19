@@ -239,21 +239,49 @@ object FeedStore {
      * The picture at [url], decoded to cover [width]x[height] pixels; downloaded once into the
      * cache dir. Null when it can't be had. Blocking: call off the main thread.
      */
-    fun image(context: Context, url: String, width: Int, height: Int): Bitmap? = runCatching {
-        val dir = File(context.cacheDir, "feed_images").apply { mkdirs() }
-        val file = File(dir, hash(url))
-        if (!file.exists()) {
-            val bytes = http.get(url, MAX_IMAGE_BYTES, "image/*").bytes
-            val tmp = File(dir, file.name + ".tmp")
-            tmp.writeBytes(bytes)
-            tmp.renameTo(file)
-            trim(dir)
+    fun image(context: Context, url: String, width: Int, height: Int, declaredBytes: Long? = null): Bitmap? {
+        if (url in failedImages) return null
+        val fetch = sizedImageUrl(url, width)
+        // Declared too big and the site can't be asked for a smaller one: not even started.
+        if (fetch == url && declaredBytes != null && declaredBytes > MAX_IMAGE_BYTES) {
+            failedImages += url
+            return null
         }
-        ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
-            val (w, h) = ImageDecode.coverSize(info.size.width, info.size.height, width.coerceAtLeast(1), height.coerceAtLeast(1))
-            decoder.setTargetSize(w, h)
-        }
-    }.getOrNull()
+        return runCatching {
+            val dir = File(context.cacheDir, "feed_images").apply { mkdirs() }
+            val file = File(dir, hash(fetch))
+            if (!file.exists()) {
+                val bytes = http.get(fetch, MAX_IMAGE_BYTES, "image/*").bytes
+                val tmp = File(dir, file.name + ".tmp")
+                tmp.writeBytes(bytes)
+                tmp.renameTo(file)
+                trim(dir)
+            }
+            ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+                val (w, h) = ImageDecode.coverSize(info.size.width, info.size.height, width.coerceAtLeast(1), height.coerceAtLeast(1))
+                decoder.setTargetSize(w, h)
+            }
+        }.onFailure { failedImages += url }.getOrNull()
+    }
+
+    /**
+     * Pictures that couldn't be had (too big, gone, not a picture): not tried again until the app
+     * restarts, so a headline coming round again doesn't download the same failure each time.
+     */
+    private val failedImages: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /**
+     * The address to download [url] from for a tile [width] pixels wide. WordPress sites (their
+     * pictures live under /wp-content/uploads/) resize on request with "?w=": nasa.gov answers a
+     * 27 MB original with about 140 KB. Sites that can't, ignore it. Widths are rounded up to
+     * steps of 200 so tiles of similar sizes share one download. Other addresses, and ones that
+     * already have a query, are left as they are.
+     */
+    internal fun sizedImageUrl(url: String, width: Int): String {
+        if ("/wp-content/uploads/" !in url || '?' in url || '#' in url) return url
+        val step = ((width.coerceIn(200, 1600) + 199) / 200) * 200
+        return "$url?w=$step"
+    }
 
     /** Keeps the picture cache to the newest [MAX_CACHED_IMAGES] files. */
     private fun trim(dir: File) {
@@ -336,6 +364,7 @@ object FeedStore {
                             item.points?.let { put("points", it) }
                             item.comments?.let { put("comments", it) }
                             item.authorHome?.let { put("authorHome", it) }
+                            item.imageBytes?.let { put("imageBytes", it) }
                         },
                     )
                 }
@@ -357,6 +386,7 @@ object FeedStore {
                 if (o.has("points")) o.optInt("points") else null,
                 if (o.has("comments")) o.optInt("comments") else null,
                 o.optString("authorHome").ifEmpty { null },
+                if (o.has("imageBytes")) o.optLong("imageBytes") else null,
             )
         }
         CachedFeed(obj.getString("url"), Feed(obj.optString("title").ifEmpty { null }, items), obj.optLong("fetchedAt"))
@@ -458,5 +488,6 @@ object FeedStore {
         _feeds.value = emptyMap()
         canonical.clear()
         lookups.clear()
+        failedImages.clear()
     }
 }

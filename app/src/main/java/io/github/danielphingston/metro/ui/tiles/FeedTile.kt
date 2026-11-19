@@ -231,6 +231,26 @@ object FeedTiles {
         ) != null
     }.getOrDefault(false)
 
+    /** How much older than the rest a post at the top must be to count as pinned; see [withoutPinned]. */
+    private val PINNED_AGE_MS = TimeUnit.DAYS.toMillis(7)
+
+    /**
+     * [items] without the posts a Lemmy community pinned. Its feed doesn't mark them, but they
+     * always come first and are far older than what follows (a rules post from March above this
+     * morning's posts). The leading posts more than a week older than the newest post after them
+     * are left out; a quiet community whose posts are all old keeps them, as nothing after is newer.
+     */
+    fun withoutPinned(items: List<FeedItem>): List<FeedItem> {
+        var skip = 0
+        while (skip < items.size) {
+            val at = items[skip].publishedAt ?: break
+            val newestAfter = items.drop(skip + 1).mapNotNull { it.publishedAt }.maxOrNull() ?: break
+            if (newestAfter - at <= PINNED_AGE_MS) break
+            skip++
+        }
+        return items.drop(skip)
+    }
+
     /**
      * Several feeds' posts as one list, taken in turn (first of each, then second of each...),
      * so each feed keeps its own order (hot, new) and none crowds out the rest. A post that two
@@ -297,7 +317,15 @@ fun FeedTile(tile: ResolvedTile, urls: List<String>, cellSize: Dp, flipped: Bool
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { urls.forEach { launch { FeedStore.refresh(context, it) } } }
     }
     val copies = urls.map { feeds[it] }
-    val merged = remember(copies) { FeedTiles.merge(copies.map { it?.feed?.items.orEmpty() }) }
+    val merged = remember(copies) {
+        FeedTiles.merge(
+            copies.mapIndexed { i, copy ->
+                val items = copy?.feed?.items.orEmpty()
+                // A community's pinned posts lead every listing: rules and notices, not news.
+                if (FeedAddress.lemmy(urls[i]) != null) FeedTiles.withoutPinned(items) else items
+            },
+        )
+    }
     val cached = FeedTiles.summary(copies)
     // Each flip moves on one headline; the first shows the newest.
     var step by remember(urls) { mutableIntStateOf(0) }
@@ -338,7 +366,7 @@ internal fun FeedFace(
     unlocked: Boolean,
     m: TileMetrics,
     now: Long = System.currentTimeMillis(),
-    picture: @Composable (url: String?, width: Int, height: Int) -> ImageBitmap? = { url, w, h -> rememberFeedImage(url, w, h) },
+    picture: @Composable (item: FeedItem, width: Int, height: Int) -> ImageBitmap? = { item, w, h -> rememberFeedImage(item, w, h) },
 ) {
     val white = Metro.colors.onAccent
     // The tile's own surface: its colour, its transparency, or none when "show background" is off.
@@ -392,14 +420,14 @@ private fun Headline(
     item: FeedItem,
     m: TileMetrics,
     now: Long,
-    loadPicture: @Composable (url: String?, width: Int, height: Int) -> ImageBitmap?,
+    loadPicture: @Composable (item: FeedItem, width: Int, height: Int) -> ImageBitmap?,
 ) {
     val white = Metro.colors.onAccent
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val widthPx = with(density) { maxWidth.roundToPx() }
         val heightPx = with(density) { maxHeight.roundToPx() }
-        val picture = loadPicture(item.image, widthPx, heightPx)
+        val picture = loadPicture(item, widthPx, heightPx)
         if (picture != null) {
             Image(picture, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             // Keeps the headline legible on any picture.
@@ -433,15 +461,18 @@ private fun Headline(
     }
 }
 
-/** The picture at [url] at about [width]x[height] pixels, once it has downloaded; null meanwhile and when there is none. */
+/** The picture of [item] at about [width]x[height] pixels, once it has downloaded; null meanwhile and when there is none. */
 @Composable
-private fun rememberFeedImage(url: String?, width: Int, height: Int): ImageBitmap? {
+private fun rememberFeedImage(item: FeedItem, width: Int, height: Int): ImageBitmap? {
     val context = LocalContext.current
+    val url = item.image
     val image by produceState<ImageBitmap?>(null, url, width, height) {
         value = if (url == null || width <= 0 || height <= 0) {
             null
         } else {
-            withContext(Dispatchers.IO) { FeedStore.image(context.applicationContext, url, width, height)?.asImageBitmap() }
+            withContext(Dispatchers.IO) {
+                FeedStore.image(context.applicationContext, url, width, height, item.imageBytes)?.asImageBitmap()
+            }
         }
     }
     return image

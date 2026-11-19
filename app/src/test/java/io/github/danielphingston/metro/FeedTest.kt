@@ -283,6 +283,27 @@ class FeedTest {
     }
 
     @Test
+    fun pinnedPostsAreLeftOut() {
+        val day = 86_400_000L
+        val now = 1_800_000_000_000L
+        fun item(t: String, age: Long) = FeedItem(t, "https://x/$t", publishedAt = now - age)
+        // lemmy.world's !pics on 19 November 2026: a rules post from March leads this morning's photos.
+        val pics = listOf(item("Memes and Violent Posts", 255 * day), item("Tasty snack", 0), item("Sleepy time", day / 2))
+        assertEquals(listOf("Tasty snack", "Sleepy time"), FeedTiles.withoutPinned(pics).map { it.title })
+        // Two pinned (community and instance) both go.
+        val two = listOf(item("Instance notice", 40 * day), item("Rules", 300 * day), item("Fresh", 0))
+        assertEquals(listOf("Fresh"), FeedTiles.withoutPinned(two).map { it.title })
+        // A quiet community, everything old: kept. An old post further down: kept.
+        val quiet = listOf(item("a", 90 * day), item("b", 95 * day), item("c", 120 * day))
+        assertEquals(quiet, FeedTiles.withoutPinned(quiet))
+        val olderBelow = listOf(item("new", 0), item("old", 30 * day))
+        assertEquals(olderBelow, FeedTiles.withoutPinned(olderBelow))
+        // No dates, nothing to judge by: kept.
+        val undated = listOf(FeedItem("x", null), FeedItem("y", null))
+        assertEquals(undated, FeedTiles.withoutPinned(undated))
+    }
+
+    @Test
     fun aTapOpensTheShownHeadlineElseTheFeedsPage() {
         val feed = TileContent.Feed(listOf("https://lemmy.ml/feeds/c/linux.xml?sort=Hot"))
         val context = RuntimeEnvironment.getApplication()

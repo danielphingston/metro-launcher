@@ -23,6 +23,8 @@ data class FeedItem(
      * by someone on the feed's own instance was written there, so its link is its own address.
      */
     val authorHome: String? = null,
+    /** The picture's size in bytes as the feed declares it (an enclosure's length), when it does. */
+    val imageBytes: Long? = null,
 )
 
 data class Feed(val title: String?, val items: List<FeedItem>)
@@ -75,6 +77,7 @@ object FeedParser {
         var htmlImage: String? = null
         var counts: Pair<Int, Int>? = null
         var authorHome: String? = null
+        var imageBytes: Long? = null
         var event = parser.next()
         while (!(event == XmlPullParser.END_TAG && parser.depth == depth) && event != XmlPullParser.END_DOCUMENT) {
             if (event == XmlPullParser.START_TAG) {
@@ -133,7 +136,10 @@ object FeedParser {
                     }
                     "enclosure" -> {
                         val url = parser.getAttributeValue(null, "url")
-                        if (url != null && image == null && isImage(parser.getAttributeValue(null, "type"))) image = url
+                        if (url != null && image == null && isImage(parser.getAttributeValue(null, "type"))) {
+                            image = url
+                            imageBytes = parser.getAttributeValue(null, "length")?.trim()?.toLongOrNull()?.takeIf { it > 0 }
+                        }
                         skip(parser)
                     }
                 }
@@ -144,7 +150,9 @@ object FeedParser {
         val picture = (image ?: htmlImage)?.let(::unescape)?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
         // Only web links are opened from a tile: a feed can't make a tap run "intent:" or "javascript:".
         val web = link?.trim()?.takeIf { it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true) }
-        return FeedItem(text, web, author, date, picture, counts?.first, counts?.second, authorHome)
+        // The declared size belongs to the enclosure; it says nothing about a picture found elsewhere.
+        val declared = imageBytes?.takeIf { picture != null && picture == image?.let(::unescape) }
+        return FeedItem(text, web, author, date, picture, counts?.first, counts?.second, authorHome, declared)
     }
 
     /** The element name without its namespace prefix ("media:thumbnail" -> "thumbnail"). */
