@@ -24,7 +24,11 @@ import io.github.danielphingston.metro.live.feed.FeedItem
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroTheme
-import io.github.danielphingston.metro.ui.theme.tileSurface
+import io.github.danielphingston.metro.ui.theme.LocalMetroColors
+import io.github.danielphingston.metro.ui.theme.LocalTileDecor
+import io.github.danielphingston.metro.ui.theme.TileDecor
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Color
 import io.github.danielphingston.metro.ui.tiles.FeedFace
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,7 +42,7 @@ import org.robolectric.annotation.GraphicsMode
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [35], qualifiers = "w411dp-h1000dp-xxhdpi", application = android.app.Application::class)
+@Config(sdk = [35], qualifiers = "w411dp-h1220dp-xxhdpi", application = android.app.Application::class)
 class FeedScreenshotTest {
     private companion object {
         const val NOW = 1_800_000_000_000L
@@ -52,6 +56,9 @@ class FeedScreenshotTest {
         val item: FeedItem?,
         val cached: CachedFeed? = null,
         val unlocked: Boolean = true,
+        /** The tile's own colour (else the accent) and whether it shows its background. */
+        val colour: Color? = null,
+        val background: Boolean = true,
     )
 
     private val pictured = FeedItem(
@@ -84,10 +91,16 @@ class FeedScreenshotTest {
                             Item(2, 6, TileSize.MEDIUM, null, CachedFeed(URL, null, failedAt = NOW, error = "feed not found")),
                             Item(0, 8, TileSize.MEDIUM, null, null, unlocked = false),
                             Item(2, 8, TileSize.SMALL, null, null),
+                            // A headline without a picture on the tile's own colour, and with no background at all.
+                            Item(0, 10, TileSize.MEDIUM, plain, loaded, colour = Color(0xFFA20025)),
+                            Item(2, 10, TileSize.MEDIUM, plain, loaded, background = false),
                         ).forEach { item ->
-                            Box(Modifier.offset(c * item.x, c * item.y).size(c * item.size.width - gap, c * item.size.height - gap).tileSurface()) {
-                                FeedFace(item.size, "c/linux", item.item, item.cached, item.unlocked, m, NOW) { url, _, _ ->
-                                    if (url == null) null else thumbnail().asImageBitmap()
+                            val colors = Metro.colors.let { base -> item.colour?.let { base.copy(accent = it) } ?: base }
+                            CompositionLocalProvider(LocalMetroColors provides colors, LocalTileDecor provides TileDecor(background = item.background)) {
+                                Box(Modifier.offset(c * item.x, c * item.y).size(c * item.size.width - gap, c * item.size.height - gap)) {
+                                    FeedFace(item.size, "c/linux", item.item, item.cached, item.unlocked, m, NOW) { url, _, _ ->
+                                        if (url == null) null else thumbnail().asImageBitmap()
+                                    }
                                 }
                             }
                         }

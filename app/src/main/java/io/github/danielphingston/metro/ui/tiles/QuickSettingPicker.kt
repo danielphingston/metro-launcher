@@ -46,7 +46,6 @@ import io.github.danielphingston.metro.ui.components.findActivity
 import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
-import io.github.danielphingston.metro.ui.theme.tileSurface
 
 private val PreviewSize = 72.dp
 
@@ -74,7 +73,7 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
         context.findActivity()?.let(viewModel::buyQuickTiles)
     }
 
-    // The feed tile asks for its address first; back from there returns to the panel.
+    // The feed tile asks for its feeds first; leaving that, added or not, goes straight back to Start.
     var askingFeed by remember { mutableStateOf(false) }
     if (askingFeed) {
         FeedEditor(
@@ -85,7 +84,7 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
                 viewModel.addTile(feed, TileSize.WIDE)
                 onDismiss()
             },
-            onCancel = { askingFeed = false },
+            onCancel = onDismiss,
         )
         return
     }
@@ -158,7 +157,7 @@ internal fun MetroPlusPanel(
                 onClickLabel = if (unlocked) "add feed tile" else "unlock metro plus",
                 onClick = { if (unlocked) onAddFeed() else onBuy() },
                 preview = {
-                    Box(Modifier.size(PreviewSize).tileSurface()) {
+                    Box(Modifier.size(PreviewSize)) {
                         FeedFace(TileSize.SMALL, "feed", null, null, unlocked, rememberTileMetrics(PreviewSize))
                     }
                 },

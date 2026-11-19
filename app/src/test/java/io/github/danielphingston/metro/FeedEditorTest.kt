@@ -27,6 +27,7 @@ import io.github.danielphingston.metro.live.feed.TooLargeException
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.tiles.FeedEditor
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -49,10 +50,12 @@ class FeedEditorTest {
     val rule = createComposeRule()
 
     private val original = FeedStore.http
+    private val originalFederation = FeedStore.federation
 
     @After
     fun restore() {
         FeedStore.http = original
+        FeedStore.federation = originalFederation
         FeedStore.clearMemory()
     }
 
@@ -110,6 +113,103 @@ class FeedEditorTest {
             setOf(FeedProblem.BUSY, FeedProblem.SERVER, FeedProblem.OFFLINE, FeedProblem.EMPTY),
             FeedProblem.entries.filter { it.retryable }.toSet(),
         )
+    }
+
+    @Test
+    fun withoutAFederationAnswerThereIsNoAddress() = runBlocking {
+        // A server that doesn't answer the federation way: nothing else is asked, the tap opens the browser.
+        var asked = 0
+        FeedStore.federation = {
+            asked++
+            FeedStore.Federated.Unknown
+        }
+        FeedStore.http = FeedHttp { _, _, _ -> throw AssertionError("no API call expected") }
+        assertNull(FeedStore.canonicalPostLink("https://programming.dev/post/59546847"))
+        assertEquals(1, asked)
+        // Not a Lemmy post link: nothing is asked.
+        assertNull(FeedStore.canonicalPostLink("https://example.com/article"))
+        assertEquals(1, asked)
+    }
+
+    @Test
+    fun theFederationAnswerComesFirstAndLocalAuthorsNeedNone() = runBlocking {
+        val asked = java.util.concurrent.atomic.AtomicInteger()
+        FeedStore.federation = { link ->
+            asked.incrementAndGet()
+            when (link) {
+                "https://programming.dev/post/59546847" -> FeedStore.Federated.Moved("https://lemmy.today/post/63466711")
+                "https://programming.dev/post/1" -> FeedStore.Federated.Here
+                else -> FeedStore.Federated.Unknown
+            }
+        }
+        // The API is never needed here.
+        FeedStore.http = FeedHttp { _, _, _ -> throw AssertionError("no API call expected") }
+        assertEquals("https://lemmy.today/post/63466711", FeedStore.canonicalPostLink("https://programming.dev/post/59546847", "lemmy.today"))
+        assertEquals("https://programming.dev/post/1", FeedStore.canonicalPostLink("https://programming.dev/post/1"))
+        assertEquals(2, asked.get())
+        // An author of the feed's own instance: the link is the address, nothing is asked.
+        assertEquals("https://programming.dev/post/7", FeedStore.canonicalPostLink("https://programming.dev/post/7", "programming.dev"))
+        assertTrue(FeedStore.knowsCanonical("https://programming.dev/post/7"))
+        assertEquals(2, asked.get())
+    }
+
+    @Test
+    fun aPrefetchAndATapShareOneLookup() = runBlocking {
+        val asked = java.util.concurrent.atomic.AtomicInteger()
+        val release = java.util.concurrent.CountDownLatch(1)
+        FeedStore.federation = {
+            asked.incrementAndGet()
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            FeedStore.Federated.Moved("https://lemmy.today/post/9")
+        }
+        val link = "https://programming.dev/post/9"
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default)
+        val prefetch = scope.async { FeedStore.canonicalPostLink(link) }
+        // Let the prefetch start before the tap asks.
+        while (asked.get() == 0) kotlinx.coroutines.delay(5)
+        val tap = scope.async { FeedStore.canonicalPostLink(link) }
+        kotlinx.coroutines.delay(50)
+        release.countDown()
+        assertEquals("https://lemmy.today/post/9", prefetch.await())
+        assertEquals("https://lemmy.today/post/9", tap.await())
+        assertEquals(1, asked.get())
+    }
+
+    @Test
+    fun theFederationLookupAsksForHeadersOnlyAndReadsTheRedirect() {
+        // A tiny local server standing in for a Lemmy instance.
+        val seen = java.util.Collections.synchronizedList(ArrayList<String>())
+        val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/") { exchange ->
+            seen += "${exchange.requestMethod} ${exchange.requestURI} ${exchange.requestHeaders.getFirst("Accept")}"
+            when (exchange.requestURI.path) {
+                "/post/59546847" -> {
+                    exchange.responseHeaders.add("Location", "https://lemmy.today/post/63466711")
+                    exchange.sendResponseHeaders(308, -1)
+                }
+                "/post/1" -> exchange.sendResponseHeaders(200, -1)
+                else -> exchange.sendResponseHeaders(404, -1)
+            }
+            exchange.close()
+        }
+        server.start()
+        try {
+            val base = "http://127.0.0.1:${server.address.port}"
+            assertEquals(FeedStore.Federated.Moved("https://lemmy.today/post/63466711"), FeedStore.federation("$base/post/59546847"))
+            assertEquals(FeedStore.Federated.Here, FeedStore.federation("$base/post/1"))
+            assertEquals(FeedStore.Federated.Unknown, FeedStore.federation("$base/post/404"))
+            // Headers only, asking for the ActivityPub object; the redirect is read, not followed.
+            assertEquals(
+                listOf(
+                    "HEAD /post/59546847 application/activity+json",
+                    "HEAD /post/1 application/activity+json",
+                    "HEAD /post/404 application/activity+json",
+                ),
+                seen.toList(),
+            )
+        } finally {
+            server.stop(0)
+        }
     }
 
     @Test
@@ -219,6 +319,14 @@ class FeedEditorTest {
         tap("add tile")
         rule.waitUntil(5_000) { saved != null }
         assertEquals(TileContent.Feed(listOf("https://example.com/feed")), saved)
+    }
+
+    @Test
+    fun aWholeSiteSaysToAddOneOfItsCommunities() {
+        editor { }
+        field().performTextInput("https://programming.dev/")
+        rule.onNodeWithText("add").performClick()
+        waitFor("that's the whole of programming.dev: add one of its communities, like !name@programming.dev or a link with /c/ in it")
     }
 
     @Test

@@ -80,8 +80,13 @@ import io.github.danielphingston.metro.ui.start.TileLabel
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
+import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -90,8 +95,12 @@ object FeedTiles {
     /** The link each feed tile (by tile id) shows right now, for the tap; see [FeedTile]. */
     private val shown = ConcurrentHashMap<Long, String>()
 
-    internal fun setShown(tileId: Long, link: String?) {
+    /** The instance of the author of the headline each tile shows, when the feed names it; see [FeedItem.authorHome]. */
+    private val shownHome = ConcurrentHashMap<Long, String>()
+
+    internal fun setShown(tileId: Long, link: String?, authorHome: String? = null) {
         if (link == null) shown.remove(tileId) else shown[tileId] = link
+        if (link == null || authorHome == null) shownHome.remove(tileId) else shownHome[tileId] = authorHome
     }
 
     /**
@@ -108,6 +117,76 @@ object FeedTiles {
         val direct = Intent(intent).setPackage(lemmyApp)
         val handled = runCatching { context.packageManager.resolveActivity(direct, PackageManager.MATCH_ALL) }.getOrNull() != null
         return if (handled) direct else intent
+    }
+
+    /** A Lemmy post being looked up for opening; a second tap meanwhile does nothing. */
+    private val opening = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * Opens what tapping the feed tile [tileId] opens, through [start]. For a Lemmy tile with a
+     * Lemmy app chosen, the post is first looked up on its feed's instance (at most a couple of
+     * seconds) for the address it has where it was written: see [FeedStore.canonicalPostLink] and
+     * [canonicalIntent].
+     */
+    fun open(context: Context, tileId: Long, feed: TileContent.Feed, lemmyApp: String?, start: (Intent) -> Unit) {
+        val plain = intent(context, tileId, feed, lemmyApp)
+        val link = shown[tileId]
+        if (lemmyApp == null || link == null || plain.`package` == null) {
+            start(plain)
+            return
+        }
+        if (!opening.compareAndSet(false, true)) return
+        val scope = (context.applicationContext as? io.github.danielphingston.metro.MetroApplication)?.appScope
+        if (scope == null) {
+            opening.set(false)
+            start(plain)
+            return
+        }
+        scope.launch {
+            try {
+                start(lemmyIntent(context, scope, link, lemmyApp, plain, shownHome[tileId]))
+            } finally {
+                opening.set(false)
+            }
+        }
+    }
+
+    /**
+     * [canonicalIntent] for [link] (by an author of [authorHome]), waiting at most [waitMs] for the
+     * lookup, which the tile has usually done already while showing the post. The lookup runs on its
+     * own in [scope]: a blocking download can't be cut short, so the tap stops waiting instead and
+     * a late answer is still remembered for the next tap.
+     */
+    internal suspend fun lemmyIntent(
+        context: Context,
+        scope: CoroutineScope,
+        link: String,
+        lemmyApp: String,
+        plain: Intent,
+        authorHome: String? = null,
+        waitMs: Long = 2_500,
+    ): Intent {
+        val lookup = scope.async(Dispatchers.IO) { FeedStore.canonicalPostLink(link, authorHome) }
+        val canonical = withTimeoutOrNull(waitMs) { lookup.await() }
+        return canonicalIntent(context, canonical, lemmyApp, plain)
+    }
+
+    /**
+     * Where a Lemmy post opens once its own address is known. [plain] is the link from the feed,
+     * already aimed at [lemmyApp]. A post written on the feed's own instance stays as it is.
+     * Otherwise its own address goes to [lemmyApp] if the app lists that site. If the app doesn't,
+     * or the address couldn't be found ([canonical] null), the feed's link opens in the browser:
+     * given another instance's copy number, a Lemmy app signed in elsewhere only says it can't
+     * find the post.
+     */
+    fun canonicalIntent(context: Context, canonical: String?, lemmyApp: String, plain: Intent): Intent {
+        val link = plain.data?.toString()
+        // Not found (no answer, or none in time): the browser, which shows any instance's copy.
+        if (canonical == null) return Intent(plain).setPackage(null)
+        if (canonical == link) return plain
+        val direct = Intent(Intent.ACTION_VIEW, Uri.parse(canonical)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(lemmyApp)
+        val handled = runCatching { context.packageManager.resolveActivity(direct, PackageManager.MATCH_ALL) }.getOrNull() != null
+        return if (handled) direct else Intent(plain).setPackage(null)
     }
 
     /** An app that opens Lemmy links: [packageName] and the name to show. */
@@ -231,8 +310,20 @@ fun FeedTile(tile: ResolvedTile, urls: List<String>, cellSize: Dp, flipped: Bool
     val item = items.getOrNull(FeedTiles.index(step, items.size))
     val id = tile.spec.id
     DisposableEffect(id, item?.link) {
-        FeedTiles.setShown(id, item?.link)
+        FeedTiles.setShown(id, item?.link, item?.authorHome)
         onDispose { FeedTiles.setShown(id, null) }
+    }
+    // With a Lemmy app chosen, the shown post's own address is looked up while it is on the tile
+    // (headers only, once per post), so a tap opens it at once; see FeedTiles.open.
+    val app = context.applicationContext as? io.github.danielphingston.metro.MetroApplication
+    val lemmyApp by remember(app) { app?.settings?.settings?.map { it.lemmyApp } ?: kotlinx.coroutines.flow.flowOf(null) }
+        .collectAsStateWithLifecycle(null)
+    val isLemmy = remember(urls) { TileContent.Feed(urls).isLemmy }
+    LaunchedEffect(item?.link, lemmyApp, isLemmy) {
+        val link = item?.link ?: return@LaunchedEffect
+        if (lemmyApp == null || !isLemmy || FeedStore.knowsCanonical(link)) return@LaunchedEffect
+        // In the app's scope: a lookup outlives the headline it was for, so its answer is kept.
+        app?.appScope?.launch { FeedStore.canonicalPostLink(link, item.authorHome) }
     }
     FeedFace(tile.spec.size, tile.label, item, cached, unlocked, m)
 }
@@ -250,7 +341,8 @@ internal fun FeedFace(
     picture: @Composable (url: String?, width: Int, height: Int) -> ImageBitmap? = { url, w, h -> rememberFeedImage(url, w, h) },
 ) {
     val white = Metro.colors.onAccent
-    Box(Modifier.fillMaxSize()) {
+    // The tile's own surface: its colour, its transparency, or none when "show background" is off.
+    Box(Modifier.fillMaxSize().tileSurface()) {
         when {
             size == TileSize.SMALL -> FeedGlyph(m.dp(40f), Modifier.align(Alignment.Center))
             !unlocked -> Notice("unlock to use", m)

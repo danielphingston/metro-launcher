@@ -335,6 +335,7 @@ object FeedStore {
                             item.image?.let { put("image", it) }
                             item.points?.let { put("points", it) }
                             item.comments?.let { put("comments", it) }
+                            item.authorHome?.let { put("authorHome", it) }
                         },
                     )
                 }
@@ -355,13 +356,107 @@ object FeedStore {
                 o.optString("image").ifEmpty { null },
                 if (o.has("points")) o.optInt("points") else null,
                 if (o.has("comments")) o.optInt("comments") else null,
+                o.optString("authorHome").ifEmpty { null },
             )
         }
         CachedFeed(obj.getString("url"), Feed(obj.optString("title").ifEmpty { null }, items), obj.optLong("fetchedAt"))
     }.getOrNull()
 
+    private val postLink = Regex("^https://([A-Za-z0-9.-]+)/post/(\\d+)/?$")
+    private val canonical = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val lookups = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<String?>>()
+
+    /** What a Lemmy instance says about one of its post links, asked the federation way. */
+    internal sealed interface Federated {
+        /** A copy of a post written elsewhere: [url] is its own address. */
+        data class Moved(val url: String) : Federated
+
+        /** Written there: the link is its own address. */
+        data object Here : Federated
+
+        /** No usable answer (an older server, an error, no connection). */
+        data object Unknown : Federated
+    }
+
+    /** The federation lookup, replaceable in tests. Blocking. */
+    internal var federation: (String) -> Federated = ::askFederation
+
+    /**
+     * Asks for [link] as ActivityPub, headers only: Lemmy answers a copy of a post written
+     * elsewhere with a redirect to its own address, and a post written there with 200. No body
+     * is downloaded and the redirect is not followed.
+     */
+    private fun askFederation(link: String): Federated {
+        val connection = runCatching { URL(link).openConnection() as HttpURLConnection }.getOrNull() ?: return Federated.Unknown
+        return try {
+            connection.requestMethod = "HEAD"
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 5_000
+            connection.instanceFollowRedirects = false
+            connection.setRequestProperty("User-Agent", "android:${BuildConfig.APPLICATION_ID}:${BuildConfig.VERSION_NAME} (Metro launcher feed tile)")
+            connection.setRequestProperty("Accept", "application/activity+json")
+            val code = connection.responseCode
+            when {
+                code in 300..399 -> connection.getHeaderField("Location")
+                    ?.let { runCatching { URL(URL(link), it).toString() }.getOrNull() }
+                    ?.takeIf { it.startsWith("https://") }
+                    ?.let { Federated.Moved(it) } ?: Federated.Unknown
+                code in 200..299 -> Federated.Here
+                else -> Federated.Unknown
+            }
+        } catch (_: Exception) {
+            Federated.Unknown
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /**
+     * The address a Lemmy post has where it was written, for a [link] to it on the instance whose
+     * feed listed it: "https://programming.dev/post/59546847" is that instance's copy of
+     * "https://lemmy.today/post/63466711", the only one a Lemmy app signed in on a third instance
+     * can look up. When [authorHome], the author's instance, is the link's own, the link is the
+     * address and nothing is asked. Otherwise the instance is asked once, the federation way
+     * (headers only); the answer is remembered and a lookup already under way is shared. Null
+     * when [link] is no Lemmy post link or the instance gave no usable answer.
+     */
+    suspend fun canonicalPostLink(link: String, authorHome: String? = null): String? {
+        canonical[link]?.let { return it }
+        val m = postLink.matchEntire(link) ?: return null
+        val host = m.groupValues[1].lowercase()
+        if (authorHome != null && authorHome.equals(host, ignoreCase = true)) {
+            canonical[link] = link
+            return link
+        }
+        val mine = kotlinx.coroutines.CompletableDeferred<String?>()
+        val running = lookups.putIfAbsent(link, mine)
+        if (running != null) return running.await()
+        try {
+            val found = withContext(Dispatchers.IO) {
+                when (val answer = federation(link)) {
+                    is Federated.Moved -> answer.url
+                    Federated.Here -> link
+                    Federated.Unknown -> null
+                }
+            }
+            if (found != null) canonical[link] = found
+            mine.complete(found)
+            return found
+        } catch (e: Throwable) {
+            mine.complete(null)
+            throw e
+        } finally {
+            lookups.remove(link, mine)
+        }
+    }
+
+    /** Whether [link]'s address is already known, so a tap needs no lookup. */
+    fun knowsCanonical(link: String): Boolean = canonical.containsKey(link)
+
     /** Forgets everything held in memory; for tests. */
     internal fun clearMemory() {
         _feeds.value = emptyMap()
+        canonical.clear()
+        lookups.clear()
     }
 }

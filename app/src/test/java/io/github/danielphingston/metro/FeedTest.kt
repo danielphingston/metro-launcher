@@ -106,12 +106,16 @@ class FeedTest {
         assertEquals("https://lemmy.ml/post/55448193", first.link)
         assertEquals("SocialistVibes01", first.author)
         assertEquals(94, first.points)
+        // The author's instance, from their profile link: here the feed's own.
+        assertEquals("lemmy.ml", first.authorHome)
         assertEquals(23, first.comments)
         assertEquals(java.time.OffsetDateTime.parse("2026-11-18T08:43:02Z").toInstant().toEpochMilli(), first.publishedAt)
         // The picture comes through the instance's image proxy; the linked article (an HTML enclosure) is no picture.
         assertEquals("https://lemmy.ml/api/v3/image_proxy?url=https%3A%2F%2Fitsfoss.com%2Fcontent%2Fimages%2F2026%2F11%2Fubuntu-surge.webp", first.image)
         val second = feed.items[1]
         assertEquals("wfh", second.author)
+        // Written on lemm.ee and listed by lemmy.ml: its link is lemmy.ml's copy.
+        assertEquals("lemm.ee", second.authorHome)
         assertEquals(479, second.points)
         assertEquals(94, second.comments)
         assertNull(second.image)
@@ -232,7 +236,7 @@ class FeedTest {
     fun theSavedCopyReadsBack() {
         val cached = CachedFeed(
             "https://lemmy.ml/feeds/c/linux.xml?sort=Hot",
-            Feed("Lemmy - linux", listOf(FeedItem("a", "https://x/a", "me", 5L, "https://x/a.jpg", 94, 23), FeedItem("b", null))),
+            Feed("Lemmy - linux", listOf(FeedItem("a", "https://x/a", "me", 5L, "https://x/a.jpg", 94, 23, "lemmy.ml"), FeedItem("b", null))),
             fetchedAt = 42,
         )
         assertEquals(cached, FeedStore.decode(FeedStore.encode(cached).toString()))

@@ -25,6 +25,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import kotlinx.coroutines.cancel
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -89,6 +90,60 @@ class LemmyAppTest {
         assertNull(FeedTiles.intent(context, 1, programming, null).`package`)
         assertNull(FeedTiles.intent(context, 1, TileContent.Feed(listOf("https://feddit.org/feeds/c/x.xml")), "com.jerboa").`package`)
         assertNull(FeedTiles.intent(context, 1, TileContent.Feed(listOf("https://lemmy.world/feed.xml")), "com.jerboa").`package`)
+    }
+
+    @Test
+    fun aPostSeenThroughAnotherInstanceOpensByItsOwnAddress() {
+        // The feed's link, already aimed at Jerboa (which lists programming.dev).
+        val plain = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://programming.dev/post/59546847")).setPackage("com.jerboa")
+        // Written on lemmy.ml, which Jerboa lists: its own address goes to Jerboa.
+        val listed = FeedTiles.canonicalIntent(context, "https://lemmy.ml/post/123", "com.jerboa", plain)
+        assertEquals("https://lemmy.ml/post/123", listed.data.toString())
+        assertEquals("com.jerboa", listed.`package`)
+        // Written on lemmy.today, which it doesn't: the feed's link opens in the browser instead of "can't find".
+        val unlisted = FeedTiles.canonicalIntent(context, "https://lemmy.today/post/63466711", "com.jerboa", plain)
+        assertEquals("https://programming.dev/post/59546847", unlisted.data.toString())
+        assertNull(unlisted.`package`)
+        // Written where the feed is, or not looked up: as it was.
+        assertTrue(FeedTiles.canonicalIntent(context, "https://programming.dev/post/59546847", "com.jerboa", plain) === plain)
+        // Not found: the browser, with the feed's link.
+        val notFound = FeedTiles.canonicalIntent(context, null, "com.jerboa", plain)
+        assertEquals("https://programming.dev/post/59546847", notFound.data.toString())
+        assertNull(notFound.`package`)
+    }
+
+    @Test
+    fun aSlowInstanceDoesNotHoldUpTheTap() = kotlinx.coroutines.runBlocking {
+        val originalFederation = io.github.danielphingston.metro.live.feed.FeedStore.federation
+        val released = java.util.concurrent.CountDownLatch(1)
+        io.github.danielphingston.metro.live.feed.FeedStore.federation = {
+            // A server that stalls: the request blocks its thread, which no timeout can interrupt.
+            released.await(10, java.util.concurrent.TimeUnit.SECONDS)
+            io.github.danielphingston.metro.live.feed.FeedStore.Federated.Moved("https://lemmy.ml/post/7")
+        }
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+        try {
+            val link = "https://programming.dev/post/42"
+            val plain = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link)).setPackage("com.jerboa")
+            val started = System.nanoTime()
+            val first = FeedTiles.lemmyIntent(context, scope, link, "com.jerboa", plain, waitMs = 300)
+            val waited = (System.nanoTime() - started) / 1_000_000
+            // Gave up waiting after about 300 ms and opened the feed's link in the browser.
+            assertTrue("waited $waited ms", waited < 2_000)
+            assertEquals("https://programming.dev/post/42", first.data.toString())
+            assertNull(first.`package`)
+            // The answer that arrives later is remembered: the next tap uses the post's own address.
+            released.countDown()
+            kotlinx.coroutines.withTimeout(5_000) {
+                while (io.github.danielphingston.metro.live.feed.FeedStore.canonicalPostLink(link) == null) kotlinx.coroutines.delay(20)
+            }
+            assertEquals("https://lemmy.ml/post/7", FeedTiles.lemmyIntent(context, scope, link, "com.jerboa", plain).data.toString())
+        } finally {
+            released.countDown()
+            scope.cancel()
+            io.github.danielphingston.metro.live.feed.FeedStore.federation = originalFederation
+            io.github.danielphingston.metro.live.feed.FeedStore.clearMemory()
+        }
     }
 
     @Test
