@@ -18,6 +18,11 @@ data class FeedItem(
     /** Lemmy's score and comment count, when the feed says them. */
     val points: Int? = null,
     val comments: Int? = null,
+    /**
+     * The instance the author belongs to, when the feed names them by profile link (Lemmy). A post
+     * by someone on the feed's own instance was written there, so its link is its own address.
+     */
+    val authorHome: String? = null,
 )
 
 data class Feed(val title: String?, val items: List<FeedItem>)
@@ -69,6 +74,7 @@ object FeedParser {
         var image: String? = null
         var htmlImage: String? = null
         var counts: Pair<Int, Int>? = null
+        var authorHome: String? = null
         var event = parser.next()
         while (!(event == XmlPullParser.END_TAG && parser.depth == depth) && event != XmlPullParser.END_DOCUMENT) {
             if (event == XmlPullParser.START_TAG) {
@@ -94,8 +100,11 @@ object FeedParser {
                         if (link == null && permalink && text.startsWith("http")) link = text
                     }
                     "author", "creator" -> {
-                        val name = readAuthor(parser)
-                        if (author == null) author = name
+                        val (name, home) = readAuthor(parser)
+                        if (author == null) {
+                            author = name
+                            authorHome = home
+                        }
                     }
                     "pubDate", "published", "updated", "date" -> {
                         val parsed = parseDate(readText(parser).trim())
@@ -135,7 +144,7 @@ object FeedParser {
         val picture = (image ?: htmlImage)?.let(::unescape)?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
         // Only web links are opened from a tile: a feed can't make a tap run "intent:" or "javascript:".
         val web = link?.trim()?.takeIf { it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true) }
-        return FeedItem(text, web, author, date, picture, counts?.first, counts?.second)
+        return FeedItem(text, web, author, date, picture, counts?.first, counts?.second, authorHome)
     }
 
     /** The element name without its namespace prefix ("media:thumbnail" -> "thumbnail"). */
@@ -163,7 +172,7 @@ object FeedParser {
      * An author: RSS has plain text (often "mail@example.com (Name)"), Atom a person whose <name>
      * is the part to show (as "/u/someone" or a profile link). Leaves the parser on the author's end tag.
      */
-    private fun readAuthor(parser: XmlPullParser): String? {
+    private fun readAuthor(parser: XmlPullParser): Pair<String?, String?> {
         val depth = parser.depth
         val text = StringBuilder()
         var name: String? = null
@@ -181,9 +190,10 @@ object FeedParser {
         val shown = Regex("""^\S+@\S+\s+\((.+)\)$""").matchEntire(raw)?.groupValues?.get(1) ?: raw
         // Lemmy names the author by their profile link: "https://lemmy.ml/u/someone" shows "someone".
         if (shown.startsWith("https://") || shown.startsWith("http://")) {
-            return shown.trimEnd('/').substringAfterLast('/').ifEmpty { null }
+            val home = runCatching { java.net.URI(shown).host?.lowercase(Locale.ROOT) }.getOrNull()
+            return shown.trimEnd('/').substringAfterLast('/').ifEmpty { null } to home
         }
-        return shown.removePrefix("/").ifEmpty { null }
+        return shown.removePrefix("/").ifEmpty { null } to null
     }
 
     private val countsLine = Regex("""(-?\d+) points?\s*\|\s*(?:<a[^>]*>)?\s*(\d+) comments?""", RegexOption.IGNORE_CASE)

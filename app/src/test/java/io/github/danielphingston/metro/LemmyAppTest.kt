@@ -112,6 +112,9 @@ class LemmyAppTest {
     @Test
     fun aSlowInstanceDoesNotHoldUpTheTap() = kotlinx.coroutines.runBlocking {
         val original = io.github.danielphingston.metro.live.feed.FeedStore.http
+        val originalFederation = io.github.danielphingston.metro.live.feed.FeedStore.federation
+        // A server that doesn't answer the federation way, so the (stalling) API is asked.
+        io.github.danielphingston.metro.live.feed.FeedStore.federation = { io.github.danielphingston.metro.live.feed.FeedStore.Federated.Unknown }
         val released = java.util.concurrent.CountDownLatch(1)
         io.github.danielphingston.metro.live.feed.FeedStore.http = io.github.danielphingston.metro.live.feed.FeedHttp { url, _, _ ->
             // A server that stalls: the download blocks its thread, which no timeout can interrupt.
@@ -140,6 +143,7 @@ class LemmyAppTest {
             released.countDown()
             scope.cancel()
             io.github.danielphingston.metro.live.feed.FeedStore.http = original
+            io.github.danielphingston.metro.live.feed.FeedStore.federation = originalFederation
             io.github.danielphingston.metro.live.feed.FeedStore.clearMemory()
         }
     }

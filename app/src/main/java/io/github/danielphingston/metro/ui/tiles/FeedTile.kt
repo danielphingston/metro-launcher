@@ -84,6 +84,7 @@ import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
@@ -94,8 +95,12 @@ object FeedTiles {
     /** The link each feed tile (by tile id) shows right now, for the tap; see [FeedTile]. */
     private val shown = ConcurrentHashMap<Long, String>()
 
-    internal fun setShown(tileId: Long, link: String?) {
+    /** The instance of the author of the headline each tile shows, when the feed names it; see [FeedItem.authorHome]. */
+    private val shownHome = ConcurrentHashMap<Long, String>()
+
+    internal fun setShown(tileId: Long, link: String?, authorHome: String? = null) {
         if (link == null) shown.remove(tileId) else shown[tileId] = link
+        if (link == null || authorHome == null) shownHome.remove(tileId) else shownHome[tileId] = authorHome
     }
 
     /**
@@ -139,7 +144,7 @@ object FeedTiles {
         }
         scope.launch {
             try {
-                start(lemmyIntent(context, scope, link, lemmyApp, plain))
+                start(lemmyIntent(context, scope, link, lemmyApp, plain, shownHome[tileId]))
             } finally {
                 opening.set(false)
             }
@@ -147,7 +152,8 @@ object FeedTiles {
     }
 
     /**
-     * [canonicalIntent] for [link], waiting at most [waitMs] for the lookup. The lookup runs on its
+     * [canonicalIntent] for [link] (by an author of [authorHome]), waiting at most [waitMs] for the
+     * lookup, which the tile has usually done already while showing the post. The lookup runs on its
      * own in [scope]: a blocking download can't be cut short, so the tap stops waiting instead and
      * a late answer is still remembered for the next tap.
      */
@@ -157,9 +163,10 @@ object FeedTiles {
         link: String,
         lemmyApp: String,
         plain: Intent,
+        authorHome: String? = null,
         waitMs: Long = 2_500,
     ): Intent {
-        val lookup = scope.async(Dispatchers.IO) { FeedStore.canonicalPostLink(link) }
+        val lookup = scope.async(Dispatchers.IO) { FeedStore.canonicalPostLink(link, authorHome) }
         val canonical = withTimeoutOrNull(waitMs) { lookup.await() }
         return canonicalIntent(context, canonical, lemmyApp, plain)
     }
@@ -300,8 +307,20 @@ fun FeedTile(tile: ResolvedTile, urls: List<String>, cellSize: Dp, flipped: Bool
     val item = items.getOrNull(FeedTiles.index(step, items.size))
     val id = tile.spec.id
     DisposableEffect(id, item?.link) {
-        FeedTiles.setShown(id, item?.link)
+        FeedTiles.setShown(id, item?.link, item?.authorHome)
         onDispose { FeedTiles.setShown(id, null) }
+    }
+    // With a Lemmy app chosen, the shown post's own address is looked up while it is on the tile
+    // (headers only, once per post), so a tap opens it at once; see FeedTiles.open.
+    val app = context.applicationContext as? io.github.danielphingston.metro.MetroApplication
+    val lemmyApp by remember(app) { app?.settings?.settings?.map { it.lemmyApp } ?: kotlinx.coroutines.flow.flowOf(null) }
+        .collectAsStateWithLifecycle(null)
+    val isLemmy = remember(urls) { TileContent.Feed(urls).isLemmy }
+    LaunchedEffect(item?.link, lemmyApp, isLemmy) {
+        val link = item?.link ?: return@LaunchedEffect
+        if (lemmyApp == null || !isLemmy || FeedStore.knowsCanonical(link)) return@LaunchedEffect
+        // In the app's scope: a lookup outlives the headline it was for, so its answer is kept.
+        app?.appScope?.launch { FeedStore.canonicalPostLink(link, item.authorHome) }
     }
     FeedFace(tile.spec.size, tile.label, item, cached, unlocked, m)
 }
