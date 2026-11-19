@@ -176,18 +176,27 @@ class FeedEditorTest {
     }
 
     @Test
-    fun theFederationLookupAsksForHeadersOnlyAndReadsTheRedirect() {
-        // A tiny local server standing in for a Lemmy instance.
+    fun theFederationLookupReadsTheRedirectLikeLemmyWorldServesIt() {
+        // A tiny local server standing in for a Lemmy instance. Like lemmy.world, it answers HEAD with 404.
         val seen = java.util.Collections.synchronizedList(ArrayList<String>())
         val server = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange ->
             seen += "${exchange.requestMethod} ${exchange.requestURI} ${exchange.requestHeaders.getFirst("Accept")}"
+            if (exchange.requestMethod == "HEAD") {
+                exchange.sendResponseHeaders(404, -1)
+                exchange.close()
+                return@createContext
+            }
             when (exchange.requestURI.path) {
                 "/post/59546847" -> {
                     exchange.responseHeaders.add("Location", "https://lemmy.today/post/63466711")
                     exchange.sendResponseHeaders(308, -1)
                 }
-                "/post/1" -> exchange.sendResponseHeaders(200, -1)
+                "/post/1" -> {
+                    val body = """{"id":"https://local.example/post/1","type":"Page"}""".toByteArray()
+                    exchange.sendResponseHeaders(200, body.size.toLong())
+                    exchange.responseBody.write(body)
+                }
                 else -> exchange.sendResponseHeaders(404, -1)
             }
             exchange.close()
@@ -198,12 +207,12 @@ class FeedEditorTest {
             assertEquals(FeedStore.Federated.Moved("https://lemmy.today/post/63466711"), FeedStore.federation("$base/post/59546847"))
             assertEquals(FeedStore.Federated.Here, FeedStore.federation("$base/post/1"))
             assertEquals(FeedStore.Federated.Unknown, FeedStore.federation("$base/post/404"))
-            // Headers only, asking for the ActivityPub object; the redirect is read, not followed.
+            // One GET each, asking for the ActivityPub object; the redirect is read, not followed.
             assertEquals(
                 listOf(
-                    "HEAD /post/59546847 application/activity+json",
-                    "HEAD /post/1 application/activity+json",
-                    "HEAD /post/404 application/activity+json",
+                    "GET /post/59546847 application/activity+json",
+                    "GET /post/1 application/activity+json",
+                    "GET /post/404 application/activity+json",
                 ),
                 seen.toList(),
             )

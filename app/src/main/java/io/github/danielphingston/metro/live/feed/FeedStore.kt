@@ -412,14 +412,15 @@ object FeedStore {
     internal var federation: (String) -> Federated = ::askFederation
 
     /**
-     * Asks for [link] as ActivityPub, headers only: Lemmy answers a copy of a post written
-     * elsewhere with a redirect to its own address, and a post written there with 200. No body
-     * is downloaded and the redirect is not followed.
+     * Asks for [link] as ActivityPub: Lemmy answers a copy of a post written elsewhere with a
+     * redirect to its own address, and a post written there with 200. Only the status and
+     * headers are read; the body (none for a redirect, about 2 KB for a post) is not, and the
+     * redirect is not followed. A GET, not a HEAD: lemmy.world answers HEAD with 404.
      */
     private fun askFederation(link: String): Federated {
         val connection = runCatching { URL(link).openConnection() as HttpURLConnection }.getOrNull() ?: return Federated.Unknown
         return try {
-            connection.requestMethod = "HEAD"
+            connection.requestMethod = "GET"
             connection.connectTimeout = 5_000
             connection.readTimeout = 5_000
             connection.instanceFollowRedirects = false
