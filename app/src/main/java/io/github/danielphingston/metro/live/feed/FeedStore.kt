@@ -417,8 +417,8 @@ object FeedStore {
      * "https://lemmy.today/post/63466711", the only one a Lemmy app signed in on a third instance
      * can look up. When [authorHome], the author's instance, is the link's own, the link is the
      * address and nothing is asked. Otherwise the instance is asked once, the federation way
-     * (headers only), else through its API; the answer is remembered and a lookup already under
-     * way is shared. Null when [link] is no Lemmy post link or no answer came.
+     * (headers only); the answer is remembered and a lookup already under way is shared. Null
+     * when [link] is no Lemmy post link or the instance gave no usable answer.
      */
     suspend fun canonicalPostLink(link: String, authorHome: String? = null): String? {
         canonical[link]?.let { return it }
@@ -436,10 +436,7 @@ object FeedStore {
                 when (val answer = federation(link)) {
                     is Federated.Moved -> answer.url
                     Federated.Here -> link
-                    Federated.Unknown -> runCatching {
-                        val body = http.get("https://$host/api/v3/post?id=${m.groupValues[2]}", 512 * 1024, "application/json")
-                        JSONObject(body.bytes.toString(Charsets.UTF_8)).getJSONObject("post_view").getJSONObject("post").getString("ap_id")
-                    }.getOrNull()?.takeIf { it.startsWith("https://") }
+                    Federated.Unknown -> null
                 }
             }
             if (found != null) canonical[link] = found

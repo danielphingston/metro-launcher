@@ -106,22 +106,20 @@ class LemmyAppTest {
         assertNull(unlisted.`package`)
         // Written where the feed is, or not looked up: as it was.
         assertTrue(FeedTiles.canonicalIntent(context, "https://programming.dev/post/59546847", "com.jerboa", plain) === plain)
-        assertTrue(FeedTiles.canonicalIntent(context, null, "com.jerboa", plain) === plain)
+        // Not found: the browser, with the feed's link.
+        val notFound = FeedTiles.canonicalIntent(context, null, "com.jerboa", plain)
+        assertEquals("https://programming.dev/post/59546847", notFound.data.toString())
+        assertNull(notFound.`package`)
     }
 
     @Test
     fun aSlowInstanceDoesNotHoldUpTheTap() = kotlinx.coroutines.runBlocking {
-        val original = io.github.danielphingston.metro.live.feed.FeedStore.http
         val originalFederation = io.github.danielphingston.metro.live.feed.FeedStore.federation
-        // A server that doesn't answer the federation way, so the (stalling) API is asked.
-        io.github.danielphingston.metro.live.feed.FeedStore.federation = { io.github.danielphingston.metro.live.feed.FeedStore.Federated.Unknown }
         val released = java.util.concurrent.CountDownLatch(1)
-        io.github.danielphingston.metro.live.feed.FeedStore.http = io.github.danielphingston.metro.live.feed.FeedHttp { url, _, _ ->
-            // A server that stalls: the download blocks its thread, which no timeout can interrupt.
+        io.github.danielphingston.metro.live.feed.FeedStore.federation = {
+            // A server that stalls: the request blocks its thread, which no timeout can interrupt.
             released.await(10, java.util.concurrent.TimeUnit.SECONDS)
-            io.github.danielphingston.metro.live.feed.Fetched(
-                """{"post_view":{"post":{"ap_id":"https://lemmy.ml/post/7"}}}""".toByteArray(), url, "application/json",
-            )
+            io.github.danielphingston.metro.live.feed.FeedStore.Federated.Moved("https://lemmy.ml/post/7")
         }
         val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
         try {
@@ -130,9 +128,10 @@ class LemmyAppTest {
             val started = System.nanoTime()
             val first = FeedTiles.lemmyIntent(context, scope, link, "com.jerboa", plain, waitMs = 300)
             val waited = (System.nanoTime() - started) / 1_000_000
-            // Gave up waiting after about 300 ms and opened the feed's link in the app.
+            // Gave up waiting after about 300 ms and opened the feed's link in the browser.
             assertTrue("waited $waited ms", waited < 2_000)
-            assertTrue(first === plain)
+            assertEquals("https://programming.dev/post/42", first.data.toString())
+            assertNull(first.`package`)
             // The answer that arrives later is remembered: the next tap uses the post's own address.
             released.countDown()
             kotlinx.coroutines.withTimeout(5_000) {
@@ -142,7 +141,6 @@ class LemmyAppTest {
         } finally {
             released.countDown()
             scope.cancel()
-            io.github.danielphingston.metro.live.feed.FeedStore.http = original
             io.github.danielphingston.metro.live.feed.FeedStore.federation = originalFederation
             io.github.danielphingston.metro.live.feed.FeedStore.clearMemory()
         }

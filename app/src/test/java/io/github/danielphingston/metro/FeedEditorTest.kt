@@ -116,22 +116,19 @@ class FeedEditorTest {
     }
 
     @Test
-    fun aPostIsLookedUpForItsOwnAddressOnce() = runBlocking {
-        // A server that doesn't answer the federation way: the API answers instead.
-        FeedStore.federation = { FeedStore.Federated.Unknown }
+    fun withoutAFederationAnswerThereIsNoAddress() = runBlocking {
+        // A server that doesn't answer the federation way: nothing else is asked, the tap opens the browser.
         var asked = 0
-        FeedStore.http = FeedHttp { url, _, _ ->
+        FeedStore.federation = {
             asked++
-            if (url != "https://programming.dev/api/v3/post?id=59546847") throw HttpStatusException(404)
-            Fetched("""{"post_view":{"post":{"id":59546847,"ap_id":"https://lemmy.today/post/63466711","local":false}}}""".toByteArray(), url, "application/json")
+            FeedStore.Federated.Unknown
         }
-        assertEquals("https://lemmy.today/post/63466711", FeedStore.canonicalPostLink("https://programming.dev/post/59546847"))
-        assertEquals("https://lemmy.today/post/63466711", FeedStore.canonicalPostLink("https://programming.dev/post/59546847"))
+        FeedStore.http = FeedHttp { _, _, _ -> throw AssertionError("no API call expected") }
+        assertNull(FeedStore.canonicalPostLink("https://programming.dev/post/59546847"))
         assertEquals(1, asked)
-        // Not a Lemmy post link (asks nothing), or the instance doesn't know it.
+        // Not a Lemmy post link: nothing is asked.
         assertNull(FeedStore.canonicalPostLink("https://example.com/article"))
         assertEquals(1, asked)
-        assertNull(FeedStore.canonicalPostLink("https://lemmy.ml/post/1"))
     }
 
     @Test

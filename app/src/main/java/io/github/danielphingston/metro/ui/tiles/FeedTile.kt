@@ -173,14 +173,17 @@ object FeedTiles {
 
     /**
      * Where a Lemmy post opens once its own address is known. [plain] is the link from the feed,
-     * already aimed at [lemmyApp]. A post written on the feed's own instance (or one not looked
-     * up) stays as it is. Otherwise its own address goes to [lemmyApp] if the app lists that
-     * site; if not, the feed's link opens in the browser: given another instance's copy number,
-     * a Lemmy app signed in elsewhere only says it can't find the post.
+     * already aimed at [lemmyApp]. A post written on the feed's own instance stays as it is.
+     * Otherwise its own address goes to [lemmyApp] if the app lists that site. If the app doesn't,
+     * or the address couldn't be found ([canonical] null), the feed's link opens in the browser:
+     * given another instance's copy number, a Lemmy app signed in elsewhere only says it can't
+     * find the post.
      */
     fun canonicalIntent(context: Context, canonical: String?, lemmyApp: String, plain: Intent): Intent {
         val link = plain.data?.toString()
-        if (canonical == null || canonical == link) return plain
+        // Not found (no answer, or none in time): the browser, which shows any instance's copy.
+        if (canonical == null) return Intent(plain).setPackage(null)
+        if (canonical == link) return plain
         val direct = Intent(Intent.ACTION_VIEW, Uri.parse(canonical)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(lemmyApp)
         val handled = runCatching { context.packageManager.resolveActivity(direct, PackageManager.MATCH_ALL) }.getOrNull() != null
         return if (handled) direct else Intent(plain).setPackage(null)
