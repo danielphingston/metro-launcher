@@ -34,6 +34,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -295,6 +298,13 @@ object FeedTiles {
         return listOfNotNull(who, item.publishedAt?.let { age(it, now) }).joinToString(" · ")
     }
 
+    /**
+     * Whether the tile may move on to [next] now: yes when it has no picture, or its picture has
+     * been loaded (or found missing: [loaded] holds both), so a headline never slides in first and
+     * gets its picture a moment later.
+     */
+    fun readyToShow(next: FeedItem?, loaded: Set<String>): Boolean = next?.image == null || next.image in loaded
+
     /** The headline the tile shows after [step] flips, of [count]. */
     fun index(step: Int, count: Int): Int = if (count == 0) 0 else Math.floorMod(step, count)
 }
@@ -327,15 +337,21 @@ fun FeedTile(tile: ResolvedTile, urls: List<String>, cellSize: Dp, flipped: Bool
         )
     }
     val cached = FeedTiles.summary(copies)
+    val items = if (unlocked) merged else emptyList()
     // Each flip moves on one headline; the first shows the newest.
     var step by remember(urls) { mutableIntStateOf(0) }
+    val item = items.getOrNull(FeedTiles.index(step, items.size))
+    val next = items.getOrNull(FeedTiles.index(step + 1, items.size))
+    // Pictures decoded at tile size, by address: the shown headline's and the next one's, loaded
+    // ahead so a headline slides in with its picture. Null means none could be had.
+    val pictures = remember(urls) { mutableStateMapOf<String, ImageBitmap?>() }
     var lastFlipped by remember { mutableStateOf(flipped) }
     LaunchedEffect(flipped) {
-        if (flipped != lastFlipped) step++
+        if (flipped == lastFlipped) return@LaunchedEffect
         lastFlipped = flipped
+        // A next headline whose picture is still on its way waits for the following turn.
+        if (FeedTiles.readyToShow(next, pictures.keys)) step++
     }
-    val items = if (unlocked) merged else emptyList()
-    val item = items.getOrNull(FeedTiles.index(step, items.size))
     val id = tile.spec.id
     DisposableEffect(id, item?.link) {
         FeedTiles.setShown(id, item?.link, item?.authorHome)
@@ -353,7 +369,31 @@ fun FeedTile(tile: ResolvedTile, urls: List<String>, cellSize: Dp, flipped: Bool
         // In the app's scope: a lookup outlives the headline it was for, so its answer is kept.
         app?.appScope?.launch { FeedStore.canonicalPostLink(link, item.authorHome) }
     }
-    FeedFace(tile.spec.size, tile.label, item, cached, unlocked, m)
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val widthPx = with(density) { maxWidth.roundToPx() }
+        val heightPx = with(density) { maxHeight.roundToPx() }
+        val wanted = listOfNotNull(item?.image, next?.image).distinct()
+        // A small tile shows the feed symbol only: no pictures to load.
+        val showsPictures = tile.spec.size != TileSize.SMALL
+        for (headline in listOfNotNull(item, next).distinctBy { it.image }.takeIf { showsPictures }.orEmpty()) {
+            val url = headline.image ?: continue
+            key(url) {
+                LaunchedEffect(url, widthPx, heightPx) {
+                    if (url in pictures || widthPx <= 0 || heightPx <= 0) return@LaunchedEffect
+                    pictures[url] = withContext(Dispatchers.IO) {
+                        FeedStore.image(context.applicationContext, url, widthPx, heightPx, headline.imageBytes)?.asImageBitmap()
+                    }
+                }
+            }
+        }
+        // Only the shown and next pictures are kept; the one sliding out goes once its slide is over.
+        LaunchedEffect(wanted) {
+            delay(1_000)
+            pictures.keys.retainAll(wanted.toSet())
+        }
+        FeedFace(tile.spec.size, tile.label, item, cached, unlocked, m) { shown, _, _ -> shown.image?.let { pictures[it] } }
+    }
 }
 
 /** The tile without the store and the ticker, for previews and tests. */

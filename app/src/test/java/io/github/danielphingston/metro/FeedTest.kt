@@ -283,6 +283,18 @@ class FeedTest {
     }
 
     @Test
+    fun aHeadlineWaitsForItsPicture() {
+        val pictured = FeedItem("p", "https://x/p", image = "https://x/p.jpg")
+        // No picture, or nothing next: move on.
+        assertTrue(FeedTiles.readyToShow(FeedItem("t", "https://x/t"), emptySet()))
+        assertTrue(FeedTiles.readyToShow(null, emptySet()))
+        // A picture still on its way: stay for this turn.
+        assertFalse(FeedTiles.readyToShow(pictured, emptySet()))
+        // Loaded, or found missing (both are in the loaded set): move on.
+        assertTrue(FeedTiles.readyToShow(pictured, setOf("https://x/p.jpg")))
+    }
+
+    @Test
     fun pinnedPostsAreLeftOut() {
         val day = 86_400_000L
         val now = 1_800_000_000_000L
