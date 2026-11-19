@@ -31,6 +31,19 @@ Unit tests run unminified code, so they never see what R8 removed. Every CI buil
 Both must pass for every new build. When you add a library that creates classes by reflection, add
 a keep rule and, if the check can't see it yet, extend `check-release-apk.py`.
 
+## Battery and performance
+
+A launcher is on screen all day: every change is weighed for battery and performance, and reported.
+
+- Before making a change, say what it will do to battery and performance: background work (jobs,
+  alarms, services, wake locks), network (when, how often, how much), work on the main thread, memory
+  and caches, and anything that runs per frame, per flip or per tile.
+- After the change, report what it actually does, with evidence: tests (e.g. a slow or stalled server),
+  measurements (request sizes, timings), the CI smoke test, and say plainly what was not measured
+  (e.g. real battery drain on a device).
+- Prefer no background work: refresh when Start is shown, cache results, never repeat the same
+  request, keep blocking I/O off the main thread and put a time limit on anything a tap waits for.
+
 ## Checks
 
 ```
