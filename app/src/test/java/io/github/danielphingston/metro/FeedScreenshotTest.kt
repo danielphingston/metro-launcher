@@ -98,8 +98,8 @@ class FeedScreenshotTest {
                             val colors = Metro.colors.let { base -> item.colour?.let { base.copy(accent = it) } ?: base }
                             CompositionLocalProvider(LocalMetroColors provides colors, LocalTileDecor provides TileDecor(background = item.background)) {
                                 Box(Modifier.offset(c * item.x, c * item.y).size(c * item.size.width - gap, c * item.size.height - gap)) {
-                                    FeedFace(item.size, "c/linux", item.item, item.cached, item.unlocked, m, NOW) { url, _, _ ->
-                                        if (url == null) null else thumbnail().asImageBitmap()
+                                    FeedFace(item.size, "c/linux", item.item, item.cached, item.unlocked, m, NOW) { headline, _, _ ->
+                                        if (headline.image == null) null else thumbnail().asImageBitmap()
                                     }
                                 }
                             }
