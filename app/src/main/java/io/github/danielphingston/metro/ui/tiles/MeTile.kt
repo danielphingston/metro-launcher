@@ -4,6 +4,13 @@ import android.app.ActivityOptions
 import android.app.PendingIntent
 import android.content.Context
 import android.os.Build
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +26,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import io.github.danielphingston.metro.data.AppInfo
@@ -27,6 +35,7 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.MeFeed
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.ui.AppLauncher
+import io.github.danielphingston.metro.ui.components.LocalMotion
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.settings.SettingsActivity
 import io.github.danielphingston.metro.ui.settings.SettingsPage
@@ -55,25 +64,64 @@ fun MeTile(
     val m = rememberTileMetrics(cellSize)
     val size = tile.spec.size
     val model = live?.model ?: MeModel(MeModel.State.EMPTY, 0, emptyList(), emptyList())
-    // Each flip to the back moves on to the next notification; the back keeps its face while it turns back.
-    val cursor = remember { FaceCursor() }
-    val index = remember(flipped) { cursor.advance(flipped) }
-    val showBack = flipped && model.hasBack(size)
-    val face = model.faces.takeIf { it.isNotEmpty() }?.get(index % model.faces.size)
-    SideEffect { MeShown.key = if (showBack) face?.key else null }
+    // Each turn of the ticker moves one step: the count flips over to the newest app's notification, the
+    // others slide in one by one, and after the last the tile flips back to the count.
+    val faces = if (model.hasBack(size)) model.faces else emptyList()
+    val cycle = remember { MeCycle() }
+    val index = remember(flipped, faces) { cycle.at(flipped, faces) }
+    val face = faces.getOrNull(index)
+    // While flipping back to the count, the back keeps the notification it last showed.
+    val held = remember { arrayOfNulls<MeFace>(1) }
+    if (face != null) held[0] = face
+    SideEffect { MeShown.key = face?.key }
+    val apps = live?.apps.orEmpty()
     FlipCard(
-        showBack = showBack,
-        front = { MeFront(size, model, live?.apps.orEmpty(), monochrome, icons, m) },
-        back = { face?.let { MeBack(it, size, live?.apps.orEmpty(), monochrome, icons, m) } },
+        showBack = face != null,
+        front = { MeFront(size, model, apps, monochrome, icons, m) },
+        back = {
+            (face ?: held[0])?.let { shown ->
+                val motion = LocalMotion.current
+                AnimatedContent(
+                    targetState = shown,
+                    contentKey = { it.key },
+                    transitionSpec = {
+                        val ms = if (motion.flipsEnabled) 450 else 0
+                        (slideInVertically(tween(ms)) { it / 3 } + fadeIn(tween(ms))) togetherWith
+                            (slideOutVertically(tween(ms)) { -it / 3 } + fadeOut(tween(ms)))
+                    },
+                    modifier = Modifier.fillMaxSize().clipToBounds(),
+                    label = "me notification",
+                ) { MeBack(it, size, apps, monochrome, icons, m) }
+            }
+        },
     )
 }
 
-private class FaceCursor {
-    private var next = 0
-    private var shown = 0
-    fun advance(flipped: Boolean): Int {
-        if (flipped) shown = next++
-        return shown
+/**
+ * Where the me tile is: on its count (-1) or on one of [MeModel.faces]. Every change of the ticker's
+ * flipped state is one step: count, 0, 1 … last, count. When the list changes (a notification comes or
+ * goes) the tile stays on the notification it shows, wherever that moved; when that one is gone it
+ * stays at the same place in the list (the next one), and with none left it goes back to the count.
+ */
+internal class MeCycle {
+    private var lastFlipped: Boolean? = null
+    private var index = -1
+    private var key: String? = null
+
+    fun at(flipped: Boolean, faces: List<MeFace>): Int {
+        if (index >= 0) {
+            val moved = faces.indexOfFirst { it.key == key }
+            index = when {
+                faces.isEmpty() -> -1
+                moved >= 0 -> moved
+                else -> index.coerceAtMost(faces.lastIndex)
+            }
+        }
+        val turned = lastFlipped != null && lastFlipped != flipped
+        lastFlipped = flipped
+        if (turned) index = if (index + 1 < faces.size) index + 1 else -1
+        key = faces.getOrNull(index)?.key
+        return index
     }
 }
 
