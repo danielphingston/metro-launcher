@@ -25,6 +25,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import kotlinx.coroutines.cancel
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -106,6 +107,41 @@ class LemmyAppTest {
         // Written where the feed is, or not looked up: as it was.
         assertTrue(FeedTiles.canonicalIntent(context, "https://programming.dev/post/59546847", "com.jerboa", plain) === plain)
         assertTrue(FeedTiles.canonicalIntent(context, null, "com.jerboa", plain) === plain)
+    }
+
+    @Test
+    fun aSlowInstanceDoesNotHoldUpTheTap() = kotlinx.coroutines.runBlocking {
+        val original = io.github.danielphingston.metro.live.feed.FeedStore.http
+        val released = java.util.concurrent.CountDownLatch(1)
+        io.github.danielphingston.metro.live.feed.FeedStore.http = io.github.danielphingston.metro.live.feed.FeedHttp { url, _, _ ->
+            // A server that stalls: the download blocks its thread, which no timeout can interrupt.
+            released.await(10, java.util.concurrent.TimeUnit.SECONDS)
+            io.github.danielphingston.metro.live.feed.Fetched(
+                """{"post_view":{"post":{"ap_id":"https://lemmy.ml/post/7"}}}""".toByteArray(), url, "application/json",
+            )
+        }
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+        try {
+            val link = "https://programming.dev/post/42"
+            val plain = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link)).setPackage("com.jerboa")
+            val started = System.nanoTime()
+            val first = FeedTiles.lemmyIntent(context, scope, link, "com.jerboa", plain, waitMs = 300)
+            val waited = (System.nanoTime() - started) / 1_000_000
+            // Gave up waiting after about 300 ms and opened the feed's link in the app.
+            assertTrue("waited $waited ms", waited < 2_000)
+            assertTrue(first === plain)
+            // The answer that arrives later is remembered: the next tap uses the post's own address.
+            released.countDown()
+            kotlinx.coroutines.withTimeout(5_000) {
+                while (io.github.danielphingston.metro.live.feed.FeedStore.canonicalPostLink(link) == null) kotlinx.coroutines.delay(20)
+            }
+            assertEquals("https://lemmy.ml/post/7", FeedTiles.lemmyIntent(context, scope, link, "com.jerboa", plain).data.toString())
+        } finally {
+            released.countDown()
+            scope.cancel()
+            io.github.danielphingston.metro.live.feed.FeedStore.http = original
+            io.github.danielphingston.metro.live.feed.FeedStore.clearMemory()
+        }
     }
 
     @Test

@@ -82,6 +82,8 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
@@ -137,12 +139,29 @@ object FeedTiles {
         }
         scope.launch {
             try {
-                val canonical = withTimeoutOrNull(2_500) { FeedStore.canonicalPostLink(link) }
-                start(canonicalIntent(context, canonical, lemmyApp, plain))
+                start(lemmyIntent(context, scope, link, lemmyApp, plain))
             } finally {
                 opening.set(false)
             }
         }
+    }
+
+    /**
+     * [canonicalIntent] for [link], waiting at most [waitMs] for the lookup. The lookup runs on its
+     * own in [scope]: a blocking download can't be cut short, so the tap stops waiting instead and
+     * a late answer is still remembered for the next tap.
+     */
+    internal suspend fun lemmyIntent(
+        context: Context,
+        scope: CoroutineScope,
+        link: String,
+        lemmyApp: String,
+        plain: Intent,
+        waitMs: Long = 2_500,
+    ): Intent {
+        val lookup = scope.async(Dispatchers.IO) { FeedStore.canonicalPostLink(link) }
+        val canonical = withTimeoutOrNull(waitMs) { lookup.await() }
+        return canonicalIntent(context, canonical, lemmyApp, plain)
     }
 
     /**
