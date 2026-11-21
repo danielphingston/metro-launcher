@@ -1,0 +1,11 @@
+# id	title	subtitle	accent	trim_start	trim_end
+# One line per clip, tab-separated, in the order they play. compose.sh reads captures/<id>.mp4.
+# trim_start / trim_end are seconds into the raw recording (empty = whole clip).
+customise	make every tile yours	colour, transparency, icon or your photo	#E3008C
+undo	change your mind	every edit can be undone	#00ABA9
+layouts	layouts for every mood	work, weekend, switch with a tile	#1BA1E2
+gestures	gestures	double tap, two-finger swipe, pinch	#A200FF
+me	notifications, one tile	the me tile flips through what's waiting	#F09609
+feed	news on start	Lemmy and RSS headlines, live	#60A917
+tracking	track it live	rides, food orders and parcels	#FA6800
+widgets	resize widgets in place	drag the corner, no menus	#6A00FF
