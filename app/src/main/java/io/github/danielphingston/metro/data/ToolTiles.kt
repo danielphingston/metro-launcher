@@ -322,7 +322,9 @@ internal object ToolJson {
             .put("text", c.text).put("ink", c.ink).put("created", c.created)
     }
 
-    fun decode(obj: JSONObject): TileContent.Tool? = when (obj.optString("type")) {
+    fun decode(obj: JSONObject): TileContent.Tool? = decodeRaw(obj)?.let(ToolLimits::clean)
+
+    private fun decodeRaw(obj: JSONObject): TileContent.Tool? = when (obj.optString("type")) {
         "routine" -> TileContent.Routine(
             name = obj.optString("name"),
             daily = obj.optBoolean("daily", true),
@@ -390,5 +392,33 @@ object ToolLabels {
         is TileContent.Coin -> "coin"
         is TileContent.Dice -> "dice"
         is TileContent.Notes -> c.name.ifBlank { c.style.label }
+    }
+}
+
+/**
+ * How much a tool tile holds, so no tile, open band or saved layout grows without end: names fit
+ * a tile's label, list items a line, a note a few screens. Everything stored passes [clean]
+ * (typing, saving, loading a backup); the fields also stop at these as you type.
+ */
+object ToolLimits {
+    const val NAME = 40
+    const val ITEM = 100
+    const val ITEMS = 50
+    const val TEXT = 2_000
+
+    fun clean(c: TileContent.Tool): TileContent.Tool = when (c) {
+        is TileContent.Routine -> c.copy(
+            name = c.name.take(NAME),
+            times = c.times.filter { it in 0 until 24 * 60 }.distinct().sorted().take(Routines.MAX_TIMES),
+            everyDays = c.everyDays.coerceIn(1, Routines.MAX_EVERY_DAYS),
+        )
+        is TileContent.Countdown -> c.copy(name = c.name.take(NAME))
+        is TileContent.Coin -> c
+        is TileContent.Dice -> c.copy(count = c.count.coerceIn(1, 3), sides = c.sides.takeIf { it in ToolJson.DICE_SIDES } ?: 6)
+        is TileContent.Notes -> c.copy(
+            name = c.name.take(NAME),
+            items = c.items.take(ITEMS).map { it.copy(text = it.text.take(ITEM)) },
+            text = c.text.take(TEXT),
+        )
     }
 }

@@ -13,6 +13,13 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.data.TileUndo
 import io.github.danielphingston.metro.data.ToolCarry
+import io.github.danielphingston.metro.data.ToolLimits
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.font.createFontFamilyResolver
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import org.robolectric.RuntimeEnvironment
 import io.github.danielphingston.metro.ui.start.FolderLayout
 import io.github.danielphingston.metro.ui.start.NotesPanelSize
 import io.github.danielphingston.metro.ui.start.Placement
@@ -223,5 +230,47 @@ class ToolTilesTest {
         // Handwriting keeps its own content.
         assertEquals(NoteStyle.INK, NotesPanelSize.switchStyle(list, NoteStyle.INK).style)
         assertEquals(list.items, NotesPanelSize.switchStyle(list, NoteStyle.INK).items)
+    }
+
+    @Test
+    fun everythingStoredHasACeiling() {
+        val huge = TileContent.Notes(
+            "n".repeat(80), NoteStyle.LIST,
+            items = List(70) { NoteItem("x".repeat(150)) },
+            text = "t".repeat(5_000),
+        )
+        val clean = ToolLimits.clean(huge) as TileContent.Notes
+        assertEquals(ToolLimits.NAME, clean.name.length)
+        assertEquals(ToolLimits.ITEMS, clean.items.size)
+        assertTrue(clean.items.all { it.text.length == ToolLimits.ITEM })
+        assertEquals(ToolLimits.TEXT, clean.text.length)
+        val routine = ToolLimits.clean(twice.copy(name = "r".repeat(99), times = (0 until 10).map { it * 60 } + 5000, everyDays = 9_999)) as TileContent.Routine
+        assertEquals(ToolLimits.NAME, routine.name.length)
+        assertEquals(Routines.MAX_TIMES, routine.times.size)
+        assertEquals(Routines.MAX_EVERY_DAYS, routine.everyDays)
+        assertEquals(TileContent.Dice(3, 6), ToolLimits.clean(TileContent.Dice(9, 7)))
+        // A layout from a file (a backup, another build) is held to the same limits.
+        val json = JSONArray(TileJson.encode(listOf(TileSpec(1, TileSize.WIDE, huge, 0, 0))).toString())
+        assertEquals(clean, TileJson.decode(json).single().content)
+        // A long note switched to a list keeps only what a list may hold.
+        val many = TileContent.Notes("", NoteStyle.TEXT, text = (1..80).joinToString("\n") { "line $it" })
+        assertEquals(ToolLimits.ITEMS, NotesPanelSize.switchStyle(many, NoteStyle.LIST).items.size)
+    }
+
+    @Test
+    fun theOpenBandStaysWithinAScreenWhateverItHolds() {
+        val context = RuntimeEnvironment.getApplication()
+        val measurer = TextMeasurer(createFontFamilyResolver(context), Density(2.75f), LayoutDirection.Ltr)
+        fun rows(notes: TileContent.Notes, editing: Boolean) = NotesPanelSize.rows(notes, editing, 99.dp, 392.dp, measurer, Density(2.75f))
+        val few = TileContent.Notes("", NoteStyle.LIST, List(3) { NoteItem("item $it") })
+        val full = TileContent.Notes("", NoteStyle.LIST, List(ToolLimits.ITEMS) { NoteItem("item $it", done = it % 2 == 0) })
+        assertTrue(rows(few, false) < rows(full, false))
+        // Fifty items scroll inside the band: about four rows of start, five while editing.
+        assertTrue(rows(full, false) <= 5)
+        assertTrue(rows(full, true) <= 6)
+        val long = TileContent.Notes("", NoteStyle.TEXT, text = "word ".repeat(400))
+        assertTrue(rows(long, false) <= 5)
+        assertTrue(rows(long, true) <= 5)
+        assertTrue(rows(TileContent.Notes("", NoteStyle.INK), true) <= 7)
     }
 }

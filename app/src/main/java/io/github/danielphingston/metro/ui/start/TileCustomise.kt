@@ -147,7 +147,7 @@ internal fun TileCustomise(
             {
                 ToolSettings(
                     spec,
-                    onChange = { c -> viewModel.updateTile(id, StartEdit.TOOL) { it.copy(content = c) } },
+                    onChange = { c -> viewModel.updateTile(id, StartEdit.TOOL) { it.copy(content = io.github.danielphingston.metro.data.ToolLimits.clean(c)) } },
                     onData = { change -> viewModel.updateTool(id, change) },
                     onChooseIcon = onChooseIconPack,
                     onClearIcon = { viewModel.updateTile(id, StartEdit.ICON) { TileOptions.withIcon(it, null) } },

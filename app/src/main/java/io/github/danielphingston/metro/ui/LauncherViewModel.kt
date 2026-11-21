@@ -311,7 +311,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
      */
     fun updateTool(id: Long, change: (TileContent.Tool) -> TileContent.Tool) = metro.tiles.update(id) { spec ->
         val tool = spec.content as? TileContent.Tool ?: return@update spec
-        spec.copy(content = change(tool))
+        spec.copy(content = io.github.danielphingston.metro.data.ToolLimits.clean(change(tool)))
     }
 
     fun unpin(id: Long) {

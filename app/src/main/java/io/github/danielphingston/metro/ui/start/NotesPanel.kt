@@ -8,10 +8,10 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,13 +19,17 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -66,6 +70,7 @@ import io.github.danielphingston.metro.data.InkPoint
 import io.github.danielphingston.metro.data.NoteItem
 import io.github.danielphingston.metro.data.NoteStyle
 import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.ToolLimits
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
@@ -75,6 +80,7 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlin.math.ceil
 import kotlin.math.hypot
+import kotlinx.coroutines.flow.first
 
 /**
  * The open notes tile: its content in a band under the tile, like an open folder. Ticking a list
@@ -91,6 +97,7 @@ internal fun NotesPanel(
     onEdit: () -> Unit,
     onDraft: (TileContent.Notes) -> Unit,
     onDone: () -> Unit,
+    onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val editing = draft != null
@@ -100,13 +107,18 @@ internal fun NotesPanel(
         Row(Modifier.fillMaxWidth().height(HeaderHeight), verticalAlignment = Alignment.CenterVertically) {
             if (editing) {
                 PlainField(
-                    shown.name, { onDraft(shown.copy(name = it)) },
+                    shown.name, { onDraft(shown.copy(name = it.take(ToolLimits.NAME))) },
                     MetroType.sectionTitle, placeholder = label, modifier = Modifier.weight(1f),
                 )
             } else {
                 MetroText(label, MetroType.sectionTitle, maxLines = 1, modifier = Modifier.weight(1f))
             }
             Spacer(Modifier.width(12.dp))
+            // Cancel puts the note back as it was before "edit"; done keeps the changes.
+            if (editing) {
+                MetroButton("cancel", onCancel)
+                Spacer(Modifier.width(8.dp))
+            }
             MetroButton(if (editing) "done" else "edit", if (editing) onDone else onEdit)
         }
         if (editing) {
@@ -119,12 +131,16 @@ internal fun NotesPanel(
         when (shown.style) {
             NoteStyle.LIST -> ListBody(shown, editing, onTick, onDraft)
             NoteStyle.TEXT -> if (editing) {
+                // A fixed height that scrolls inside, so a long note never pushes start's tiles far away.
                 PlainField(
-                    shown.text, { onDraft(shown.copy(text = it)) }, MetroType.body, placeholder = "write something",
-                    singleLine = false, modifier = Modifier.fillMaxWidth().heightIn(min = TextEditMin - 16.dp).padding(vertical = 8.dp),
+                    shown.text, { onDraft(shown.copy(text = it.take(ToolLimits.TEXT))) }, MetroType.body, placeholder = "write something",
+                    singleLine = false, modifier = Modifier.fillMaxWidth().height(TextEditHeight).padding(vertical = 8.dp),
                 )
+                LimitNote(shown.text.length, ToolLimits.TEXT, "characters")
             } else {
-                MetroText(shown.text.ifBlank { "empty note" }, MetroType.body, color = if (shown.text.isBlank()) Metro.colors.subtle else fg, modifier = Modifier.padding(vertical = 8.dp))
+                Box(Modifier.fillMaxWidth().heightIn(max = TextMax).verticalScroll(rememberScrollState())) {
+                    MetroText(shown.text.ifBlank { "empty note" }, MetroType.body, color = if (shown.text.isBlank()) Metro.colors.subtle else fg, modifier = Modifier.padding(vertical = 8.dp))
+                }
             }
             NoteStyle.INK -> InkBody(shown, editing, onDraft)
         }
@@ -138,62 +154,84 @@ private fun ListBody(notes: TileContent.Notes, editing: Boolean, onTick: (Int) -
         if (notes.items.isEmpty()) {
             MetroText("nothing on the list yet", MetroType.body, color = Metro.colors.subtle, modifier = Modifier.height(ItemHeight).padding(top = 8.dp))
         }
-        notes.items.forEachIndexed { i, item ->
-            Row(
-                Modifier.fillMaxWidth().height(ItemHeight)
-                    .clickable(onClickLabel = if (item.done) "untick" else "tick") { onTick(i) }
-                    .semantics(mergeDescendants = true) {
-                        role = Role.Checkbox
-                        stateDescription = if (item.done) "done" else "not done"
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CheckBox(item.done)
-                Spacer(Modifier.width(14.dp))
-                MetroText(
-                    item.text, MetroType.body.copy(textDecoration = if (item.done) TextDecoration.LineThrough else null),
-                    color = if (item.done) fg.copy(alpha = 0.5f) else fg, maxLines = 1,
-                )
+        // A long list scrolls inside the band.
+        Column(Modifier.fillMaxWidth().heightIn(max = ListMax).verticalScroll(rememberScrollState())) {
+            notes.items.forEachIndexed { i, item ->
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = ItemHeight)
+                        .clickable(onClickLabel = if (item.done) "untick" else "tick") { onTick(i) }
+                        .semantics(mergeDescendants = true) {
+                            role = Role.Checkbox
+                            stateDescription = if (item.done) "done" else "not done"
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CheckBox(item.done)
+                    Spacer(Modifier.width(14.dp))
+                    MetroText(
+                        item.text, MetroType.body.copy(textDecoration = if (item.done) TextDecoration.LineThrough else null),
+                        color = if (item.done) fg.copy(alpha = 0.5f) else fg, maxLines = 2,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
             }
         }
         return
     }
     var adding by remember { mutableStateOf("") }
     val addFocus = remember { FocusRequester() }
+    val full = notes.items.size >= ToolLimits.ITEMS
     fun add() {
         val text = adding.trim()
-        if (text.isEmpty()) return
+        if (text.isEmpty() || full) return
         onDraft(notes.copy(items = notes.items + NoteItem(text)))
         adding = ""
     }
-    notes.items.forEachIndexed { i, item ->
-        Row(Modifier.fillMaxWidth().height(EditItemHeight), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(40.dp).clickable(onClickLabel = if (item.done) "untick" else "tick") {
-                    onDraft(notes.copy(items = notes.items.mapIndexed { j, it -> if (j == i) it.copy(done = !it.done) else it }))
-                },
-                contentAlignment = Alignment.Center,
-            ) { CheckBox(item.done) }
-            PlainField(
-                item.text,
-                { text -> onDraft(notes.copy(items = notes.items.mapIndexed { j, it -> if (j == i) it.copy(text = text) else it })) },
-                MetroType.body, modifier = Modifier.weight(1f),
-            )
-            Box(
-                Modifier.size(40.dp).clickable(onClickLabel = "remove ${item.text}") {
-                    onDraft(notes.copy(items = notes.items.filterIndexed { j, _ -> j != i }))
-                }.semantics { contentDescription = "remove ${item.text}" },
-                contentAlignment = Alignment.Center,
-            ) { MetroText("✕", MetroType.body, color = Metro.colors.subtle) }
+    // The items scroll inside a band of at most a few rows; the "add" field stays under them.
+    val scroll = rememberScrollState()
+    var count by remember { mutableIntStateOf(notes.items.size) }
+    LaunchedEffect(notes.items.size) {
+        // A new item shows at the bottom, next to the field it came from.
+        if (notes.items.size > count) {
+            snapshotFlow { scroll.maxValue }.first { it > scroll.value || it == 0 }
+            scroll.animateScrollTo(scroll.maxValue)
+        }
+        count = notes.items.size
+    }
+    Column(Modifier.fillMaxWidth().heightIn(max = EditListMax).verticalScroll(scroll)) {
+        notes.items.forEachIndexed { i, item ->
+            Row(Modifier.fillMaxWidth().height(EditItemHeight), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(40.dp).clickable(onClickLabel = if (item.done) "untick" else "tick") {
+                        onDraft(notes.copy(items = notes.items.mapIndexed { j, it -> if (j == i) it.copy(done = !it.done) else it }))
+                    },
+                    contentAlignment = Alignment.Center,
+                ) { CheckBox(item.done) }
+                PlainField(
+                    item.text,
+                    { text -> onDraft(notes.copy(items = notes.items.mapIndexed { j, it -> if (j == i) it.copy(text = text.take(ToolLimits.ITEM)) else it })) },
+                    MetroType.body, modifier = Modifier.weight(1f),
+                )
+                Box(
+                    Modifier.size(40.dp).clickable(onClickLabel = "remove ${item.text}") {
+                        onDraft(notes.copy(items = notes.items.filterIndexed { j, _ -> j != i }))
+                    }.semantics { contentDescription = "remove ${item.text}" },
+                    contentAlignment = Alignment.Center,
+                ) { MetroText("✕", MetroType.body, color = Metro.colors.subtle) }
+            }
         }
     }
-    Row(Modifier.fillMaxWidth().height(EditItemHeight), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { MetroText("+", MetroType.sectionTitle, color = Metro.colors.subtle) }
-        PlainField(
-            adding, { adding = it }, MetroType.body, placeholder = "add an item",
-            imeAction = ImeAction.Next, onIme = ::add,
-            modifier = Modifier.weight(1f).focusRequester(addFocus),
-        )
+    if (full) {
+        MetroText("the list is full (${ToolLimits.ITEMS} items)", MetroType.caption, color = Metro.colors.subtle, modifier = Modifier.height(EditItemHeight).padding(top = 14.dp))
+    } else {
+        Row(Modifier.fillMaxWidth().height(EditItemHeight), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { MetroText("+", MetroType.sectionTitle, color = Metro.colors.subtle) }
+            PlainField(
+                adding, { adding = it.take(ToolLimits.ITEM) }, MetroType.body, placeholder = "add an item",
+                imeAction = ImeAction.Next, onIme = ::add,
+                modifier = Modifier.weight(1f).focusRequester(addFocus),
+            )
+        }
     }
     // A new list starts with the keyboard up, ready for its first item.
     LaunchedEffect(Unit) { if (notes.items.isEmpty()) runCatching { addFocus.requestFocus() } }
@@ -225,8 +263,9 @@ private enum class InkTool { PEN, ERASER }
 
 @Composable
 private fun InkBody(notes: TileContent.Notes, editing: Boolean, onDraft: (TileContent.Notes) -> Unit) {
-    // Decoded once per edit; while editing, the strokes here are the truth and the draft follows them.
-    val strokes = remember(editing) { mutableStateListOf<List<InkPoint>>().apply { addAll(InkCodec.decode(notes.ink)) } }
+    // While editing, the strokes here are the truth and the draft follows them, so they are decoded
+    // once per edit; otherwise they follow the saved note (which arrives just after "done").
+    val strokes = remember(editing, if (editing) null else notes.ink) { mutableStateListOf<List<InkPoint>>().apply { addAll(InkCodec.decode(notes.ink)) } }
     var tool by remember { mutableStateOf(InkTool.PEN) }
     if (editing) {
         Row(Modifier.fillMaxWidth().height(InkToolsHeight), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -249,19 +288,29 @@ private fun InkBody(notes: TileContent.Notes, editing: Boolean, onDraft: (TileCo
             }, Modifier.weight(1f))
         }
     }
-    Box(
-        Modifier.fillMaxWidth().aspectRatio(1f).padding(vertical = 4.dp)
-            .background(Metro.colors.background.copy(alpha = 0.5f))
-            .border(1.dp, Metro.colors.subtle.copy(alpha = 0.4f)),
-    ) {
-        if (editing) {
-            InkCanvas(strokes, tool == InkTool.ERASER) { onDraft(notes.copy(ink = InkCodec.encode(strokes))) }
-        } else if (strokes.isEmpty()) {
-            MetroText("tap edit to write", MetroType.body, color = Metro.colors.subtle, modifier = Modifier.align(Alignment.Center))
-        } else {
-            InkPicture(strokes, Metro.colors.foreground, Modifier.fillMaxSize())
+    // Square on a phone; on a wide screen no taller than InkMax, so the band stays in view.
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        Box(
+            Modifier.fillMaxWidth().height(minOf(maxWidth, InkMax)).padding(vertical = 4.dp)
+                .background(Metro.colors.background.copy(alpha = 0.5f))
+                .border(1.dp, Metro.colors.subtle.copy(alpha = 0.4f)),
+        ) {
+            if (editing) {
+                InkCanvas(strokes, tool == InkTool.ERASER) { onDraft(notes.copy(ink = InkCodec.encode(strokes))) }
+            } else if (strokes.isEmpty()) {
+                MetroText("tap edit to write", MetroType.body, color = Metro.colors.subtle, modifier = Modifier.align(Alignment.Center))
+            } else {
+                InkPicture(strokes, Metro.colors.foreground, Modifier.fillMaxSize())
+            }
         }
     }
+}
+
+/** "1,950 of 2,000 characters" once a field is nearly full, so it doesn't stop typing unexplained. */
+@Composable
+private fun LimitNote(used: Int, max: Int, what: String) {
+    if (used < max * 9 / 10) return
+    MetroText("$used of $max $what", MetroType.caption, color = if (used >= max) Metro.colors.accent else Metro.colors.subtle)
 }
 
 /**
@@ -386,32 +435,47 @@ private val ItemHeight = 44.dp
 private val EditItemHeight = 48.dp
 private val ClearHeight = 52.dp
 private val InkToolsHeight = 48.dp
-private val TextEditMin = 200.dp
+private val TextEditHeight = 220.dp
+private val LimitHeight = 20.dp
+private val TextMax = 320.dp
+private val ListMax = 352.dp
+private val EditListMax = 288.dp
+private val InkMax = 420.dp
 
-/** How tall the open band is, in grid rows, so the tiles below can move out of its way. */
+/**
+ * How tall the open band is, in grid rows, so the tiles below can move out of its way. Every part
+ * has a ceiling (a long list or note scrolls inside), so the band is never more than about a
+ * screen. Used for the first frame; after that the band's measured height counts.
+ */
 internal object NotesPanelSize {
     fun rows(notes: TileContent.Notes, editing: Boolean, cell: Dp, width: Dp, measurer: TextMeasurer, density: Density): Int {
         val inner = width - PanelPadding * 2
         val body: Dp = when (notes.style) {
             NoteStyle.LIST -> if (editing) {
-                EditItemHeight * (notes.items.size + 1) + if (notes.items.any { it.done }) ClearHeight else 0.dp
+                minOf(EditItemHeight * notes.items.size, EditListMax) + EditItemHeight + if (notes.items.any { it.done }) ClearHeight else 0.dp
             } else {
-                ItemHeight * notes.items.size.coerceAtLeast(1)
+                minOf(ItemHeight * notes.items.size.coerceAtLeast(1), ListMax)
             }
-            NoteStyle.TEXT -> {
-                val measured = with(density) {
-                    measurer.measure(notes.text.ifBlank { " " }, MetroType.body, constraints = Constraints(maxWidth = inner.roundToPx().coerceAtLeast(1))).size.height.toDp()
-                } + 16.dp
-                if (editing) maxOf(measured + 24.dp, TextEditMin) else measured
+            NoteStyle.TEXT -> if (editing) {
+                TextEditHeight + LimitHeight
+            } else {
+                minOf(
+                    with(density) {
+                        measurer.measure(notes.text.ifBlank { " " }, MetroType.body, constraints = Constraints(maxWidth = inner.roundToPx().coerceAtLeast(1))).size.height.toDp()
+                    } + 16.dp,
+                    TextMax,
+                )
             }
-            NoteStyle.INK -> inner + 8.dp + if (editing) InkToolsHeight else 0.dp
+            NoteStyle.INK -> minOf(inner, InkMax) + 8.dp + if (editing) InkToolsHeight else 0.dp
         }
         val total = PanelVertical * 2 + HeaderHeight + (if (editing) StylesHeight else 0.dp) + body
         return ceil(total.value / cell.value).toInt().coerceAtLeast(2)
     }
 
     /** [notes] shown as [style]; a list and a note take each other's words when the other is empty. */
-    fun switchStyle(notes: TileContent.Notes, style: NoteStyle): TileContent.Notes = when {
+    fun switchStyle(notes: TileContent.Notes, style: NoteStyle): TileContent.Notes = ToolLimits.clean(switched(notes, style)) as TileContent.Notes
+
+    private fun switched(notes: TileContent.Notes, style: NoteStyle): TileContent.Notes = when {
         style == notes.style -> notes
         style == NoteStyle.TEXT && notes.text.isBlank() && notes.items.isNotEmpty() ->
             notes.copy(style = style, text = notes.items.joinToString("\n") { it.text })

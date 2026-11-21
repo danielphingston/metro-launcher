@@ -247,6 +247,12 @@ class StartState(val scroll: ScrollState) {
         noteDraft?.let { saveNote(id, it) }
     }
 
+    /** Stops editing without keeping the changes. */
+    fun cancelNoteEdit() {
+        noteDraftId = null
+        noteDraft = null
+    }
+
     /** Writes the note being edited, if any, and stops editing it. */
     fun endNoteEdit() {
         saveNoteDraft()
@@ -862,6 +868,7 @@ fun StartScreen(
                             onEdit = { state.startNoteEdit(noteId, openNotes) },
                             onDraft = state::updateNoteDraft,
                             onDone = state::endNoteEdit,
+                            onCancel = state::cancelNoteEdit,
                             modifier = Modifier
                                 .offset(y = cell * layout.region.y)
                                 .width(gridWidth)

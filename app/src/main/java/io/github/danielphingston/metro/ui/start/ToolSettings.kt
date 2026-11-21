@@ -150,7 +150,12 @@ private fun CountdownSettings(c: TileContent.Countdown, onChange: (TileContent.T
     MetroText("Date", MetroType.body, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
     MetroButton(Countdowns.dateLabel(c.epochDay) + " · change…", {
         val date = LocalDate.ofEpochDay(c.epochDay)
-        DatePickerDialog(context, { _, y, m, d -> onChange(latest.copy(epochDay = LocalDate.of(y, m + 1, d).toEpochDay())) }, date.year, date.monthValue - 1, date.dayOfMonth).show()
+        DatePickerDialog(context, { _, y, m, d -> onChange(latest.copy(epochDay = LocalDate.of(y, m + 1, d).toEpochDay())) }, date.year, date.monthValue - 1, date.dayOfMonth).apply {
+            // A countdown is for days that matter now: ten years back, fifty ahead.
+            val today = LocalDate.now()
+            datePicker.minDate = today.minusYears(10).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            datePicker.maxDate = today.plusYears(50).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        }.show()
     })
     Hint("Tap the tile to switch between days, weeks and the date. After the day it counts up.")
 }
@@ -180,7 +185,7 @@ private fun NameField(initial: String, placeholder: String, onCommit: (String) -
     val fg = Metro.colors.foreground
     BasicTextField(
         text,
-        { text = it },
+        { text = it.take(io.github.danielphingston.metro.data.ToolLimits.NAME) },
         singleLine = true,
         textStyle = MetroType.body.copy(color = fg),
         cursorBrush = SolidColor(Metro.colors.accent),

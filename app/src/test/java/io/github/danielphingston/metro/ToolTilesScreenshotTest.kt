@@ -231,7 +231,7 @@ class ToolTilesScreenshotTest {
                     Column(Modifier.padding(top = 40.dp).fillMaxWidth().background(Metro.colors.chrome.copy(alpha = 0.92f)).padding(horizontal = 8.dp)) {
                         NotesPanel(
                             notes = notes, label = ToolLabels.label(notes), draft = if (editing) notes else null,
-                            onTick = {}, onEdit = {}, onDraft = {}, onDone = {},
+                            onTick = {}, onEdit = {}, onDraft = {}, onDone = {}, onCancel = {},
                         )
                     }
                 }
@@ -251,6 +251,19 @@ class ToolTilesScreenshotTest {
 
     @Test
     fun notesBandEditing() = panel("tools_notes_band_edit", editing = true, notes = list)
+
+    private val fullList = TileContent.Notes(
+        "packing", NoteStyle.LIST,
+        List(io.github.danielphingston.metro.data.ToolLimits.ITEMS) { NoteItem("item ${it + 1}" + if (it == 0) " with a long name that takes two lines in the open band" else "", done = it % 5 == 4) },
+    )
+
+    /** Fifty items: the band keeps to a few rows and scrolls inside. */
+    @Test
+    fun longListBandReading() = panel("tools_notes_band_long", editing = false, notes = fullList)
+
+    /** Editing fifty items: the list scrolls, the field says it is full, cancel and done stay in view. */
+    @Test
+    fun longListBandEditing() = panel("tools_notes_band_long_edit", editing = true, notes = fullList)
 
     @Test
     fun handwritingBandEditing() = panel("tools_ink_band_edit", editing = true, notes = TileContent.Notes("scribble", NoteStyle.INK, ink = InkCodec.encode(scribble())))

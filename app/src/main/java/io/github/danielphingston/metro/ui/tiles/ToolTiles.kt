@@ -48,6 +48,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -221,7 +223,7 @@ internal fun RoutineTile(tile: ResolvedTile, m: TileMetrics, icons: IconCache) {
     val size = tile.spec.size
     val ink = white()
     val detail = hint?.text ?: s.detail
-    Box(Modifier.fillMaxSize().tileSurface()) {
+    Box(Modifier.fillMaxSize().tileSurface().semantics { stateDescription = "${s.headline}, $detail" }) {
         Quiet(!s.due)
         val mark = when {
             s.late > 0 -> "!"
@@ -357,7 +359,7 @@ internal fun CountdownTile(tile: ResolvedTile, m: TileMetrics) {
             big.length > 3 -> 0.62f
             else -> 1f
         }
-        Box(Modifier.fillMaxSize().tileSurface()) {
+        Box(Modifier.fillMaxSize().tileSurface().semantics { stateDescription = "$big $words".trim() }) {
             Quiet(days < 0)
             when (tile.spec.size) {
                 TileSize.SMALL -> Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -463,7 +465,7 @@ internal fun CoinTile(tile: ResolvedTile, m: TileMetrics) {
         TileSize.WIDE -> m.dp(88f)
         TileSize.LARGE -> m.dp(150f)
     }
-    Box(Modifier.fillMaxSize().tileSurface()) {
+    Box(Modifier.fillMaxSize().tileSurface().semantics { stateDescription = if (toss == null) "not tossed yet" else if (toss.heads) "heads" else "tails" }) {
         val coinBox = @Composable { modifier: Modifier ->
             Box(
                 modifier
@@ -588,7 +590,7 @@ internal fun DiceTile(tile: ResolvedTile, m: TileMetrics) {
         TileSize.LARGE -> if (shown == 3) m.dp(84f) else m.dp(100f)
     }
     val ink = white()
-    Box(Modifier.fillMaxSize().tileSurface().clipToBounds()) {
+    Box(Modifier.fillMaxSize().tileSurface().clipToBounds().semantics { stateDescription = if (dice.count > 1) "${values.joinToString(", ")}, total ${values.sum()}" else "${values.first()}" }) {
         Row(
             Modifier.align(
                 when (size) {
@@ -672,7 +674,12 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
     val ink = white()
     val size = tile.spec.size
     val left = n.items.count { !it.done }
-    Box(Modifier.fillMaxSize().tileSurface()) {
+    val state = when (n.style) {
+        NoteStyle.LIST -> if (n.items.isEmpty()) "empty" else if (left == 0) "all done" else "$left of ${n.items.size} left"
+        NoteStyle.TEXT -> n.text.ifBlank { "empty" }.take(200)
+        NoteStyle.INK -> if (n.ink.isEmpty()) "empty" else "handwriting"
+    }
+    Box(Modifier.fillMaxSize().tileSurface().semantics { stateDescription = state }) {
         when (n.style) {
             NoteStyle.LIST -> {
                 Quiet(n.items.isNotEmpty() && left == 0)
