@@ -263,15 +263,23 @@ internal fun RoutineTile(tile: ResolvedTile, m: TileMetrics, icons: IconCache) {
                     Doses(s.slots, m, labels = s.slots.map { Routines.timeLabel(it.minutes, is24) })
                 }
                 Spacer(Modifier.height(m.dp(14f)))
-                MetroText("last 14 days", MetroType.style(m.text(12f), FontWeight.SemiBold), color = ink.copy(alpha = 0.8f))
-                Spacer(Modifier.height(m.dp(4f)))
-                val days = Routines.history(r, now, zone, 14)
-                HistoryStrip(days.take(7), m)
-                Spacer(Modifier.height(m.dp(4f)))
-                HistoryStrip(days.drop(7), m)
+                if (r.daily) {
+                    MetroText("last 14 days", MetroType.style(m.text(12f), FontWeight.SemiBold), color = ink.copy(alpha = 0.8f))
+                    Spacer(Modifier.height(m.dp(4f)))
+                    val days = Routines.history(r, now, zone, 14)
+                    HistoryStrip(days.take(7), m)
+                    Spacer(Modifier.height(m.dp(4f)))
+                    HistoryStrip(days.drop(7), m)
+                } else if (r.marks.isNotEmpty()) {
+                    MetroText("last done", MetroType.style(m.text(12f), FontWeight.SemiBold), color = ink.copy(alpha = 0.8f))
+                    Spacer(Modifier.height(m.dp(4f)))
+                    r.marks.sortedDescending().take(4).forEach {
+                        MetroText(Countdowns.dateLabel(java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate().toEpochDay()), MetroType.style(m.text(14f)), color = ink, maxLines = 1)
+                    }
+                }
             }
         }
-        if (size == TileSize.WIDE) {
+        if (size == TileSize.WIDE && r.daily) {
             HistoryStrip(Routines.history(r, now, zone, 7), m, Modifier.align(Alignment.BottomEnd).padding(end = m.dp(8f), bottom = m.dp(8f)))
         }
         if (size != TileSize.SMALL) TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
@@ -317,17 +325,17 @@ private fun Doses(slots: List<Routines.Slot>, m: TileMetrics, labels: List<Strin
     }
 }
 
-/** A row of day squares, oldest first: filled when done, half when partly, an outline when not. */
+/** A row of day squares, oldest first (today last): filled when done, faint when partly, an outline when not. */
 @Composable
 private fun HistoryStrip(days: List<Float>, m: TileMetrics, modifier: Modifier = Modifier) {
     val ink = white()
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(m.dp(4f))) {
-        days.forEachIndexed { i, done ->
+        days.forEach { done ->
             Canvas(Modifier.size(m.dp(11f))) {
                 val stroke = 1.5.dp.toPx()
                 drawRect(ink.copy(alpha = 0.8f), topLeft = Offset(stroke / 2, stroke / 2), size = Size(size.width - stroke, size.height - stroke), style = Stroke(stroke))
-                if (done > 0f) drawRect(ink, size = Size(size.width * done, size.height))
-                if (i == days.lastIndex) drawRect(ink, topLeft = Offset(0f, size.height + 2.dp.toPx()), size = Size(size.width, 1.5.dp.toPx()))
+                // Done: filled. Partly done (some of the day's doses): half strength.
+                if (done >= 1f) drawRect(ink) else if (done > 0f) drawRect(ink.copy(alpha = 0.45f))
             }
         }
     }
@@ -361,18 +369,19 @@ internal fun CountdownTile(tile: ResolvedTile, m: TileMetrics) {
                     MetroText(words, MetroType.style(m.text(13f)), color = ink, maxLines = 1)
                 }
                 TileSize.WIDE -> Row(Modifier.padding(m.dp(8f)).fillMaxWidth()) {
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         MetroText(big, MetroType.style(m.text(64f * scale), FontWeight.Light), color = ink, maxLines = 1)
                         MetroText(words, MetroType.style(m.text(13f)), color = ink, maxLines = 1)
                     }
-                    Spacer(Modifier.weight(1f))
-                    Column(horizontalAlignment = Alignment.End) {
-                        MetroText(tile.label, MetroType.style(m.text(20f), FontWeight.Light), color = ink, maxLines = 1)
+                    Spacer(Modifier.width(m.dp(8f)))
+                    // The name keeps to its half, wrapping to two lines, so it never runs into the number.
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                        MetroText(tile.label, MetroType.style(m.text(20f), FontWeight.Light).copy(textAlign = androidx.compose.ui.text.style.TextAlign.End), color = ink, maxLines = 2)
                         MetroText(Countdowns.dateLabel(c.epochDay), MetroType.style(m.text(13f)), color = ink, maxLines = 1)
                     }
                 }
                 TileSize.LARGE -> Column(Modifier.padding(m.dp(10f)).fillMaxHeight()) {
-                    MetroText(tile.label, MetroType.style(m.text(26f), FontWeight.Light), color = ink, maxLines = 1)
+                    MetroText(tile.label, MetroType.style(m.text(26f), FontWeight.Light), color = ink, maxLines = 2)
                     Spacer(Modifier.weight(1f))
                     MetroText(big, MetroType.style(m.text(120f * scale), FontWeight.Light), color = ink, maxLines = 1)
                     MetroText(words, MetroType.style(m.text(18f)), color = ink, maxLines = 1)
@@ -451,7 +460,8 @@ internal fun CoinTile(tile: ResolvedTile, m: TileMetrics) {
     val coin = when (size) {
         TileSize.SMALL -> m.dp(46f)
         TileSize.MEDIUM -> m.dp(64f)
-        else -> m.dp(88f)
+        TileSize.WIDE -> m.dp(88f)
+        TileSize.LARGE -> m.dp(150f)
     }
     Box(Modifier.fillMaxSize().tileSurface()) {
         val coinBox = @Composable { modifier: Modifier ->
@@ -486,7 +496,21 @@ internal fun CoinTile(tile: ResolvedTile, m: TileMetrics) {
                     modifier = Modifier.align(Alignment.BottomEnd).padding(end = m.dp(8f), bottom = m.dp(6f)),
                 )
             }
-            else -> Row(Modifier.align(Alignment.CenterStart).padding(start = m.dp(16f)), verticalAlignment = Alignment.CenterVertically) {
+            TileSize.LARGE -> Column(Modifier.align(Alignment.Center).padding(bottom = m.dp(16f)), horizontalAlignment = Alignment.CenterHorizontally) {
+                coinBox(Modifier)
+                Spacer(Modifier.height(m.dp(24f)))
+                MetroText(
+                    if (turn.isRunning) " " else if (toss == null) "tap to toss" else if (settledHeads) "heads" else "tails",
+                    MetroType.style(m.text(40f), FontWeight.Light), color = ink, maxLines = 1,
+                )
+                if (history.isNotEmpty()) {
+                    Spacer(Modifier.height(m.dp(8f)))
+                    TossHistory(history, m)
+                    val heads = history.count { it }
+                    MetroText("last ${history.size}: $heads heads · ${history.size - heads} tails", MetroType.style(m.text(13f)), color = ink.copy(alpha = 0.85f))
+                }
+            }
+            TileSize.WIDE -> Row(Modifier.align(Alignment.CenterStart).padding(start = m.dp(16f)), verticalAlignment = Alignment.CenterVertically) {
                 coinBox(Modifier)
                 Spacer(Modifier.width(m.dp(20f)))
                 Column {
@@ -498,7 +522,7 @@ internal fun CoinTile(tile: ResolvedTile, m: TileMetrics) {
                         Spacer(Modifier.height(m.dp(6f)))
                         TossHistory(history, m)
                         val heads = history.count { it }
-                        MetroText("$heads heads · ${history.size - heads} tails", MetroType.style(m.text(12f)), color = ink.copy(alpha = 0.85f))
+                        MetroText("last ${history.size}: $heads heads · ${history.size - heads} tails", MetroType.style(m.text(12f)), color = ink.copy(alpha = 0.85f))
                     }
                 }
             }
@@ -519,7 +543,7 @@ private fun CoinFace(heads: Boolean, size: Dp, ink: Color) {
 private fun TossHistory(history: List<Boolean>, m: TileMetrics) {
     val ink = white()
     Row(horizontalArrangement = Arrangement.spacedBy(m.dp(4f))) {
-        history.takeLast(8).forEach { heads ->
+        history.takeLast(ToolMemory.HISTORY).forEach { heads ->
             Canvas(Modifier.size(m.dp(9f))) {
                 if (heads) drawCircle(ink) else drawCircle(ink, size.minDimension / 2 - 0.75.dp.toPx(), style = Stroke(1.5.dp.toPx()))
             }
@@ -560,13 +584,19 @@ internal fun DiceTile(tile: ResolvedTile, m: TileMetrics) {
     val dieSize = when (size) {
         TileSize.SMALL -> m.dp(44f)
         TileSize.MEDIUM -> if (shown == 1) m.dp(64f) else if (shown == 2) m.dp(56f) else m.dp(46f)
-        else -> m.dp(64f)
+        TileSize.WIDE -> m.dp(64f)
+        TileSize.LARGE -> if (shown == 3) m.dp(84f) else m.dp(100f)
     }
     val ink = white()
     Box(Modifier.fillMaxSize().tileSurface().clipToBounds()) {
         Row(
-            Modifier.align(if (size == TileSize.SMALL || size == TileSize.MEDIUM) Alignment.Center else Alignment.CenterStart)
-                .padding(start = if (size == TileSize.WIDE || size == TileSize.LARGE) m.dp(16f) else 0.dp),
+            Modifier.align(
+                when (size) {
+                    TileSize.WIDE -> Alignment.CenterStart
+                    TileSize.LARGE -> Alignment.TopCenter
+                    else -> Alignment.Center
+                },
+            ).padding(start = if (size == TileSize.WIDE) m.dp(16f) else 0.dp, top = if (size == TileSize.LARGE) m.dp(96f) else 0.dp),
             horizontalArrangement = Arrangement.spacedBy(m.dp(10f)),
         ) {
             for (i in 0 until shown.coerceAtMost(values.size)) {
@@ -588,7 +618,10 @@ internal fun DiceTile(tile: ResolvedTile, m: TileMetrics) {
         }
         if (size == TileSize.WIDE || size == TileSize.LARGE) {
             val total = values.take(shown).sum()
-            Column(Modifier.align(Alignment.CenterEnd).padding(end = m.dp(16f)), horizontalAlignment = Alignment.End) {
+            Column(
+                if (size == TileSize.WIDE) Modifier.align(Alignment.CenterEnd).padding(end = m.dp(16f)) else Modifier.align(Alignment.BottomCenter).padding(bottom = m.dp(64f)),
+                horizontalAlignment = if (size == TileSize.WIDE) Alignment.End else Alignment.CenterHorizontally,
+            ) {
                 MetroText(if (p < 1f) " " else "$total", MetroType.style(m.text(56f), FontWeight.Light), color = ink)
                 if (shown > 1) MetroText("total", MetroType.style(m.text(13f)), color = ink)
             }
@@ -647,10 +680,11 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
                     ToolGlyph(ToolGlyphKind.LIST, m.dp(38f), Modifier.align(Alignment.Center))
                     MetroText(if (n.items.isNotEmpty() && left == 0) "✓" else if (left > 0) "$left" else "", MetroType.style(m.text(13f), FontWeight.SemiBold), color = ink, modifier = Modifier.align(Alignment.TopEnd).padding(m.dp(5f)))
                 } else {
+                    // As many as fit under the name with room for "+n more": wide shows two columns.
                     val max = when (size) {
-                        TileSize.MEDIUM -> 4
-                        TileSize.WIDE -> 4
-                        else -> 11
+                        TileSize.MEDIUM -> 5
+                        TileSize.WIDE -> 8
+                        else -> 14
                     }
                     val ordered = n.items.filter { !it.done } + n.items.filter { it.done }
                     Column(Modifier.padding(start = m.dp(8f), end = m.dp(8f), top = m.dp(6f))) {
@@ -664,11 +698,12 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
                         } else if (left == 0) {
                             MetroText("all done", MetroType.style(m.text(22f), FontWeight.Light), color = ink)
                         } else {
-                            val shown = ordered.take(if (size == TileSize.WIDE) 4 else max)
-                            if (size == TileSize.WIDE && shown.size > 2) {
+                            val shown = ordered.take(max)
+                            if (size == TileSize.WIDE && shown.size > 4) {
+                                val half = (shown.size + 1) / 2
                                 Row(horizontalArrangement = Arrangement.spacedBy(m.dp(12f))) {
-                                    Column(Modifier.weight(1f)) { shown.take(2).forEach { NoteRow(it.text, it.done, m) } }
-                                    Column(Modifier.weight(1f)) { shown.drop(2).forEach { NoteRow(it.text, it.done, m) } }
+                                    Column(Modifier.weight(1f)) { shown.take(half).forEach { NoteRow(it.text, it.done, m) } }
+                                    Column(Modifier.weight(1f)) { shown.drop(half).forEach { NoteRow(it.text, it.done, m) } }
                                 }
                             } else {
                                 shown.forEach { NoteRow(it.text, it.done, m) }
@@ -702,7 +737,13 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
                 if (strokes.isEmpty()) {
                     ToolGlyph(ToolGlyphKind.PEN, if (size == TileSize.SMALL) m.dp(36f) else m.dp(44f), Modifier.align(Alignment.Center))
                 } else {
-                    InkPicture(strokes, ink, Modifier.fillMaxSize().padding(m.dp(4f)))
+                    // The whole drawing, fitted to the tile and clear of the name.
+                    val named = size != TileSize.SMALL && LocalTileDecor.current.showName
+                    InkPicture(
+                        strokes, ink,
+                        Modifier.fillMaxSize().padding(start = m.dp(6f), end = m.dp(6f), top = m.dp(6f), bottom = if (named) m.dp(24f) else m.dp(6f)),
+                        fit = true,
+                    )
                 }
             }
         }
@@ -730,12 +771,41 @@ private fun NoteRow(text: String, done: Boolean, m: TileMetrics) {
  * the layer's cache, so scrolling start doesn't draw it again.
  */
 @Composable
-internal fun InkPicture(strokes: List<List<InkPoint>>, color: Color, modifier: Modifier = Modifier) {
+internal fun InkPicture(strokes: List<List<InkPoint>>, color: Color, modifier: Modifier = Modifier, fit: Boolean = false) {
     Box(
         modifier.clipToBounds().drawWithCache {
-            onDrawBehind { drawInk(strokes, color) }
+            onDrawBehind { if (fit) drawInkFitted(strokes, color) else drawInk(strokes, color) }
         },
     )
+}
+
+/**
+ * Draws [strokes] scaled to fit this scope and centred, keeping their shape: a tile shows the
+ * whole drawing whatever its size. A small drawing (a word) is enlarged at most about three times.
+ */
+internal fun DrawScope.drawInkFitted(strokes: List<List<InkPoint>>, color: Color) {
+    val points = strokes.flatten()
+    if (points.isEmpty()) return
+    val pad = 0.03f
+    val minX = points.minOf { it.x } - pad
+    val maxX = points.maxOf { it.x } + pad
+    val minY = points.minOf { it.y } - pad
+    val maxY = points.maxOf { it.y } + pad
+    val scale = minOf(size.width / (maxX - minX), size.height / (maxY - minY), size.width / 0.35f)
+    val ox = (size.width - (maxX - minX) * scale) / 2 - minX * scale
+    val oy = (size.height - (maxY - minY) * scale) / 2 - minY * scale
+    strokes.forEach { stroke ->
+        if (stroke.size == 1) {
+            val p = stroke[0]
+            drawCircle(color, scale * (0.0018f + 0.005f * p.pressure), Offset(ox + p.x * scale, oy + p.y * scale))
+            return@forEach
+        }
+        for (i in 1 until stroke.size) {
+            val a = stroke[i - 1]
+            val b = stroke[i]
+            drawLine(color, Offset(ox + a.x * scale, oy + a.y * scale), Offset(ox + b.x * scale, oy + b.y * scale), scale * (0.0035f + 0.01f * b.pressure), StrokeCap.Round)
+        }
+    }
 }
 
 /** Draws [strokes] scaled to this scope's width; line width follows pressure. */

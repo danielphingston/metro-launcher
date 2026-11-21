@@ -232,9 +232,20 @@ private fun InkBody(notes: TileContent.Notes, editing: Boolean, onDraft: (TileCo
         Row(Modifier.fillMaxWidth().height(InkToolsHeight), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             MetroChoice("pen", tool == InkTool.PEN, { tool = InkTool.PEN }, Modifier.weight(1f))
             MetroChoice("eraser", tool == InkTool.ERASER, { tool = InkTool.ERASER }, Modifier.weight(1f))
-            MetroChoice("clear", false, {
-                strokes.clear()
-                onDraft(notes.copy(ink = ""))
+            // Clearing can't be taken back, so it asks once more: a second tap within a few seconds.
+            var confirming by remember { mutableStateOf(false) }
+            LaunchedEffect(confirming) {
+                if (confirming) {
+                    kotlinx.coroutines.delay(3_000)
+                    confirming = false
+                }
+            }
+            MetroChoice(if (confirming) "clear all?" else "clear", confirming, {
+                if (confirming) {
+                    strokes.clear()
+                    onDraft(notes.copy(ink = ""))
+                }
+                confirming = !confirming
             }, Modifier.weight(1f))
         }
     }
