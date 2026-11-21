@@ -31,6 +31,7 @@ import io.github.danielphingston.metro.data.StartLayoutRepository
 import io.github.danielphingston.metro.ui.start.TileKeys
 import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles
 import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.ToolLabels
 import io.github.danielphingston.metro.data.ActionIcon
 import io.github.danielphingston.metro.data.TileRepository
 import io.github.danielphingston.metro.data.TileSize
@@ -195,6 +196,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             TileContent.Tracking -> ResolvedTile(spec, null, "tracking")
             is TileContent.Feed -> ResolvedTile(spec, null, FeedAddress.label(c.urls))
             is TileContent.LayoutSwitch -> ResolvedTile(spec, null, LayoutSwitchTiles.label(c, layouts))
+            is TileContent.Tool -> ResolvedTile(spec, null, ToolLabels.label(c))
         }
         specs.mapNotNull(::resolve)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -296,9 +298,20 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             .flatMap { listOf(it) + ((it.content as? TileContent.Folder)?.children.orEmpty()) }
             .any { it.id != exceptId && (it.content as? TileContent.Feed)?.urls?.let { u -> FeedAddress.sameFeeds(u, urls) } == true }
 
-    fun addTile(content: TileContent, size: TileSize, span: TileSpan? = null) {
-        metro.tiles.add(content, size, span)
+    /** Pins [content]; returns the new tile's id, or null when it was already pinned or the layout is still loading. */
+    fun addTile(content: TileContent, size: TileSize, span: TileSpan? = null): Long? {
+        val id = metro.tiles.add(content, size, span)
         _pinned.tryEmit(Unit)
+        return id
+    }
+
+    /**
+     * Changes what tool tile [id] holds (a tick, a list item, a note) with no undo step: using a
+     * tile is not an edit of the start screen. Saved like any change to the tiles.
+     */
+    fun updateTool(id: Long, change: (TileContent.Tool) -> TileContent.Tool) = metro.tiles.update(id) { spec ->
+        val tool = spec.content as? TileContent.Tool ?: return@update spec
+        spec.copy(content = change(tool))
     }
 
     fun unpin(id: Long) {

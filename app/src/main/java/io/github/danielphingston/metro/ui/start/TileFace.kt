@@ -284,9 +284,13 @@ internal fun GlyphPicture(glyph: io.github.danielphingston.metro.ui.search.Searc
     )
 }
 
-/** A picked tile icon: "pack:<package>:<drawable>" from an icon pack, or "glyph:<id>" drawn in white. */
+/** A picked tile icon: "pack:<package>:<drawable>" from an icon pack, "glyph:<id>" drawn in white, or "emoji:<emoji>". */
 @Composable
 fun CustomTileIcon(icon: String, size: Dp, icons: IconCache, modifier: Modifier = Modifier) {
+    if (icon.startsWith("emoji:")) {
+        EmojiPicture(icon.removePrefix("emoji:"), size, modifier)
+        return
+    }
     if (icon.startsWith("glyph:")) {
         val glyph = io.github.danielphingston.metro.ui.search.SearchGlyphs.byId(icon.removePrefix("glyph:")) ?: return
         GlyphPicture(glyph, size, Metro.colors.onAccent, modifier)

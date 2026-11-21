@@ -103,7 +103,62 @@ sealed interface TileContent {
 
     /** Switches start to the saved layout [layoutId] (see [StartLayoutRepository]); null: to the next one in turn. */
     data class LayoutSwitch(val layoutId: Long?) : TileContent
+
+    /**
+     * A tool tile: used right on start with a tap, no app behind it. Each pinned one is its own
+     * tile (adding a second coin is fine), so [TileRepository.add] never treats two as the same.
+     */
+    sealed interface Tool : TileContent
+
+    /**
+     * Something done again and again (see [Routines]): [daily] at [times] (minutes after midnight,
+     * sorted, at most [Routines.MAX_TIMES]), else every [everyDays] days. [marks] are when it was
+     * done, newest last, kept for [Routines.KEEP_DAYS] days. A [created] stamp keeps two new
+     * routines apart. [times] is kept while [daily] is off, so switching back restores it.
+     */
+    data class Routine(
+        val name: String,
+        val daily: Boolean,
+        val times: List<Int>,
+        val everyDays: Int,
+        val marks: List<Long> = emptyList(),
+        val created: Long = 0,
+    ) : Tool
+
+    /** Days to (and after) [epochDay], a local date. */
+    data class Countdown(val name: String, val epochDay: Long, val created: Long = 0) : Tool
+
+    /** Heads or tails; the result lives in memory only (see ToolMemory). */
+    data class Coin(val created: Long = 0) : Tool
+
+    /** [count] dice of [sides] sides; the throw lives in memory only. */
+    data class Dice(val count: Int, val sides: Int, val created: Long = 0) : Tool
+
+    /**
+     * A note that opens in place on start, like a folder: a checklist, plain text or handwriting
+     * ([style]). Each style keeps its own content, so switching style loses nothing; [ink] is
+     * [InkCodec]'s encoding.
+     */
+    data class Notes(
+        val name: String,
+        val style: NoteStyle,
+        val items: List<NoteItem> = emptyList(),
+        val text: String = "",
+        val ink: String = "",
+        val created: Long = 0,
+    ) : Tool
 }
+
+/** How a notes tile shows its content. [id] is saved in the layout, so it must never change. */
+enum class NoteStyle(val id: String, val label: String) {
+    LIST("list", "checklist"), TEXT("text", "note"), INK("ink", "handwriting");
+
+    companion object {
+        fun fromId(id: String?): NoteStyle = entries.firstOrNull { it.id == id } ?: LIST
+    }
+}
+
+data class NoteItem(val text: String, val done: Boolean = false)
 
 /** The quick-setting tiles. [id] is the name saved in the layout, so it must never change. */
 enum class QuickSettingKind(val id: String, val label: String) {
@@ -420,7 +475,7 @@ class TileRepository(
 
     /** [list] with the new tile (and its id) settled in, or null when an identical app or shortcut is already pinned. */
     private fun withAdded(list: List<TileSpec>, content: TileContent, size: TileSize, span: TileSpan?): Pair<List<TileSpec>, Long>? {
-        if (content !is TileContent.Widget && list.flatten().any { it.content == content }) return null
+        if (content !is TileContent.Widget && content !is TileContent.Tool && list.flatten().any { it.content == content }) return null
         val id = nextId(list)
         return TilePlacement.settle(list + TileSpec(id, size, content, span = span), columnCount) to id
     }
@@ -732,6 +787,7 @@ internal object TileJson {
             }
             is TileContent.Folder -> obj.put("type", "folder").put("name", c.name).put("children", encode(c.children).apply { unread.children[tile.id]?.forEach { put(it) } })
             is TileContent.LayoutSwitch -> obj.put("type", "layoutSwitch").apply { c.layoutId?.let { put("layout", it) } }
+            is TileContent.Tool -> ToolJson.encode(c, obj)
         }
         return obj
     }
@@ -778,6 +834,7 @@ internal object TileJson {
                 TileContent.Folder(obj.optString("name"), kids)
             }
             "layoutSwitch" -> TileContent.LayoutSwitch(if (obj.has("layout")) obj.getLong("layout") else null)
+            in ToolJson.TYPES -> ToolJson.decode(obj) ?: return null
             else -> return null
         }
         val span = if (obj.has("spanWidth") && obj.has("spanHeight")) {

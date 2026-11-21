@@ -33,7 +33,8 @@ object FolderLayout {
     /**
      * Takes the settled [base] placements (see [TilePlacement.layout]) and, when the tile at
      * [openIndex] is an open folder, opens a full-width region for its [childSizes] directly under
-     * the folder, wherever it sits; the children are packed in list order. With `cut` the row
+     * the folder, wherever it sits; the children are packed in list order. An open notes tile
+     * passes [regionRows] instead of children: a band that tall. With `cut` the row
      * under the folder and `height` the region's rows:
      * - A tile that ends at or above `cut` stays where it is.
      * - A tile that starts at or below `cut` moves down by `height`.
@@ -43,13 +44,14 @@ object FolderLayout {
      * Tiles never change column, nothing rises into the gaps they leave, and the layout is
      * derived from [base] each time, so closing the folder gives the stored layout back.
      */
-    fun compute(base: List<Placement>, openIndex: Int?, childSizes: List<TileSize>, columns: Int): StartLayout {
-        if (openIndex == null || openIndex !in base.indices || childSizes.isEmpty()) {
+    fun compute(base: List<Placement>, openIndex: Int?, childSizes: List<TileSize>, columns: Int, regionRows: Int? = null): StartLayout {
+        if (openIndex == null || openIndex !in base.indices || (childSizes.isEmpty() && regionRows == null)) {
             return StartLayout(base, emptyList(), null, TileGrid.rows(base))
         }
         val cut = base[openIndex].y + base[openIndex].height
-        val kids = TileGrid.pack(childSizes, columns)
-        val height = TileGrid.rows(kids)
+        // An open notes tile has no children: its band is [regionRows] tall.
+        val kids = if (regionRows != null) emptyList() else TileGrid.pack(childSizes, columns)
+        val height = regionRows ?: TileGrid.rows(kids)
         val shifted = base.toMutableList()
         val moved = base.indices.filter { base[it].y + base[it].height > cut }
         for (i in moved) shifted[i] = base[i].let { it.copy(y = if (it.y >= cut) it.y + height else cut + height) }

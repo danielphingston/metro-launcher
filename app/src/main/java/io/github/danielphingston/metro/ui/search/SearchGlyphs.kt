@@ -190,4 +190,45 @@ internal object SearchGlyphs {
         drawLine(color, Offset(c.x - r, c.y), Offset(c.x + r, c.y), stroke, StrokeCap.Round)
         drawOval(color, Offset(c.x - r * 0.45f, c.y - r), Size(r * 0.9f, r * 2), style = Stroke(stroke))
     }
+
+    /** A capsule: a pill, for routines. */
+    val pill = glyph("pill") { color ->
+        withTransform({ rotate(-45f, center) }) {
+            val w = size.width * 0.34f
+            drawRoundRect(color, Offset(center.x - w / 2, size.height * 0.1f), Size(w, size.height * 0.8f), androidx.compose.ui.geometry.CornerRadius(w / 2), style = Stroke(stroke))
+            drawLine(color, Offset(center.x - w / 2, center.y), Offset(center.x + w / 2, center.y), stroke)
+        }
+    }
+
+    /** A drop of water. */
+    val drop = glyph("drop") { color ->
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(center.x, size.height * 0.08f)
+            cubicTo(size.width * 0.82f, size.height * 0.5f, size.width * 0.82f, size.height * 0.92f, center.x, size.height * 0.92f)
+            cubicTo(size.width * 0.18f, size.height * 0.92f, size.width * 0.18f, size.height * 0.5f, center.x, size.height * 0.08f)
+        }
+        drawPath(path, color, style = Stroke(stroke, join = StrokeJoin.Round))
+    }
+
+    /** A sprout: two leaves on a stem, for plants. */
+    val plant = glyph("plant") { color ->
+        drawLine(color, Offset(center.x, size.height * 0.92f), Offset(center.x, size.height * 0.4f), stroke, StrokeCap.Round)
+        drawOval(color, Offset(size.width * 0.1f, size.height * 0.22f), Size(size.width * 0.4f, size.height * 0.22f), style = Stroke(stroke))
+        drawOval(color, Offset(size.width * 0.5f, size.height * 0.1f), Size(size.width * 0.4f, size.height * 0.22f), style = Stroke(stroke))
+    }
+
+    /** A paw print, for pets. */
+    val paw = glyph("paw") { color ->
+        drawOval(color, Offset(size.width * 0.3f, size.height * 0.5f), Size(size.width * 0.4f, size.height * 0.34f), style = Stroke(stroke))
+        listOf(0.18f to 0.42f, 0.38f to 0.22f, 0.62f to 0.22f, 0.82f to 0.42f).forEach { (x, y) ->
+            drawCircle(color, size.minDimension * 0.08f, Offset(size.width * x, size.height * y), style = Stroke(stroke))
+        }
+    }
+
+    /** A tick in a circle: done. */
+    val check = glyph("check") { color ->
+        drawCircle(color, size.minDimension * 0.42f, center, style = Stroke(stroke))
+        drawLine(color, Offset(size.width * 0.3f, size.height * 0.52f), Offset(size.width * 0.45f, size.height * 0.66f), stroke, StrokeCap.Round)
+        drawLine(color, Offset(size.width * 0.45f, size.height * 0.66f), Offset(size.width * 0.72f, size.height * 0.36f), stroke, StrokeCap.Round)
+    }
 }

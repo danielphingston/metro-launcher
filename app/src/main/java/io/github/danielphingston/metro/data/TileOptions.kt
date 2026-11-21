@@ -141,6 +141,9 @@ enum class TileOption {
     /** The feed tile's address. */
     FEED_ADDRESS,
 
+    /** A tool tile's own settings: a routine's name and times, a countdown's date, how many dice. */
+    TOOL,
+
     /** Group into a folder (or add to this folder): a badge, and a TalkBack action. */
     GROUP,
 }
@@ -171,6 +174,8 @@ object TileOptions {
             TileContent.Assistant, TileContent.Me, TileContent.Tracking, is TileContent.LayoutSwitch,
             -> options += TileOption.SHOW_NAME
             is TileContent.Feed -> options += setOf(TileOption.SHOW_NAME, TileOption.FEED_ADDRESS)
+            is TileContent.Coin, is TileContent.Notes -> options += TileOption.SHOW_NAME
+            is TileContent.Routine, is TileContent.Countdown, is TileContent.Dice -> options += setOf(TileOption.SHOW_NAME, TileOption.TOOL)
         }
         options += SURFACE
         if (spec.content is TileContent.Widget && widgetSettings) options += TileOption.WIDGET_SETTINGS

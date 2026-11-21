@@ -143,6 +143,19 @@ internal fun TileCustomise(
         onWidgetSettings = onWidgetSettings,
         onFeedAddress = onFeedAddress,
         onDismiss = onDismiss,
+        tool = if (TileOption.TOOL in options) {
+            {
+                ToolSettings(
+                    spec,
+                    onChange = { c -> viewModel.updateTile(id, StartEdit.TOOL) { it.copy(content = c) } },
+                    onData = { change -> viewModel.updateTool(id, change) },
+                    onChooseIcon = onChooseIconPack,
+                    onClearIcon = { viewModel.updateTile(id, StartEdit.ICON) { TileOptions.withIcon(it, null) } },
+                )
+            }
+        } else {
+            null
+        },
     )
 }
 
@@ -168,6 +181,8 @@ internal fun TileCustomiseSheet(
     onWidgetSettings: (() -> Unit)?,
     onFeedAddress: () -> Unit = {},
     onDismiss: () -> Unit,
+    /** A tool tile's own settings, shown first; see [ToolSettings]. */
+    tool: (@Composable () -> Unit)? = null,
 ) {
     MetroFlyout(onDismiss, paneTitle = "customise tile") {
         Column(
@@ -186,6 +201,7 @@ internal fun TileCustomiseSheet(
                 ),
         ) {
             MetroText("CUSTOMISE", MetroType.appName, color = Metro.colors.subtle)
+            tool?.invoke()
             CustomiseSections(spec, options, startTransparency, onShowName, onShowIcon, onIconSource, onPhoto, onBackground, onColour, onTransparency, onWidgetSettings, onFeedAddress)
         }
     }

@@ -33,7 +33,7 @@ internal class UndoStack<T>(private val capacity: Int) {
 
 /** The start screen edits that can be taken back, and what the bar says after each. */
 enum class StartEdit {
-    UNPIN, RESIZE, MOVE, FOLDER_CREATED, FOLDER_ADDED, FOLDER_REMOVED_FROM, FOLDER_RENAMED, STYLE, ICON, COLOUR, BACKGROUND, TRANSPARENCY, FEED;
+    UNPIN, RESIZE, MOVE, FOLDER_CREATED, FOLDER_ADDED, FOLDER_REMOVED_FROM, FOLDER_RENAMED, STYLE, ICON, COLOUR, BACKGROUND, TRANSPARENCY, FEED, TOOL;
 
     /** The bar's text; [name] is the tile's label (for unpin). Lowercase, like the rest of Metro. */
     fun label(name: String? = null): String = when (this) {
@@ -50,6 +50,7 @@ enum class StartEdit {
         BACKGROUND -> "tile background changed"
         TRANSPARENCY -> "tile transparency changed"
         FEED -> "feed changed"
+        TOOL -> "tile settings changed"
     }.lowercase()
 
     /**
@@ -169,7 +170,7 @@ class TileUndo(
     fun undo(): String? {
         val step = synchronized(stack) { stack.pop() } ?: return null
         val replaced = current().orEmpty()
-        restore(step.tiles)
+        restore(ToolCarry.carry(step.tiles, replaced))
         publish()
         // Tiles that only the replaced layout had (one added after the edit, say) are gone for good.
         releaseUnreferenced(replaced)

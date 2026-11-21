@@ -39,6 +39,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -146,6 +149,13 @@ import io.github.danielphingston.metro.ui.tiles.WidgetTiles
 import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTile
 import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles
 import io.github.danielphingston.metro.ui.tiles.widgetCustomActions
+import io.github.danielphingston.metro.ui.tiles.CoinTile
+import io.github.danielphingston.metro.ui.tiles.CountdownTile
+import io.github.danielphingston.metro.ui.tiles.DiceTile
+import io.github.danielphingston.metro.ui.tiles.NotesTile
+import io.github.danielphingston.metro.ui.tiles.RoutineTile
+import io.github.danielphingston.metro.ui.tiles.ToolTaps
+import io.github.danielphingston.metro.ui.tiles.rememberTileMetrics
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.ClockSource
 import io.github.danielphingston.metro.live.ClockState
@@ -209,13 +219,48 @@ class StartState(val scroll: ScrollState) {
         editing = true
     }
 
-    /** Folder currently expanded on the start screen, if any. */
+    /** Folder (or notes tile, which opens the same way) currently expanded on the start screen, if any. */
     var openFolderId by mutableStateOf<Long?>(null)
+
+    /**
+     * The open notes tile's changes while it is being edited (see [NotesPanel]), and that tile;
+     * null when no note is being edited. [saveNote] writes them; the start screen sets it.
+     */
+    var noteDraft by mutableStateOf<TileContent.Notes?>(null)
+        private set
+    private var noteDraftId: Long? = null
+    internal var saveNote: (Long, TileContent.Notes) -> Unit = { _, _ -> }
+
+    fun startNoteEdit(id: Long, notes: TileContent.Notes) {
+        endNoteEdit()
+        noteDraftId = id
+        noteDraft = notes
+    }
+
+    fun updateNoteDraft(notes: TileContent.Notes) {
+        if (noteDraft != null) noteDraft = notes
+    }
+
+    /** Writes the note being edited and keeps editing, e.g. when the launcher stops. */
+    fun saveNoteDraft() {
+        val id = noteDraftId ?: return
+        noteDraft?.let { saveNote(id, it) }
+    }
+
+    /** Writes the note being edited, if any, and stops editing it. */
+    fun endNoteEdit() {
+        saveNoteDraft()
+        noteDraftId = null
+        noteDraft = null
+    }
+
+    /** A tool tile just added: once it is on start its settings open (a routine's times), or a note opens to write in. */
+    var pendingSetupId by mutableStateOf<Long?>(null)
 
     /** The "add a tile" menu and the widget and quick-settings pickers it can open. */
     var addMenuOpen by mutableStateOf(false)
 
-    /** The "live tiles" submenu of the add menu. */
+    /** The "metro tiles" panel of the add menu: live tiles and tools. */
     var liveTilesOpen by mutableStateOf(false)
 
     /** The tile whose style menu is open, or null. */
@@ -282,7 +327,7 @@ class StartState(val scroll: ScrollState) {
     }
 
     /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || feedAddressId != null || grouping || layoutsMenuOpen
+    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || feedAddressId != null || grouping || layoutsMenuOpen || noteDraft != null
 
     /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
@@ -297,6 +342,7 @@ class StartState(val scroll: ScrollState) {
         feedAddressId = null
         endGrouping()
         layoutsMenuOpen = false
+        endNoteEdit()
         return any
     }
 
@@ -362,7 +408,8 @@ fun StartScreen(
 
     // Live sources run only when a tile needs them and only while the launcher is visible
     // (collectAsStateWithLifecycle stops collecting below STARTED).
-    val openFolder = tiles.firstOrNull { it.spec.id == state.openFolderId && it.spec.content is TileContent.Folder }
+    val openFolder = tiles.firstOrNull { it.spec.id == state.openFolderId && (it.spec.content is TileContent.Folder || it.spec.content is TileContent.Notes) }
+    val openNotes = openFolder?.spec?.content as? TileContent.Notes
     val openChildren = openFolder?.children.orEmpty()
     // An open folder's children are live tiles like any other; a closed folder shows only icons.
     val appPackages = (tiles + openChildren).mapNotNull { it.spec.appKey?.packageName }
@@ -463,6 +510,11 @@ fun StartScreen(
     LaunchedEffect(specs) { if (state.dragId == null) state.preview = null }
     val flipped = remember { mutableStateMapOf<Long, Boolean>() }
     val density = LocalDensity.current
+    val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val view = androidx.compose.ui.platform.LocalView.current
+    // A note being edited is written when its band closes, on "done" and when the launcher stops.
+    state.saveNote = { id, notes -> viewModel.updateTool(id) { it as? TileContent.Notes ?: return@updateTool it; notes } }
+    androidx.lifecycle.compose.LifecycleEventEffect(Lifecycle.Event.ON_STOP) { state.saveNoteDraft() }
     val haptics = LocalHapticFeedback.current
     val currentDoubleTap by rememberUpdatedState(onDoubleTap)
     val doubleTaps = remember(density) { DoubleTapRecognizer(with(density) { GestureDistances.DoubleTapSlop.toPx() }) }
@@ -509,8 +561,22 @@ fun StartScreen(
                 TilePlacement.layout(TilePlacement.placeAt(specs, preview.id, preview.to), columns, first = preview.id)
             }
         }
-        val layout = remember(settled, openIndex, openChildren.map { it.spec.size }, columns) {
-            FolderLayout.compute(settled, openIndex, openChildren.map { it.spec.size }, columns)
+        // An open notes tile takes as many rows as its content needs (more while it is edited).
+        // Until the band has been measured once, an estimate stands in (one frame).
+        val noteDraft = state.noteDraft
+        val noteHeight = remember(openFolder?.spec?.id) { mutableIntStateOf(0) }
+        val noteRows = openNotes?.let { notes ->
+            val noteCell = minOf((maxWidth - sides - leftPadding - rightPadding + TileGap) / columns, WidgetTiles.MAX_CELL_DP.dp)
+            val measured = noteHeight.intValue
+            if (measured > 0) {
+                val cellPx = with(density) { noteCell.toPx() }
+                kotlin.math.ceil((measured + with(density) { TileGap.toPx() }) / cellPx).toInt().coerceAtLeast(2)
+            } else {
+                NotesPanelSize.rows(noteDraft ?: notes, noteDraft != null, noteCell, noteCell * columns - TileGap, textMeasurer, density)
+            }
+        }
+        val layout = remember(settled, openIndex, openChildren.map { it.spec.size }, columns, noteRows) {
+            FolderLayout.compute(settled, openIndex, openChildren.map { it.spec.size }, columns, noteRows)
         }
         val placements = layout.tiles
         // A layout switch: what left, what is new and what changed size, for the extras of its animation.
@@ -551,6 +617,20 @@ fun StartScreen(
             val anchor = state.groupingAnchorId
             if (loadedTiles == null || anchor == null) return@LaunchedEffect
             if (tiles.none { it.spec.id == anchor }) state.endGrouping() else state.keepGrouped(tiles.mapTo(HashSet()) { it.spec.id })
+        }
+        // A tool tile just added: a note opens ready to write in, a routine, countdown or dice show their settings.
+        LaunchedEffect(state.pendingSetupId, loadedTiles) {
+            val id = state.pendingSetupId ?: return@LaunchedEffect
+            val spec = tiles.firstOrNull { it.spec.id == id }?.spec ?: return@LaunchedEffect
+            state.pendingSetupId = null
+            when (val c = spec.content) {
+                is TileContent.Notes -> {
+                    state.openFolderId = id
+                    state.startNoteEdit(id, c)
+                }
+                is TileContent.Routine, is TileContent.Countdown, is TileContent.Dice -> state.stylingId = id
+                else -> Unit
+            }
         }
         // A folder that was unpinned or dissolved while open no longer has anything to show.
         LaunchedEffect(openFolder, loadedTiles) {
@@ -680,7 +760,11 @@ fun StartScreen(
             onUnpin = { viewModel.unpin(tile.spec.id) },
             onResize = { viewModel.resize(tile.spec.id) },
             onSetSpan = { w, h -> viewModel.setSpan(tile.spec.id, w, h) },
-            onLaunch = { bounds -> activateTile(context, tile, bounds, launcher, defaults, state, quickUnlocked, settings.lemmyApp) },
+            onLaunch = { bounds ->
+                if (!ToolTaps.activate(view, tile.spec.id, tile.spec.content, viewModel::updateTool)) {
+                    activateTile(context, tile, bounds, launcher, defaults, state, quickUnlocked, settings.lemmyApp)
+                }
+            },
             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
             appearFrom = appearFrom,
             onRemoveFromFolder = onRemoveFromFolder,
@@ -757,6 +841,34 @@ fun StartScreen(
                 val folderPlacement = openIndex?.let { placements[it] }
                 if (layout.region != null && folderPlacement != null) {
                     FolderRegion(layout.region, folderPlacement, columns, cell, TileGap, leftPadding, rightPadding)
+                }
+                val notesTile = openFolder?.takeIf { openNotes != null }
+                if (layout.region != null && notesTile != null && openNotes != null) {
+                    val noteId = notesTile.spec.id
+                    androidx.compose.runtime.key(noteId) {
+                        // Closing the band any way (back, a tap elsewhere, a drag) keeps what was written.
+                        androidx.compose.runtime.DisposableEffect(Unit) { onDispose { state.endNoteEdit() } }
+                        NotesPanel(
+                            notes = openNotes,
+                            label = notesTile.label,
+                            draft = state.noteDraft,
+                            onTick = { i ->
+                                view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                                viewModel.updateTool(noteId) { c ->
+                                    val n = c as? TileContent.Notes ?: return@updateTool c
+                                    n.copy(items = n.items.mapIndexed { j, item -> if (j == i) item.copy(done = !item.done) else item })
+                                }
+                            },
+                            onEdit = { state.startNoteEdit(noteId, openNotes) },
+                            onDraft = state::updateNoteDraft,
+                            onDone = state::endNoteEdit,
+                            modifier = Modifier
+                                .offset(y = cell * layout.region.y)
+                                .width(gridWidth)
+                                .wrapContentHeight(Alignment.Top, unbounded = true)
+                                .onSizeChanged { noteHeight.intValue = it.height },
+                        )
+                    }
                 }
                 val appearFrom = folderPlacement?.let {
                     IntOffset((it.x * cellPx).roundToInt(), (it.y * cellPx).roundToInt())
@@ -959,11 +1071,16 @@ fun StartScreen(
             val entries = remember(defaults, apps) {
                 liveTileEntries(defaults, apps.sortedBy { it.user != me }.map { it.key })
             }
-            LiveTilesMenu(
-                entries = entries,
-                onAdd = { entry ->
+            MetroTilesPanel(
+                live = entries,
+                icons = viewModel.icons,
+                onAddLive = { entry ->
                     state.liveTilesOpen = false
                     viewModel.addTile(entry.content, entry.size)
+                },
+                onAddTool = { entry ->
+                    state.liveTilesOpen = false
+                    state.pendingSetupId = viewModel.addTile(entry.make(System.currentTimeMillis()), entry.size)
                 },
                 onDismiss = { state.liveTilesOpen = false },
             )
@@ -1438,6 +1555,16 @@ private fun TileBody(
             FeedTile(tile, tile.spec.content.urls, cell, flipped, unlocked)
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTile(tile, cell)
+        is TileContent.Tool -> {
+            val m = rememberTileMetrics(cell)
+            when (tile.spec.content) {
+                is TileContent.Routine -> RoutineTile(tile, m, icons)
+                is TileContent.Countdown -> CountdownTile(tile, m)
+                is TileContent.Coin -> CoinTile(tile, m)
+                is TileContent.Dice -> DiceTile(tile, m)
+                is TileContent.Notes -> NotesTile(tile, m, folderOpen)
+            }
+        }
     }
 }
 
@@ -1482,6 +1609,9 @@ private fun activateTile(
             android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, content)
+        // Opens in place like a folder; other tool tiles are handled by ToolTaps before this.
+        is TileContent.Notes -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
+        is TileContent.Tool -> Unit
         is TileContent.Feed -> if (quickUnlocked) {
             FeedTiles.open(context, tile.spec.id, content, lemmyApp) { intent -> launcher.start(intent, bounds) }
         } else {
@@ -1502,28 +1632,11 @@ private fun AddTileMenu(
     MetroFlyout(onDismiss) {
         MetroMenu(
             items = listOf(
-                "live tiles" to onLiveTiles,
+                "metro tiles" to onLiveTiles,
                 "metro plus" to onQuickSettings,
                 "widgets" to onWidgets,
                 "layouts" to onLayouts,
             ),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
-        )
-    }
-}
-
-/** The tiles that draw themselves live: clock, calendar, weather, photos and people. */
-@Composable
-private fun LiveTilesMenu(
-    entries: List<LiveTileEntry>,
-    onAdd: (LiveTileEntry) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    MetroFlyout(onDismiss) {
-        MetroMenu(
-            items = entries.map { entry -> entry.label to { onAdd(entry) } },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
