@@ -41,10 +41,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextMeasurer
@@ -62,12 +65,11 @@ import io.github.danielphingston.metro.data.NoteStyle
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.ToolLimits
 import io.github.danielphingston.metro.ui.components.MetroButton
-import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.tiles.InkCanvas
 import io.github.danielphingston.metro.ui.tiles.InkHistory
 import io.github.danielphingston.metro.ui.tiles.PenColorRow
-import io.github.danielphingston.metro.ui.tiles.PenColors
+import io.github.danielphingston.metro.ui.tiles.inkColor
 import io.github.danielphingston.metro.ui.tiles.rememberInk
 import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
@@ -334,11 +336,13 @@ private fun CheckBox(done: Boolean) {
 private enum class InkTool { PEN, ERASER }
 
 /**
- * The open ink tile: a page that is always ready to write on, with the pen, eraser, undo, clear and
- * the pen's colour above it. Only the name waits for the pencil, so a stray tap can't open the
- * keyboard. The drawing is written when the band closes and when the launcher stops (only if it
- * changed), not per stroke; undo goes back stroke by stroke to how the page was when it opened.
- * A colour or a name is saved as soon as it is picked or finished, through [onUpdate].
+ * The open ink tile: a page that is always ready to write on. Its header has the name, clear (two
+ * taps) and the pencil; under it, the pen (its colour as a drop on the nib), the eraser and undo.
+ * The pencil opens the name and the pen colours, so a stray tap can't open the keyboard or change
+ * the colour; the colour stays on the tile. The drawing is written when the band closes and when
+ * the launcher stops (only if it changed), not per stroke; undo goes back stroke by stroke to how
+ * the page was when it opened. A colour or a name is saved as soon as it is picked or finished,
+ * through [onUpdate].
  */
 @Composable
 internal fun InkPanel(
@@ -347,7 +351,7 @@ internal fun InkPanel(
     onUpdate: ((TileContent.Notes) -> TileContent.Notes) -> Unit,
     onSaveInk: (List<InkStroke>) -> Unit,
     modifier: Modifier = Modifier,
-    /** Whether the name is being typed, so the start screen can make room for the keyboard. */
+    /** Whether the name and colours are open (the name being typed), so the start screen can make room for the keyboard. */
     onNaming: (Boolean) -> Unit = {},
 ) {
     val stored = rememberInk(notes.inkId)
@@ -400,6 +404,15 @@ internal fun InkPanel(
         dirty = true
     }
     val plain = Metro.colors.foreground
+    var tool by remember { mutableStateOf(InkTool.PEN) }
+    // Clearing asks once more (a second tap within a few seconds), and undo brings it back.
+    var confirming by remember { mutableStateOf(false) }
+    LaunchedEffect(confirming) {
+        if (confirming) {
+            kotlinx.coroutines.delay(3_000)
+            confirming = false
+        }
+    }
     Column(modifier.padding(horizontal = PanelPadding, vertical = PanelVertical)) {
         Row(Modifier.fillMaxWidth().height(HeaderHeight), verticalAlignment = Alignment.CenterVertically) {
             if (naming) {
@@ -414,33 +427,38 @@ internal fun InkPanel(
             } else {
                 val shown = if (name == notes.name) label else name.ifBlank { NoteStyle.INK.label }
                 MetroText(shown, MetroType.sectionTitle, maxLines = 1, modifier = Modifier.weight(1f))
+                if (confirming) {
+                    MetroText("tap again to clear", MetroType.caption, color = ClearRed, maxLines = 1, modifier = Modifier.padding(start = 8.dp))
+                }
+                HeaderIcon(if (confirming) "clear all" else "clear", {
+                    if (confirming && strokes.isNotEmpty()) {
+                        history.record(strokes)
+                        strokes.clear()
+                        changed()
+                    }
+                    confirming = !confirming
+                }, tint = if (confirming) ClearRed else null) { color, stroke -> drawBin(color, stroke) }
                 Spacer(Modifier.width(8.dp))
-                HeaderIcon("rename", {
+                HeaderIcon("edit name and colour", {
+                    confirming = false
                     naming = true
                     namingChanged(true)
                 }) { color, stroke -> drawPencil(color, stroke) }
             }
         }
-        var tool by remember { mutableStateOf(InkTool.PEN) }
-        Row(Modifier.fillMaxWidth().height(InkToolsHeight), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            MetroChoice("pen", tool == InkTool.PEN, { tool = InkTool.PEN }, Modifier.weight(1f))
-            MetroChoice("eraser", tool == InkTool.ERASER, { tool = InkTool.ERASER }, Modifier.weight(1f))
-            // Clearing asks once more (a second tap within a few seconds), and undo brings it back.
-            var confirming by remember { mutableStateOf(false) }
-            LaunchedEffect(confirming) {
-                if (confirming) {
-                    kotlinx.coroutines.delay(3_000)
-                    confirming = false
-                }
+        Row(Modifier.fillMaxWidth().height(InkToolsHeight), verticalAlignment = Alignment.CenterVertically) {
+            val drop = inkColor(penColor, plain)
+            ToolIcon("pen", tool == InkTool.PEN, { tool = InkTool.PEN }) { color, stroke ->
+                drawNib(color, stroke)
+                // The pen's colour, as a drop of ink on the nib's tip; a dark one gets a faint ring.
+                val s = size.minDimension
+                val at = Offset(s * 0.18f, s * 0.82f)
+                drawCircle(drop, s * 0.10f, at)
+                if (drop.luminance() < 0.08f) drawCircle(plain.copy(alpha = 0.5f), s * 0.10f, at, style = Stroke(1.dp.toPx()))
             }
-            MetroChoice(if (confirming) "clear all?" else "clear", confirming, {
-                if (confirming && strokes.isNotEmpty()) {
-                    history.record(strokes)
-                    strokes.clear()
-                    changed()
-                }
-                confirming = !confirming
-            }, Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            ToolIcon("eraser", tool == InkTool.ERASER, { tool = InkTool.ERASER }) { color, stroke -> drawEraser(color, stroke) }
+            Spacer(Modifier.weight(1f))
             HeaderIcon("undo", {
                 history.undo()?.let {
                     strokes.clear()
@@ -449,11 +467,13 @@ internal fun InkPanel(
                 }
             }, enabled = history.size > 0) { color, stroke -> drawUndo(color, stroke) }
         }
-        Box(Modifier.padding(vertical = 6.dp)) {
-            PenColorRow(penColor, plain) { picked ->
-                tool = InkTool.PEN
-                penColor = picked
-                update { it.copy(penColor = picked) }
+        if (naming) {
+            Box(Modifier.padding(vertical = 6.dp)) {
+                PenColorRow(penColor, plain) { picked ->
+                    tool = InkTool.PEN
+                    penColor = picked
+                    update { it.copy(penColor = picked) }
+                }
             }
         }
         // Square on a phone; on a wide screen no taller than InkMax, so the band stays in view.
@@ -479,8 +499,14 @@ internal fun InkPanel(
 
 /** A plain icon in the band's header: no box, a full-size touch target, its [label] for TalkBack. */
 @Composable
-private fun HeaderIcon(label: String, onClick: () -> Unit, enabled: Boolean = true, glyph: androidx.compose.ui.graphics.drawscope.DrawScope.(Color, Float) -> Unit) {
-    val color = Metro.colors.foreground.let { if (enabled) it else it.copy(alpha = 0.3f) }
+private fun HeaderIcon(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    tint: Color? = null,
+    glyph: androidx.compose.ui.graphics.drawscope.DrawScope.(Color, Float) -> Unit,
+) {
+    val color = (tint ?: Metro.colors.foreground).let { if (enabled) it else it.copy(alpha = 0.3f) }
     Box(
         Modifier
             .size(48.dp)
@@ -491,6 +517,66 @@ private fun HeaderIcon(label: String, onClick: () -> Unit, enabled: Boolean = tr
     ) {
         Canvas(Modifier.size(26.dp)) { glyph(color, 2.dp.toPx()) }
     }
+}
+
+/** A tool of the ink page: the one in use is drawn in the accent colour and a little larger, with no box. */
+@Composable
+private fun ToolIcon(label: String, selected: Boolean, onClick: () -> Unit, glyph: androidx.compose.ui.graphics.drawscope.DrawScope.(Color, Float) -> Unit) {
+    val color = if (selected) Metro.colors.accent else Metro.colors.foreground
+    Box(
+        Modifier
+            .size(48.dp)
+            .metroTilt()
+            .clickable(onClickLabel = label, role = Role.RadioButton, onClick = onClick)
+            .semantics {
+                contentDescription = label
+                this.selected = selected
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(if (selected) 31.dp else 26.dp)) { glyph(color, (if (selected) 2.4f else 2f).dp.toPx()) }
+    }
+}
+
+private val ClearRed = Color(0xFFE53935)
+
+/** A fountain pen's nib, its tip at the bottom left. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNib(color: Color, stroke: Float) {
+    val s = size.minDimension
+    val round = androidx.compose.ui.graphics.StrokeCap.Round
+    rotate(45f) {
+        val nib = androidx.compose.ui.graphics.Path().apply {
+            moveTo(s * .5f, s * .94f); lineTo(s * .27f, s * .52f); lineTo(s * .36f, s * .26f); lineTo(s * .64f, s * .26f); lineTo(s * .73f, s * .52f); close()
+        }
+        drawPath(nib, color, style = Stroke(stroke, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        drawLine(color, Offset(s * .5f, s * .94f), Offset(s * .5f, s * .6f), stroke, round)
+        drawCircle(color, s * .05f, Offset(s * .5f, s * .53f))
+        drawLine(color, Offset(s * .38f, s * .1f), Offset(s * .62f, s * .1f), stroke, round)
+    }
+}
+
+/** An eraser, tilted, on the line it rubs out. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawEraser(color: Color, stroke: Float) {
+    val s = size.minDimension
+    val round = androidx.compose.ui.graphics.StrokeCap.Round
+    val body = androidx.compose.ui.graphics.Path().apply { moveTo(s * .12f, s * .62f); lineTo(s * .5f, s * .22f); lineTo(s * .82f, s * .52f); lineTo(s * .46f, s * .88f); close() }
+    drawPath(body, color, style = Stroke(stroke, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+    drawLine(color, Offset(s * .3f, s * .43f), Offset(s * .63f, s * .73f), stroke, round)
+    drawLine(color, Offset(s * .46f, s * .88f), Offset(s * .9f, s * .88f), stroke, round)
+}
+
+/** A bin, for clearing the page. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBin(color: Color, stroke: Float) {
+    val s = size.minDimension
+    val round = androidx.compose.ui.graphics.StrokeCap.Round
+    val join = androidx.compose.ui.graphics.StrokeJoin.Round
+    drawLine(color, Offset(s * .16f, s * .26f), Offset(s * .84f, s * .26f), stroke, round)
+    val handle = androidx.compose.ui.graphics.Path().apply { moveTo(s * .38f, s * .26f); lineTo(s * .38f, s * .14f); lineTo(s * .62f, s * .14f); lineTo(s * .62f, s * .26f) }
+    drawPath(handle, color, style = Stroke(stroke, join = join))
+    val body = androidx.compose.ui.graphics.Path().apply { moveTo(s * .25f, s * .26f); lineTo(s * .3f, s * .88f); lineTo(s * .7f, s * .88f); lineTo(s * .75f, s * .26f) }
+    drawPath(body, color, style = Stroke(stroke, join = join))
+    drawLine(color, Offset(s * .43f, s * .4f), Offset(s * .44f, s * .74f), stroke, round)
+    drawLine(color, Offset(s * .57f, s * .4f), Offset(s * .56f, s * .74f), stroke, round)
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCross(color: Color, stroke: Float) {
@@ -570,8 +656,6 @@ private val LimitHeight = 20.dp
 private val ViewMax = 400.dp
 private val EditListMax = 240.dp
 private val InkMax = 420.dp
-private val Swatch = 36.dp
-private val SwatchGap = 10.dp
 
 /**
  * How tall the open band is, in grid rows, so the tiles below can move out of its way. Every part
@@ -592,13 +676,8 @@ internal object NotesPanelSize {
                 // The text and list (they scroll inside), then the "add an item" row: ViewMax at most.
                 minOf(text + ItemHeight * notes.items.size, ViewMax - ItemHeight) + ItemHeight
             }
-            // The tools, the colours (wrapping onto as many lines as the width needs) and the page.
-            NoteStyle.INK -> {
-                val swatches = PenColors.size + (if (notes.penColor in PenColors) 0 else 1) + 1
-                val perLine = ((inner + SwatchGap) / (Swatch + SwatchGap)).toInt().coerceAtLeast(1)
-                val lines = (swatches + perLine - 1) / perLine
-                InkToolsHeight + Swatch * lines + SwatchGap * (lines - 1) + 12.dp + minOf(inner, InkMax) + 8.dp
-            }
+            // The tools and the page; the colours only show while the name is edited, and the measured height counts then.
+            NoteStyle.INK -> InkToolsHeight + minOf(inner, InkMax) + 8.dp
         }
         val total = PanelVertical * 2 + HeaderHeight + body
         return ceil(total.value / cell.value).toInt().coerceAtLeast(2)

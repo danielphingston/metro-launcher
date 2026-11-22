@@ -60,6 +60,11 @@ android {
                 } else {
                     it.systemProperty("roborazzi.test.verify", "true")
                 }
+                // Robolectric downloads its Android runtime jar itself while the tests run. Maven Central
+                // refuses shared addresses such as CI runners at times (every Robolectric test then fails
+                // before it starts), so it comes from Google's mirror of Maven Central instead.
+                it.systemProperty("robolectric.dependency.repo.url", "https://maven-central.storage-download.googleapis.com/maven2/")
+                it.systemProperty("robolectric.dependency.repo.id", "google-maven-central-mirror")
             }
         }
     }

@@ -333,10 +333,10 @@ class ToolTilesTest {
         // Text and fifty items together: still within about a screen, read or edited.
         assertTrue(rows(full.copy(text = "word ".repeat(400)), false) <= 5)
         assertTrue(rows(full.copy(text = "word ".repeat(400)), true) <= 7)
-        // An ink page is always open for writing: tools, colours and the page, the same height either way, still within a screen.
+        // An ink page is always open for writing: the tools and the page, the same height either way, within a screen.
         val ink = TileContent.Notes("", NoteStyle.INK)
         assertEquals(rows(ink, false), rows(ink, true))
-        assertTrue(rows(ink, false) in 6..7)
+        assertTrue(rows(ink, false) in 5..6)
     }
 
     @Test
