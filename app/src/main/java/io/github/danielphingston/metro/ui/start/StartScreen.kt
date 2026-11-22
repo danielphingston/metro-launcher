@@ -1286,7 +1286,8 @@ internal fun TileHost(
     val currentOnDoubleTap by rememberUpdatedState(onDoubleTap)
     val hasDoubleTap = onDoubleTap != null
     // A handwriting tile a pen writes on: the pen draws, so it neither tilts the tile nor picks it up.
-    val penWritable = (tile.spec.content as? TileContent.Notes)
+    val plus = io.github.danielphingston.metro.ui.tiles.rememberMetroPlus()
+    val penWritable = plus && (tile.spec.content as? TileContent.Notes)
         ?.let { it.style == io.github.danielphingston.metro.data.NoteStyle.INK && it.penOnTile && tile.spec.size.canWriteOnTile() } == true
     val currentPenWritable by rememberUpdatedState(penWritable)
     val currentFolder by rememberUpdatedState(folder)
@@ -1648,8 +1649,13 @@ private fun activateTile(
             android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTiles.activate(context, content)
-        // Opens in place like a folder; other tool tiles are handled by ToolTaps before this.
-        is TileContent.Notes -> state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
+        // Opens in place like a folder; other tool tiles are handled by ToolTaps before this. Ink is
+        // Metro Plus: while it is locked the tile says so, like the other Metro Plus tiles.
+        is TileContent.Notes -> if (content.style == io.github.danielphingston.metro.data.NoteStyle.INK && !quickUnlocked) {
+            android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            state.openFolderId = if (state.openFolderId == tile.spec.id) null else tile.spec.id
+        }
         is TileContent.Tool -> Unit
         is TileContent.Feed -> if (quickUnlocked) {
             FeedTiles.open(context, tile.spec.id, content, lemmyApp) { intent -> launcher.start(intent, bounds) }

@@ -159,8 +159,8 @@ enum class NoteStyle(val id: String, val label: String) {
     /** Text and a checklist. */
     NOTE("note", "notes"),
 
-    /** Handwriting. */
-    INK("ink", "handwriting");
+    /** Handwriting: the "ink" tile, Metro Plus. */
+    INK("ink", "ink");
 
     companion object {
         fun fromId(id: String?): NoteStyle = entries.firstOrNull { it.id == id } ?: NOTE

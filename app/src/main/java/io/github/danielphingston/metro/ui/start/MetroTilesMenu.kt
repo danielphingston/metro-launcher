@@ -47,7 +47,6 @@ internal data class ToolEntry(val title: String, val subtitle: String, val size:
 internal val ToolEntries = listOf(
     ToolEntry("routine", "tap when it's done, double-tap to undo: doses at set times each day, or something every few days", TileSize.MEDIUM) { Routines.new(it) },
     ToolEntry("notes", "a checklist and a few lines of text; opens right on start", TileSize.WIDE) { TileContent.Notes("", NoteStyle.NOTE, created = it) },
-    ToolEntry("handwriting", "write or draw with a pen or a finger; a pen can write right on a wide or large tile", TileSize.MEDIUM) { TileContent.Notes("", NoteStyle.INK, inkId = io.github.danielphingston.metro.data.InkStore.newId(it), created = it) },
     ToolEntry("countdown", "days to a trip, a birthday or a deadline", TileSize.WIDE) {
         TileContent.Countdown("countdown", LocalDate.now().plusDays(7).toEpochDay(), created = it)
     },

@@ -306,7 +306,7 @@ private fun InkBody(notes: TileContent.Notes, editing: Boolean, onDraft: (TileCo
                         touched = true
                         onInk(strokes.toList())
                     },
-                    modifier = Modifier.semantics { contentDescription = "handwriting page" },
+                    modifier = Modifier.semantics { contentDescription = "ink page" },
                 )
             } else if (strokes.isEmpty()) {
                 MetroText("tap the pencil to write", MetroType.body, color = Metro.colors.subtle, modifier = Modifier.align(Alignment.Center))

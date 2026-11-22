@@ -713,7 +713,7 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean, onTick
             n.text.takeIf { it.isNotBlank() }?.take(200),
             if (n.items.isEmpty()) null else if (left == 0) "all ticked" else "$left of ${n.items.size} left",
         ).joinToString(", ").ifEmpty { "empty" }
-        NoteStyle.INK -> "handwriting"
+        NoteStyle.INK -> "ink"
     }
     Box(Modifier.fillMaxSize().tileSurface().semantics { stateDescription = state }) {
         when (n.style) {
@@ -729,7 +729,10 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean, onTick
             }
             NoteStyle.INK -> InkFace(tile.spec.id, n, size, m)
         }
-        if (size != TileSize.SMALL && n.style == NoteStyle.INK) TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
+        // Ink is Metro Plus: while it is locked the drawing stays, and the tile says so.
+        if (size != TileSize.SMALL && n.style == NoteStyle.INK) {
+            TileLabel(if (rememberMetroPlus()) tile.label else "unlock to use", m, Modifier.align(Alignment.BottomStart))
+        }
         if (open) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(m.dp(3f)).background(ink))
     }
 }
@@ -799,7 +802,8 @@ private fun NoteFace(n: TileContent.Notes, label: String, size: TileSize, left: 
 private fun BoxScope.InkFace(id: Long, n: TileContent.Notes, size: TileSize, m: TileMetrics) {
     val ink = white()
     val stored = rememberInk(n.inkId)
-    val writable = n.penOnTile && size.canWriteOnTile()
+    val unlocked = rememberMetroPlus()
+    val writable = unlocked && n.penOnTile && size.canWriteOnTile()
     if (writable) {
         val app = LocalContext.current.applicationContext as? io.github.danielphingston.metro.MetroApplication
         // The strokes being written here. The saved copy replaces them when it changes elsewhere (the
