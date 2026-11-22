@@ -107,7 +107,7 @@ private fun RoutineSettings(
                 })
             }
         }
-        Hint("Up to ${Routines.MAX_TIMES} times a day. Each one is due from its time. A tap on the tile ticks the next; tap again within 5 seconds to take it back.")
+        Hint("Up to ${Routines.MAX_TIMES} times a day. Each one is due from its time. A tap on the tile ticks the next; a double tap takes back today's last tick.")
     } else {
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             MetroChoice("−", false, { onChange(r.copy(everyDays = (r.everyDays - 1).coerceAtLeast(1))) })

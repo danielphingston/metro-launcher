@@ -176,7 +176,7 @@ class ToolTilesReviewTest {
     }
 
     private val longList = TileContent.Notes(
-        "everything for the weekend trip to the hills", NoteStyle.LIST,
+        "everything for the weekend trip to the hills", NoteStyle.NOTE,
         listOf(
             "sunscreen with a very long description that never ends", "charger", "passport and the printed hotel booking",
             "water bottles", "snacks", "first aid kit", "rain jacket", "torch", "spare socks", "power bank", "maps", "camera",
@@ -186,6 +186,10 @@ class ToolTilesReviewTest {
     @Test
     fun longList() = sizes("notes_list", longList)
 
+    /** Text and a long checklist in one note. */
+    @Test
+    fun noteWithTextAndList() = sizes("notes_both", longList.copy(text = "Leave by 6. Fuel up on the way, the pumps after the toll are closed at night."))
+
     @Test
     fun longListLargeFont() = sizes("notes_list_font", longList, fontScale = 1.5f)
 
@@ -193,7 +197,7 @@ class ToolTilesReviewTest {
     fun longText() = sizes(
         "notes_text",
         TileContent.Notes(
-            "", NoteStyle.TEXT,
+            "", NoteStyle.NOTE,
             text = "Call the plumber about the kitchen tap before Friday. The landlord's number is 98450 12345 and the " +
                 "building manager is on 080 2222 3333. Ask about the bathroom fan too, it rattles at night and the " +
                 "switch sparks sometimes. Also: renew the parking permit, pay the electricity bill, return the library books.",

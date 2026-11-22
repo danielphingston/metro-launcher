@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.layout.onSizeChanged
@@ -772,6 +773,7 @@ fun StartScreen(
                 }
             },
             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+            onDoubleTap = if (ToolTaps.hasDoubleTap(tile.spec.content)) ({ ToolTaps.undo(view, tile.spec.id, viewModel::updateTool) }) else null,
             appearFrom = appearFrom,
             onRemoveFromFolder = onRemoveFromFolder,
             onDragMove = onDragMove,
@@ -783,6 +785,9 @@ fun StartScreen(
         Column(
             Modifier
                 .fillMaxSize()
+                // While a note is being written in, the keyboard takes the bottom of the screen: the
+                // scrolling area ends above it, so the field being typed in moves up with the keyboard.
+                .then(if (state.noteDraft != null) Modifier.imePadding() else Modifier)
                 .verticalScroll(state.scroll)
                 .pointerInput(Unit) {
                     var downAt = 0L
@@ -1185,6 +1190,8 @@ internal fun TileHost(
     onSetSpan: (width: Int, height: Int) -> Unit,
     onLaunch: (Rect?) -> Unit,
     onLongPress: () -> Unit,
+    /** A double tap's action (a routine's undo); with it, a single tap waits the double-tap timeout. */
+    onDoubleTap: (() -> Unit)? = null,
     onDragMove: () -> Unit = {},
     /** Where a folder's child slides out from when the folder opens. */
     appearFrom: IntOffset? = null,
@@ -1262,6 +1269,8 @@ internal fun TileHost(
     // a rotation or fold - through these.
     val currentOnLaunch by rememberUpdatedState(onLaunch)
     val currentOnLongPress by rememberUpdatedState(onLongPress)
+    val currentOnDoubleTap by rememberUpdatedState(onDoubleTap)
+    val hasDoubleTap = onDoubleTap != null
     val currentFolder by rememberUpdatedState(folder)
     val currentCellPx by rememberUpdatedState(cellPx)
     val folderOpen = state.openFolderId == id
@@ -1325,6 +1334,8 @@ internal fun TileHost(
                         })
                     }
                     onRemoveFromFolder?.let { add(CustomAccessibilityAction("Remove from folder") { it(); true }) }
+                    // TalkBack's own double tap activates, so the tile's double tap is offered here.
+                    onDoubleTap?.let { add(CustomAccessibilityAction("Take back last tick") { it(); true }) }
                     add(CustomAccessibilityAction("Unpin from start") { onUnpin(); true })
                     if (onRemoveFromFolder == null && !isWidget) add(CustomAccessibilityAction("Resize") { onResize(); true })
                     // Everything the customise sheet offers (name, icon, photo, background, widget settings).
@@ -1375,8 +1386,9 @@ internal fun TileHost(
                     }
                 }
             }
-            .pointerInput(id) {
-                detectTapGestures { offset ->
+            .pointerInput(id, hasDoubleTap) {
+                // Only tiles with a double tap (a routine) wait to tell one tap from two; the rest act at once.
+                fun tap(offset: Offset) {
                     if (state.grouping) {
                         if (currentGroupTarget) state.toggleGrouped(id)
                     } else if (state.editing) {
@@ -1390,6 +1402,14 @@ internal fun TileHost(
                         currentOnLaunch(tracker.bounds())
                     }
                 }
+                detectTapGestures(
+                    onDoubleTap = if (hasDoubleTap) {
+                        { offset -> if (state.editing || state.grouping) tap(offset) else currentOnDoubleTap?.invoke() }
+                    } else {
+                        null
+                    },
+                    onTap = ::tap,
+                )
             }
             // Constant for a tile, so edit mode (which turns the tilt off) never reshapes the modifier chain mid-gesture.
             .then(if (isWidget) Modifier else Modifier.metroTilt(enabled = !state.editing)),

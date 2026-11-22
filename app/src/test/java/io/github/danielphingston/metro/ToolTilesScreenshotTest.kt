@@ -190,11 +190,12 @@ class ToolTilesScreenshotTest {
     @Test
     fun notes() {
         val groceries = TileContent.Notes(
-            "groceries", NoteStyle.LIST,
+            "groceries", NoteStyle.NOTE,
             listOf(NoteItem("milk"), NoteItem("eggs"), NoteItem("coriander", true), NoteItem("bread"), NoteItem("dish soap"), NoteItem("rice")),
         )
         val allDone = groceries.copy(name = "packing", items = groceries.items.map { it.copy(done = true) })
-        val note = TileContent.Notes("door", NoteStyle.TEXT, text = "gate code 4471#\nwifi: guest / tangerine22")
+        val note = TileContent.Notes("door", NoteStyle.NOTE, text = "gate code 4471#\nwifi: guest / tangerine22")
+        val both = groceries.copy(name = "saturday", text = "bring the cooler bag; the shop closes at 9")
         val ink = TileContent.Notes("scribble", NoteStyle.INK, ink = InkCodec.encode(scribble()))
         capture(
             "tools_notes",
@@ -208,8 +209,8 @@ class ToolTilesScreenshotTest {
                 Item(0, 4, TileSize.MEDIUM, note),
                 Item(2, 4, TileSize.MEDIUM, ink),
                 Item(0, 6, TileSize.MEDIUM, allDone),
-                Item(2, 6, TileSize.MEDIUM, TileContent.Notes("", NoteStyle.LIST)),
-                Item(0, 8, TileSize.LARGE, groceries),
+                Item(2, 6, TileSize.MEDIUM, TileContent.Notes("", NoteStyle.NOTE)),
+                Item(0, 8, TileSize.LARGE, both),
             ),
         )
     }
@@ -242,8 +243,8 @@ class ToolTilesScreenshotTest {
     }
 
     private val list = TileContent.Notes(
-        "groceries", NoteStyle.LIST,
-        listOf(NoteItem("milk"), NoteItem("eggs"), NoteItem("coriander", true), NoteItem("bread")),
+        "groceries", NoteStyle.NOTE, text = "the shop near the station closes at 9",
+        items = listOf(NoteItem("milk"), NoteItem("eggs"), NoteItem("coriander", true), NoteItem("bread")),
     )
 
     @Test
@@ -253,7 +254,7 @@ class ToolTilesScreenshotTest {
     fun notesBandEditing() = panel("tools_notes_band_edit", editing = true, notes = list)
 
     private val fullList = TileContent.Notes(
-        "packing", NoteStyle.LIST,
+        "packing", NoteStyle.NOTE,
         List(io.github.danielphingston.metro.data.ToolLimits.ITEMS) { NoteItem("item ${it + 1}" + if (it == 0) " with a long name that takes two lines in the open band" else "", done = it % 5 == 4) },
     )
 

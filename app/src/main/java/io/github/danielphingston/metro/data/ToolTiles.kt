@@ -24,8 +24,8 @@ object Routines {
     /** Marks older than this go, except the newest, which an "every few days" routine counts from. */
     const val KEEP_DAYS = 35L
 
-    /** How long a second tap takes back the first; the tile says so while it can. */
-    const val UNDO_MILLIS = 5_000L
+    /** How long the tile says "double-tap to undo" after a tick. */
+    const val HINT_MILLIS = 4_000L
 
     /** Quick choices for a dose time, in minutes after midnight. */
     val PRESETS = listOf("morning" to 8 * 60, "noon" to 12 * 60, "evening" to 19 * 60, "night" to 22 * 60)
@@ -181,29 +181,30 @@ object Routines {
 }
 
 /**
- * What a tap on a routine tile does: tick it, take back the tick made moments ago (a second tap
- * within [Routines.UNDO_MILLIS], which the tile announces), or nothing when all is done.
+ * What the routine tile does with a tap (tick it, or nothing when all is done) and a double tap
+ * (take back today's last tick). Earlier days are corrected in the tile's settings.
  */
 object RoutineTap {
     sealed interface Outcome {
         val hint: String
 
-        data class Marked(val routine: TileContent.Routine, val at: Long, override val hint: String) : Outcome
-
-        data class Unmarked(val routine: TileContent.Routine, override val hint: String) : Outcome
+        data class Changed(val routine: TileContent.Routine, override val hint: String) : Outcome
 
         data class Nothing(override val hint: String) : Outcome
     }
 
-    /** [lastMark] is the mark the previous tap made and when, if it is still there to take back. */
-    fun tap(r: TileContent.Routine, now: Long, zone: ZoneId, lastMark: Long?): Outcome {
-        if (lastMark != null && lastMark in r.marks && now - lastMark in 0..Routines.UNDO_MILLIS) {
-            return Outcome.Unmarked(Routines.unmark(r, lastMark), "taken back")
-        }
+    fun tap(r: TileContent.Routine, now: Long, zone: ZoneId): Outcome {
         if (!Routines.canMark(r, now, zone)) {
             return Outcome.Nothing(if (r.daily && r.times.isNotEmpty()) "all done today" else "already done today")
         }
-        return Outcome.Marked(Routines.mark(r, now), now, "done · tap again to undo")
+        return Outcome.Changed(Routines.mark(r, now), "done · double-tap to undo")
+    }
+
+    fun undo(r: TileContent.Routine, now: Long, zone: ZoneId): Outcome {
+        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        val last = r.marks.filter { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() == today }.maxOrNull()
+            ?: return Outcome.Nothing("nothing to undo today")
+        return Outcome.Changed(Routines.unmark(r, last), "taken back")
     }
 }
 

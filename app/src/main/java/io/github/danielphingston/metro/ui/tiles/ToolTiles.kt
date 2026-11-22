@@ -94,8 +94,8 @@ internal object ToolMemory {
 
     data class Roll(val values: List<Int>, val serial: Int)
 
-    /** A routine tile's line for a moment after a tap; [mark] is the tick a second tap takes back. */
-    data class Hint(val text: String, val at: Long, val until: Long, val mark: Long?)
+    /** A routine tile's line for a moment after a tap or double tap. */
+    data class Hint(val text: String, val at: Long, val until: Long)
 
     val tosses = mutableStateMapOf<Long, Toss>()
     val rolls = mutableStateMapOf<Long, Roll>()
@@ -118,36 +118,46 @@ internal object ToolMemory {
 /**
  * What a tap on a tool tile does; false for other tiles. Notes open in place (the caller handles
  * them like a folder). [update] changes the stored tile without an undo step: ticks are not edits.
+ * A routine also has a double tap ([undo]); only its taps wait the double-tap timeout.
  */
 internal object ToolTaps {
     fun activate(view: View, id: Long, content: TileContent, update: (Long, (TileContent.Tool) -> TileContent.Tool) -> Unit): Boolean {
         when (content) {
-            is TileContent.Routine -> {
-                val now = System.currentTimeMillis()
-                val zone = ZoneId.systemDefault()
-                val last = ToolMemory.hints[id]?.mark
-                var outcome: RoutineTap.Outcome? = null
-                update(id) { c ->
-                    val r = c as? TileContent.Routine ?: return@update c
-                    val o = RoutineTap.tap(r, now, zone, last)
-                    outcome = o
-                    when (o) {
-                        is RoutineTap.Outcome.Marked -> o.routine
-                        is RoutineTap.Outcome.Unmarked -> o.routine
-                        is RoutineTap.Outcome.Nothing -> r
-                    }
-                }
-                val o = outcome ?: return true
-                val mark = (o as? RoutineTap.Outcome.Marked)?.at
-                ToolMemory.hints[id] = ToolMemory.Hint(o.hint, now, now + if (mark != null) Routines.UNDO_MILLIS else 2_000L, mark)
-                view.performHapticFeedback(if (mark != null) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.CLOCK_TICK)
-            }
+            is TileContent.Routine -> routine(view, id, update) { r, now, zone -> RoutineTap.tap(r, now, zone) }
             is TileContent.Coin -> ToolMemory.toss(id)
             is TileContent.Dice -> ToolMemory.roll(id, content.count, content.sides)
             is TileContent.Countdown -> ToolMemory.countdownViews[id] = ((ToolMemory.countdownViews[id] ?: 0) + 1) % 3
             else -> return false
         }
         return true
+    }
+
+    /** A double tap on a routine: takes back today's last tick. */
+    fun undo(view: View, id: Long, update: (Long, (TileContent.Tool) -> TileContent.Tool) -> Unit) =
+        routine(view, id, update) { r, now, zone -> RoutineTap.undo(r, now, zone) }
+
+    /** Whether tile content [content] has a double-tap action (and so waits a moment before a single tap counts). */
+    fun hasDoubleTap(content: TileContent) = content is TileContent.Routine
+
+    private fun routine(
+        view: View,
+        id: Long,
+        update: (Long, (TileContent.Tool) -> TileContent.Tool) -> Unit,
+        act: (TileContent.Routine, Long, ZoneId) -> RoutineTap.Outcome,
+    ) {
+        val now = System.currentTimeMillis()
+        val zone = ZoneId.systemDefault()
+        var outcome: RoutineTap.Outcome? = null
+        update(id) { c ->
+            val r = c as? TileContent.Routine ?: return@update c
+            val o = act(r, now, zone)
+            outcome = o
+            (o as? RoutineTap.Outcome.Changed)?.routine ?: r
+        }
+        val o = outcome ?: return
+        val changed = o is RoutineTap.Outcome.Changed
+        ToolMemory.hints[id] = ToolMemory.Hint(o.hint, now, now + if (changed) Routines.HINT_MILLIS else 2_000L)
+        view.performHapticFeedback(if (changed) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.CLOCK_TICK)
     }
 }
 
@@ -675,68 +685,22 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
     val size = tile.spec.size
     val left = n.items.count { !it.done }
     val state = when (n.style) {
-        NoteStyle.LIST -> if (n.items.isEmpty()) "empty" else if (left == 0) "all done" else "$left of ${n.items.size} left"
-        NoteStyle.TEXT -> n.text.ifBlank { "empty" }.take(200)
+        NoteStyle.NOTE -> listOfNotNull(
+            n.text.takeIf { it.isNotBlank() }?.take(200),
+            if (n.items.isEmpty()) null else if (left == 0) "all ticked" else "$left of ${n.items.size} left",
+        ).joinToString(", ").ifEmpty { "empty" }
         NoteStyle.INK -> if (n.ink.isEmpty()) "empty" else "handwriting"
     }
     Box(Modifier.fillMaxSize().tileSurface().semantics { stateDescription = state }) {
         when (n.style) {
-            NoteStyle.LIST -> {
-                Quiet(n.items.isNotEmpty() && left == 0)
+            NoteStyle.NOTE -> {
+                Quiet(n.text.isBlank() && n.items.isNotEmpty() && left == 0)
                 if (size == TileSize.SMALL) {
-                    ToolGlyph(ToolGlyphKind.LIST, m.dp(38f), Modifier.align(Alignment.Center))
-                    MetroText(if (n.items.isNotEmpty() && left == 0) "✓" else if (left > 0) "$left" else "", MetroType.style(m.text(13f), FontWeight.SemiBold), color = ink, modifier = Modifier.align(Alignment.TopEnd).padding(m.dp(5f)))
+                    ToolGlyph(if (n.items.isEmpty() && n.text.isNotBlank()) ToolGlyphKind.TEXT else ToolGlyphKind.LIST, m.dp(38f), Modifier.align(Alignment.Center))
+                    val mark = if (n.items.isNotEmpty() && left == 0) "✓" else if (left > 0) "$left" else ""
+                    MetroText(mark, MetroType.style(m.text(13f), FontWeight.SemiBold), color = ink, modifier = Modifier.align(Alignment.TopEnd).padding(m.dp(5f)))
                 } else {
-                    // As many as fit under the name with room for "+n more": wide shows two columns.
-                    val max = when (size) {
-                        TileSize.MEDIUM -> 5
-                        TileSize.WIDE -> 8
-                        else -> 14
-                    }
-                    val ordered = n.items.filter { !it.done } + n.items.filter { it.done }
-                    Column(Modifier.padding(start = m.dp(8f), end = m.dp(8f), top = m.dp(6f))) {
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            MetroText(tile.label, MetroType.style(m.text(if (size == TileSize.MEDIUM) 15f else 18f)), color = ink, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
-                            if (left > 0) MetroText("  $left left", MetroType.style(m.text(12f)), color = ink.copy(alpha = 0.85f), maxLines = 1)
-                        }
-                        Spacer(Modifier.height(m.dp(4f)))
-                        if (n.items.isEmpty()) {
-                            MetroText("empty · tap to open", MetroType.style(m.text(13f)), color = ink.copy(alpha = 0.8f))
-                        } else if (left == 0) {
-                            MetroText("all done", MetroType.style(m.text(22f), FontWeight.Light), color = ink)
-                        } else {
-                            val shown = ordered.take(max)
-                            if (size == TileSize.WIDE && shown.size > 4) {
-                                val half = (shown.size + 1) / 2
-                                Row(horizontalArrangement = Arrangement.spacedBy(m.dp(12f))) {
-                                    Column(Modifier.weight(1f)) { shown.take(half).forEach { NoteRow(it.text, it.done, m) } }
-                                    Column(Modifier.weight(1f)) { shown.drop(half).forEach { NoteRow(it.text, it.done, m) } }
-                                }
-                            } else {
-                                shown.forEach { NoteRow(it.text, it.done, m) }
-                            }
-                            val more = n.items.size - shown.size
-                            if (more > 0) MetroText("+$more more", MetroType.style(m.text(12f)), color = ink.copy(alpha = 0.8f))
-                        }
-                    }
-                }
-            }
-            NoteStyle.TEXT -> {
-                if (size == TileSize.SMALL) {
-                    ToolGlyph(ToolGlyphKind.TEXT, m.dp(36f), Modifier.align(Alignment.Center))
-                } else {
-                    val len = n.text.length
-                    val base = when {
-                        len < 40 -> 20f
-                        len < 110 -> 15f
-                        else -> 13f
-                    } + if (size == TileSize.LARGE) 4f else 0f
-                    MetroText(
-                        n.text.ifBlank { "empty note · tap to open" },
-                        MetroType.style(m.text(base)),
-                        color = if (n.text.isBlank()) ink.copy(alpha = 0.8f) else ink,
-                        modifier = Modifier.padding(start = m.dp(8f), end = m.dp(8f), top = m.dp(6f), bottom = m.dp(24f)),
-                    )
+                    NoteFace(n, tile.label, size, left, m)
                 }
             }
             NoteStyle.INK -> {
@@ -754,8 +718,55 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
                 }
             }
         }
-        if (size != TileSize.SMALL && !(n.style == NoteStyle.LIST)) TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
+        if (size != TileSize.SMALL && n.style == NoteStyle.INK) TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
         if (open) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(m.dp(3f)).background(ink))
+    }
+}
+
+/**
+ * A notes tile on start: its name and how many items are left, the first lines of its text, then
+ * as many unticked items as fit under them, ticked ones last, and "+n more" for the rest.
+ */
+@Composable
+private fun NoteFace(n: TileContent.Notes, label: String, size: TileSize, left: Int, m: TileMetrics) {
+    val ink = white()
+    // Rows of 13sp the tile has under its name: text lines come out of the same room as items.
+    val rows = when (size) {
+        TileSize.MEDIUM -> 5
+        TileSize.WIDE -> 4
+        else -> 14
+    }
+    val hasText = n.text.isNotBlank()
+    val textLines = if (!hasText) 0 else if (n.items.isEmpty()) rows else minOf(if (size == TileSize.LARGE) 4 else 2, rows - 1)
+    val ordered = n.items.filter { !it.done } + n.items.filter { it.done }
+    // Wide tiles list items in two columns.
+    val columns = if (size == TileSize.WIDE) 2 else 1
+    val shown = ordered.take((rows - textLines) * columns)
+    val more = n.items.size - shown.size
+    Column(Modifier.padding(start = m.dp(8f), end = m.dp(8f), top = m.dp(6f))) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            MetroText(label, MetroType.style(m.text(if (size == TileSize.MEDIUM) 15f else 18f)), color = ink, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+            if (left > 0) MetroText("  $left left", MetroType.style(m.text(12f)), color = ink.copy(alpha = 0.85f), maxLines = 1)
+        }
+        Spacer(Modifier.height(m.dp(4f)))
+        when {
+            !hasText && n.items.isEmpty() -> MetroText("empty · tap to open", MetroType.style(m.text(13f)), color = ink.copy(alpha = 0.8f))
+            !hasText && left == 0 -> MetroText("all ticked", MetroType.style(m.text(22f), FontWeight.Light), color = ink)
+            else -> {
+                if (hasText) MetroText(n.text, MetroType.style(m.text(13f)), color = ink, maxLines = textLines)
+                if (hasText && shown.isNotEmpty()) Spacer(Modifier.height(m.dp(4f)))
+                if (columns == 2 && shown.size > 1) {
+                    val half = (shown.size + 1) / 2
+                    Row(horizontalArrangement = Arrangement.spacedBy(m.dp(12f))) {
+                        Column(Modifier.weight(1f)) { shown.take(half).forEach { NoteRow(it.text, it.done, m) } }
+                        Column(Modifier.weight(1f)) { shown.drop(half).forEach { NoteRow(it.text, it.done, m) } }
+                    }
+                } else {
+                    shown.forEach { NoteRow(it.text, it.done, m) }
+                }
+                if (more > 0) MetroText("+$more more", MetroType.style(m.text(12f)), color = ink.copy(alpha = 0.8f))
+            }
+        }
     }
 }
 

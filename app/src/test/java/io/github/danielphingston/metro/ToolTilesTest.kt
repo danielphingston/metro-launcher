@@ -91,23 +91,25 @@ class ToolTilesTest {
     }
 
     @Test
-    fun aSecondTapSoonAfterTakesTheTickBackAndNothingIsTickedTwice() {
+    fun aTapTicksAndADoubleTapTakesBackTodaysLastTick() {
         val now = at(21, 9)
-        val first = RoutineTap.tap(twice, now, zone, lastMark = null) as RoutineTap.Outcome.Marked
+        val first = RoutineTap.tap(twice, now, zone) as RoutineTap.Outcome.Changed
         assertEquals(1, Routines.doneToday(first.routine, now, zone))
-        // Within the window: taken back.
-        val undone = RoutineTap.tap(first.routine, now + 3_000, zone, lastMark = first.at)
-        assertTrue(undone is RoutineTap.Outcome.Unmarked)
-        assertEquals(0, Routines.doneToday((undone as RoutineTap.Outcome.Unmarked).routine, now, zone))
-        // After it: a tap ticks the next dose instead.
-        val second = RoutineTap.tap(first.routine, now + 10_000, zone, lastMark = first.at)
-        assertTrue(second is RoutineTap.Outcome.Marked)
-        val all = (second as RoutineTap.Outcome.Marked).routine
-        // Everything done: a tap changes nothing.
-        assertTrue(RoutineTap.tap(all, now + 60_000, zone, lastMark = null) is RoutineTap.Outcome.Nothing)
+        assertEquals("done · double-tap to undo", first.hint)
+        // A double tap later still takes it back.
+        val undone = RoutineTap.undo(first.routine, now + 3_600_000, zone) as RoutineTap.Outcome.Changed
+        assertEquals(0, Routines.doneToday(undone.routine, now, zone))
+        assertTrue(RoutineTap.undo(undone.routine, now, zone) is RoutineTap.Outcome.Nothing)
+        // Both doses ticked: a tap changes nothing, a double tap takes back only the later one.
+        val second = (RoutineTap.tap(first.routine, now + 10_000, zone) as RoutineTap.Outcome.Changed).routine
+        assertTrue(RoutineTap.tap(second, now + 60_000, zone) is RoutineTap.Outcome.Nothing)
+        assertEquals(listOf(now), (RoutineTap.undo(second, now + 60_000, zone) as RoutineTap.Outcome.Changed).routine.marks)
+        // Yesterday's tick is not today's to take back: that is the settings' job.
+        val yesterday = Routines.mark(weekly, at(20, 9))
+        assertTrue(RoutineTap.undo(yesterday, now, zone) is RoutineTap.Outcome.Nothing)
         // Every few days: once a day.
-        val w = (RoutineTap.tap(weekly, now, zone, null) as RoutineTap.Outcome.Marked).routine
-        assertTrue(RoutineTap.tap(w, now + 60_000, zone, null) is RoutineTap.Outcome.Nothing)
+        val w = (RoutineTap.tap(weekly, now, zone) as RoutineTap.Outcome.Changed).routine
+        assertTrue(RoutineTap.tap(w, now + 60_000, zone) is RoutineTap.Outcome.Nothing)
     }
 
     @Test
@@ -177,7 +179,7 @@ class ToolTilesTest {
             TileSpec(2, TileSize.WIDE, TileContent.Countdown("goa", LocalDate.of(2026, 12, 3).toEpochDay(), 6), 0, 2),
             TileSpec(3, TileSize.SMALL, TileContent.Coin(7), 2, 0),
             TileSpec(4, TileSize.MEDIUM, TileContent.Dice(3, 20, 8), 0, 4),
-            TileSpec(5, TileSize.WIDE, TileContent.Notes("groceries", NoteStyle.LIST, listOf(NoteItem("milk"), NoteItem("eggs", true)), "x", "", 9), 0, 6),
+            TileSpec(5, TileSize.WIDE, TileContent.Notes("groceries", NoteStyle.NOTE, listOf(NoteItem("milk"), NoteItem("eggs", true)), "x", "", 9), 0, 6),
             TileSpec(6, TileSize.MEDIUM, TileContent.Notes("", NoteStyle.INK, ink = InkCodec.encode(listOf(listOf(InkPoint(0.5f, 0.5f, 0.5f)))), created = 10), 0, 8),
         )
         assertEquals(tiles, TileJson.decode(JSONArray(TileJson.encode(tiles).toString())))
@@ -192,14 +194,14 @@ class ToolTilesTest {
     @Test
     fun undoingALayoutEditKeepsTicksAndNotes() {
         val routine = TileSpec(1, TileSize.MEDIUM, twice, 0, 0)
-        val notes = TileSpec(2, TileSize.MEDIUM, TileContent.Notes("n", NoteStyle.LIST), 2, 0)
+        val notes = TileSpec(2, TileSize.MEDIUM, TileContent.Notes("n", NoteStyle.NOTE), 2, 0)
         var live = listOf(routine, notes)
         val undo = TileUndo(current = { live }, restore = { live = it }, release = {})
         // A layout edit (the notes tile moves), then the tiles are used.
         undo.record("tile moved") { live = listOf(routine, notes.copy(x = 0, y = 2)) }
         live = listOf(
             routine.copy(content = twice.copy(marks = listOf(at(21, 9)))),
-            notes.copy(x = 0, y = 2, content = TileContent.Notes("n", NoteStyle.LIST, listOf(NoteItem("milk")))),
+            notes.copy(x = 0, y = 2, content = TileContent.Notes("n", NoteStyle.NOTE, listOf(NoteItem("milk")))),
         )
         undo.undo()
         // The move is taken back; the tick and the item stay.
@@ -220,22 +222,18 @@ class ToolTilesTest {
     }
 
     @Test
-    fun switchingNoteStyleKeepsTheWords() {
-        val list = TileContent.Notes("", NoteStyle.LIST, listOf(NoteItem("milk"), NoteItem("eggs", true)))
-        val text = NotesPanelSize.switchStyle(list, NoteStyle.TEXT)
-        assertEquals("milk\neggs", text.text)
-        assertEquals(list.items, text.items)
-        val back = NotesPanelSize.switchStyle(TileContent.Notes("", NoteStyle.TEXT, text = "a\n\n b "), NoteStyle.LIST)
-        assertEquals(listOf(NoteItem("a"), NoteItem("b")), back.items)
-        // Handwriting keeps its own content.
-        assertEquals(NoteStyle.INK, NotesPanelSize.switchStyle(list, NoteStyle.INK).style)
-        assertEquals(list.items, NotesPanelSize.switchStyle(list, NoteStyle.INK).items)
+    fun noteKindsAreSavedAndOldIdsReadAsNotes() {
+        assertEquals(NoteStyle.NOTE, NoteStyle.fromId("note"))
+        assertEquals(NoteStyle.INK, NoteStyle.fromId("ink"))
+        // Ids from earlier builds of this branch (a checklist, a text note) are notes.
+        assertEquals(NoteStyle.NOTE, NoteStyle.fromId("list"))
+        assertEquals(NoteStyle.NOTE, NoteStyle.fromId("text"))
     }
 
     @Test
     fun everythingStoredHasACeiling() {
         val huge = TileContent.Notes(
-            "n".repeat(80), NoteStyle.LIST,
+            "n".repeat(80), NoteStyle.NOTE,
             items = List(70) { NoteItem("x".repeat(150)) },
             text = "t".repeat(5_000),
         )
@@ -252,9 +250,6 @@ class ToolTilesTest {
         // A layout from a file (a backup, another build) is held to the same limits.
         val json = JSONArray(TileJson.encode(listOf(TileSpec(1, TileSize.WIDE, huge, 0, 0))).toString())
         assertEquals(clean, TileJson.decode(json).single().content)
-        // A long note switched to a list keeps only what a list may hold.
-        val many = TileContent.Notes("", NoteStyle.TEXT, text = (1..80).joinToString("\n") { "line $it" })
-        assertEquals(ToolLimits.ITEMS, NotesPanelSize.switchStyle(many, NoteStyle.LIST).items.size)
     }
 
     @Test
@@ -262,15 +257,18 @@ class ToolTilesTest {
         val context = RuntimeEnvironment.getApplication()
         val measurer = TextMeasurer(createFontFamilyResolver(context), Density(2.75f), LayoutDirection.Ltr)
         fun rows(notes: TileContent.Notes, editing: Boolean) = NotesPanelSize.rows(notes, editing, 99.dp, 392.dp, measurer, Density(2.75f))
-        val few = TileContent.Notes("", NoteStyle.LIST, List(3) { NoteItem("item $it") })
-        val full = TileContent.Notes("", NoteStyle.LIST, List(ToolLimits.ITEMS) { NoteItem("item $it", done = it % 2 == 0) })
+        val few = TileContent.Notes("", NoteStyle.NOTE, List(3) { NoteItem("item $it") })
+        val full = TileContent.Notes("", NoteStyle.NOTE, List(ToolLimits.ITEMS) { NoteItem("item $it", done = it % 2 == 0) })
         assertTrue(rows(few, false) < rows(full, false))
         // Fifty items scroll inside the band: about four rows of start, five while editing.
         assertTrue(rows(full, false) <= 5)
         assertTrue(rows(full, true) <= 6)
-        val long = TileContent.Notes("", NoteStyle.TEXT, text = "word ".repeat(400))
+        val long = TileContent.Notes("", NoteStyle.NOTE, text = "word ".repeat(400))
         assertTrue(rows(long, false) <= 5)
         assertTrue(rows(long, true) <= 5)
+        // Text and fifty items together: still within about a screen, read or edited.
+        assertTrue(rows(full.copy(text = "word ".repeat(400)), false) <= 5)
+        assertTrue(rows(full.copy(text = "word ".repeat(400)), true) <= 7)
         assertTrue(rows(TileContent.Notes("", NoteStyle.INK), true) <= 7)
     }
 }

@@ -135,9 +135,9 @@ sealed interface TileContent {
     data class Dice(val count: Int, val sides: Int, val created: Long = 0) : Tool
 
     /**
-     * A note that opens in place on start, like a folder: a checklist, plain text or handwriting
-     * ([style]). Each style keeps its own content, so switching style loses nothing; [ink] is
-     * [InkCodec]'s encoding.
+     * A note that opens in place on start, like a folder. [NoteStyle.NOTE] holds a few lines of
+     * [text] and a checklist of [items] together; [NoteStyle.INK] is handwriting, [ink] being
+     * [InkCodec]'s encoding. A tile is one or the other for good.
      */
     data class Notes(
         val name: String,
@@ -149,12 +149,16 @@ sealed interface TileContent {
     ) : Tool
 }
 
-/** How a notes tile shows its content. [id] is saved in the layout, so it must never change. */
+/** The two kinds of notes tile. [id] is saved in the layout, so it must never change. */
 enum class NoteStyle(val id: String, val label: String) {
-    LIST("list", "checklist"), TEXT("text", "note"), INK("ink", "handwriting");
+    /** Text and a checklist. */
+    NOTE("note", "notes"),
+
+    /** Handwriting. */
+    INK("ink", "handwriting");
 
     companion object {
-        fun fromId(id: String?): NoteStyle = entries.firstOrNull { it.id == id } ?: LIST
+        fun fromId(id: String?): NoteStyle = entries.firstOrNull { it.id == id } ?: NOTE
     }
 }
 

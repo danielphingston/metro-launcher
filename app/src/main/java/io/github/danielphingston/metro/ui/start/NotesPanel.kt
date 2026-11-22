@@ -121,63 +121,55 @@ internal fun NotesPanel(
             }
             MetroButton(if (editing) "done" else "edit", if (editing) onDone else onEdit)
         }
-        if (editing) {
-            Row(Modifier.fillMaxWidth().height(StylesHeight), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                NoteStyle.entries.forEach { style ->
-                    MetroChoice(style.id, shown.style == style, { onDraft(NotesPanelSize.switchStyle(shown, style)) }, Modifier.weight(1f))
-                }
-            }
-        }
         when (shown.style) {
-            NoteStyle.LIST -> ListBody(shown, editing, onTick, onDraft)
-            NoteStyle.TEXT -> if (editing) {
-                // A fixed height that scrolls inside, so a long note never pushes start's tiles far away.
-                PlainField(
-                    shown.text, { onDraft(shown.copy(text = it.take(ToolLimits.TEXT))) }, MetroType.body, placeholder = "write something",
-                    singleLine = false, modifier = Modifier.fillMaxWidth().height(TextEditHeight).padding(vertical = 8.dp),
-                )
-                LimitNote(shown.text.length, ToolLimits.TEXT, "characters")
-            } else {
-                Box(Modifier.fillMaxWidth().heightIn(max = TextMax).verticalScroll(rememberScrollState())) {
-                    MetroText(shown.text.ifBlank { "empty note" }, MetroType.body, color = if (shown.text.isBlank()) Metro.colors.subtle else fg, modifier = Modifier.padding(vertical = 8.dp))
-                }
-            }
+            NoteStyle.NOTE -> if (editing) NoteEdit(shown, onDraft) else NoteView(shown, onTick)
             NoteStyle.INK -> InkBody(shown, editing, onDraft)
         }
     }
 }
 
+/** An open note as it reads: its text, then its checklist, in one area that scrolls when long. Items tick with a tap. */
 @Composable
-private fun ListBody(notes: TileContent.Notes, editing: Boolean, onTick: (Int) -> Unit, onDraft: (TileContent.Notes) -> Unit) {
+private fun NoteView(notes: TileContent.Notes, onTick: (Int) -> Unit) {
     val fg = Metro.colors.foreground
-    if (!editing) {
-        if (notes.items.isEmpty()) {
-            MetroText("nothing on the list yet", MetroType.body, color = Metro.colors.subtle, modifier = Modifier.height(ItemHeight).padding(top = 8.dp))
+    Column(Modifier.fillMaxWidth().heightIn(max = ViewMax).verticalScroll(rememberScrollState())) {
+        if (notes.text.isBlank() && notes.items.isEmpty()) {
+            MetroText("nothing here yet", MetroType.body, color = Metro.colors.subtle, modifier = Modifier.height(ItemHeight).padding(top = 8.dp))
         }
-        // A long list scrolls inside the band.
-        Column(Modifier.fillMaxWidth().heightIn(max = ListMax).verticalScroll(rememberScrollState())) {
-            notes.items.forEachIndexed { i, item ->
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = ItemHeight)
-                        .clickable(onClickLabel = if (item.done) "untick" else "tick") { onTick(i) }
-                        .semantics(mergeDescendants = true) {
-                            role = Role.Checkbox
-                            stateDescription = if (item.done) "done" else "not done"
-                        },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CheckBox(item.done)
-                    Spacer(Modifier.width(14.dp))
-                    MetroText(
-                        item.text, MetroType.body.copy(textDecoration = if (item.done) TextDecoration.LineThrough else null),
-                        color = if (item.done) fg.copy(alpha = 0.5f) else fg, maxLines = 2,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                }
+        if (notes.text.isNotBlank()) MetroText(notes.text, MetroType.body, modifier = Modifier.padding(vertical = 8.dp))
+        notes.items.forEachIndexed { i, item ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = ItemHeight)
+                    .clickable(onClickLabel = if (item.done) "untick" else "tick") { onTick(i) }
+                    .semantics(mergeDescendants = true) {
+                        role = Role.Checkbox
+                        stateDescription = if (item.done) "done" else "not done"
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CheckBox(item.done)
+                Spacer(Modifier.width(14.dp))
+                MetroText(
+                    item.text, MetroType.body.copy(textDecoration = if (item.done) TextDecoration.LineThrough else null),
+                    color = if (item.done) fg.copy(alpha = 0.5f) else fg, maxLines = 2,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
             }
         }
-        return
     }
+}
+
+/**
+ * An open note being edited: a text field of a fixed height (it scrolls inside), then the
+ * checklist, which scrolls in a band of a few rows with the "add an item" field under it.
+ */
+@Composable
+private fun NoteEdit(notes: TileContent.Notes, onDraft: (TileContent.Notes) -> Unit) {
+    PlainField(
+        notes.text, { onDraft(notes.copy(text = it.take(ToolLimits.TEXT))) }, MetroType.body, placeholder = "a few lines, if you like",
+        singleLine = false, modifier = Modifier.fillMaxWidth().height(NoteTextHeight).padding(vertical = 8.dp),
+    )
+    LimitNote(notes.text.length, ToolLimits.TEXT, "characters")
     var adding by remember { mutableStateOf("") }
     val addFocus = remember { FocusRequester() }
     val full = notes.items.size >= ToolLimits.ITEMS
@@ -233,8 +225,8 @@ private fun ListBody(notes: TileContent.Notes, editing: Boolean, onTick: (Int) -
             )
         }
     }
-    // A new list starts with the keyboard up, ready for its first item.
-    LaunchedEffect(Unit) { if (notes.items.isEmpty()) runCatching { addFocus.requestFocus() } }
+    // A new note starts with the keyboard up, ready for its first item.
+    LaunchedEffect(Unit) { if (notes.items.isEmpty() && notes.text.isEmpty()) runCatching { addFocus.requestFocus() } }
     if (notes.items.any { it.done }) {
         Box(Modifier.height(ClearHeight), contentAlignment = Alignment.CenterStart) {
             MetroButton("clear ticked items", { onDraft(notes.copy(items = notes.items.filterNot { it.done })) })
@@ -430,16 +422,14 @@ private const val ERASER_RADIUS = 0.025f
 private val PanelPadding = 12.dp
 private val PanelVertical = 8.dp
 private val HeaderHeight = 52.dp
-private val StylesHeight = 48.dp
 private val ItemHeight = 44.dp
 private val EditItemHeight = 48.dp
 private val ClearHeight = 52.dp
 private val InkToolsHeight = 48.dp
-private val TextEditHeight = 220.dp
+private val NoteTextHeight = 128.dp
 private val LimitHeight = 20.dp
-private val TextMax = 320.dp
-private val ListMax = 352.dp
-private val EditListMax = 288.dp
+private val ViewMax = 400.dp
+private val EditListMax = 240.dp
 private val InkMax = 420.dp
 
 /**
@@ -451,36 +441,19 @@ internal object NotesPanelSize {
     fun rows(notes: TileContent.Notes, editing: Boolean, cell: Dp, width: Dp, measurer: TextMeasurer, density: Density): Int {
         val inner = width - PanelPadding * 2
         val body: Dp = when (notes.style) {
-            NoteStyle.LIST -> if (editing) {
-                minOf(EditItemHeight * notes.items.size, EditListMax) + EditItemHeight + if (notes.items.any { it.done }) ClearHeight else 0.dp
+            NoteStyle.NOTE -> if (editing) {
+                NoteTextHeight + LimitHeight + minOf(EditItemHeight * notes.items.size, EditListMax) + EditItemHeight +
+                    if (notes.items.any { it.done }) ClearHeight else 0.dp
             } else {
-                minOf(ItemHeight * notes.items.size.coerceAtLeast(1), ListMax)
-            }
-            NoteStyle.TEXT -> if (editing) {
-                TextEditHeight + LimitHeight
-            } else {
-                minOf(
-                    with(density) {
-                        measurer.measure(notes.text.ifBlank { " " }, MetroType.body, constraints = Constraints(maxWidth = inner.roundToPx().coerceAtLeast(1))).size.height.toDp()
-                    } + 16.dp,
-                    TextMax,
-                )
+                val text = if (notes.text.isBlank()) 0.dp else with(density) {
+                    measurer.measure(notes.text, MetroType.body, constraints = Constraints(maxWidth = inner.roundToPx().coerceAtLeast(1))).size.height.toDp()
+                } + 16.dp
+                val items = ItemHeight * if (notes.items.isEmpty() && notes.text.isBlank()) 1 else notes.items.size
+                minOf(text + items, ViewMax)
             }
             NoteStyle.INK -> minOf(inner, InkMax) + 8.dp + if (editing) InkToolsHeight else 0.dp
         }
-        val total = PanelVertical * 2 + HeaderHeight + (if (editing) StylesHeight else 0.dp) + body
+        val total = PanelVertical * 2 + HeaderHeight + body
         return ceil(total.value / cell.value).toInt().coerceAtLeast(2)
-    }
-
-    /** [notes] shown as [style]; a list and a note take each other's words when the other is empty. */
-    fun switchStyle(notes: TileContent.Notes, style: NoteStyle): TileContent.Notes = ToolLimits.clean(switched(notes, style)) as TileContent.Notes
-
-    private fun switched(notes: TileContent.Notes, style: NoteStyle): TileContent.Notes = when {
-        style == notes.style -> notes
-        style == NoteStyle.TEXT && notes.text.isBlank() && notes.items.isNotEmpty() ->
-            notes.copy(style = style, text = notes.items.joinToString("\n") { it.text })
-        style == NoteStyle.LIST && notes.items.isEmpty() && notes.text.isNotBlank() ->
-            notes.copy(style = style, items = notes.text.lines().map { it.trim() }.filter { it.isNotEmpty() }.map { NoteItem(it) })
-        else -> notes.copy(style = style)
     }
 }
