@@ -227,7 +227,7 @@ class ToolTilesScreenshotTest {
         return listOf(loop, wave)
     }
 
-    private fun panel(name: String, editing: Boolean, notes: TileContent.Notes) {
+    private fun panel(name: String, editing: Boolean, notes: TileContent.Notes, then: () -> Unit = {}) {
         rule.setContent {
             CompositionLocalProvider(LocalInkSource provides { inks[it].orEmpty() }) {
             MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
@@ -247,6 +247,8 @@ class ToolTilesScreenshotTest {
             }
         }
         rule.waitForIdle()
+        then()
+        rule.waitForIdle()
         rule.onRoot().captureRoboImage("src/test/screenshots/$name.png", roborazziOptions = ScreenshotOptions)
     }
 
@@ -257,6 +259,16 @@ class ToolTilesScreenshotTest {
 
     @Test
     fun notesBandReading() = panel("tools_notes_band", editing = false, notes = list)
+
+    /** "+ add an item" tapped: one field to type in, without editing the note. */
+    @Test
+    fun notesBandAdding() = panel("tools_notes_band_add", editing = false, notes = list) {
+        rule.onNodeWithText("add an item").performClick()
+    }
+
+    /** A new note as it opens without "edit": just the row to add the first item. */
+    @Test
+    fun emptyNoteBand() = panel("tools_notes_band_empty", editing = false, notes = TileContent.Notes("", NoteStyle.NOTE))
 
     @Test
     fun notesBandEditing() = panel("tools_notes_band_edit", editing = true, notes = list)

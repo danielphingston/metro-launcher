@@ -103,6 +103,7 @@ import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.data.StartPadding
 import io.github.danielphingston.metro.data.NoteStyle
 import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.ToolLimits
 import io.github.danielphingston.metro.data.TileFolders
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpan
@@ -231,8 +232,8 @@ class StartState(val scroll: ScrollState) {
     private var noteDraftId: Long? = null
     internal var saveNote: (Long, TileContent.Notes) -> Unit = { _, _ -> }
 
-    /** The open ink tile's name is being typed: the start screen makes room for the keyboard. */
-    var inkNaming by mutableStateOf(false)
+    /** Something in the open band is being typed (an ink tile's name, a new list item): the start screen makes room for the keyboard. */
+    var bandTyping by mutableStateOf(false)
 
     fun startNoteEdit(id: Long, notes: TileContent.Notes) {
         endNoteEdit()
@@ -532,6 +533,15 @@ fun StartScreen(
             n.copy(items = n.items.mapIndexed { j, item -> if (j == index) item.copy(done = !item.done) else item })
         }
     }
+    // Adding and removing a list item from the open band, without editing: saved at once, like a tick.
+    fun addNoteItem(id: Long, text: String) = viewModel.updateTool(id) { c ->
+        val n = c as? TileContent.Notes ?: return@updateTool c
+        if (n.items.size >= ToolLimits.ITEMS) n else n.copy(items = n.items + io.github.danielphingston.metro.data.NoteItem(text.take(ToolLimits.ITEM)))
+    }
+    fun removeNoteItem(id: Long, index: Int) = viewModel.updateTool(id) { c ->
+        val n = c as? TileContent.Notes ?: return@updateTool c
+        n.copy(items = n.items.filterIndexed { j, _ -> j != index })
+    }
     androidx.lifecycle.compose.LifecycleEventEffect(Lifecycle.Event.ON_STOP) { state.saveNoteDraft() }
     val haptics = LocalHapticFeedback.current
     val currentDoubleTap by rememberUpdatedState(onDoubleTap)
@@ -800,7 +810,7 @@ fun StartScreen(
                 .fillMaxSize()
                 // While a note is being written in, the keyboard takes the bottom of the screen: the
                 // scrolling area ends above it, so the field being typed in moves up with the keyboard.
-                .then(if (state.noteDraft != null || state.inkNaming) Modifier.imePadding() else Modifier)
+                .then(if (state.noteDraft != null || state.bandTyping) Modifier.imePadding() else Modifier)
                 .verticalScroll(state.scroll)
                 .pointerInput(Unit) {
                     var downAt = 0L
@@ -884,7 +894,7 @@ fun StartScreen(
                                 label = notesTile.label,
                                 onUpdate = { change -> viewModel.updateTool(noteId) { (it as? TileContent.Notes)?.let(change) ?: it } },
                                 onSaveInk = { strokes -> viewModel.saveInk(inkId, strokes) },
-                                onNaming = { state.inkNaming = it },
+                                onNaming = { state.bandTyping = it },
                                 modifier = bandModifier,
                             )
                         } else {
@@ -897,6 +907,9 @@ fun StartScreen(
                                 onDraft = state::updateNoteDraft,
                                 onDone = state::endNoteEdit,
                                 onCancel = state::cancelNoteEdit,
+                                onAdd = { text -> addNoteItem(noteId, text) },
+                                onRemove = { i -> removeNoteItem(noteId, i) },
+                                onTyping = { state.bandTyping = it },
                                 modifier = bandModifier,
                             )
                         }

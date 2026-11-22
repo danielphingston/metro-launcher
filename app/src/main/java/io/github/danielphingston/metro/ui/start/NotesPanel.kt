@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -75,9 +76,9 @@ import kotlin.math.ceil
 import kotlinx.coroutines.flow.first
 
 /**
- * The open notes tile: its content in a band under the tile, like an open folder. Ticking a list
- * item is the only change it makes as it is; everything else (adding, typing) waits for "edit", so
- * a stray tap can't change a note. While editing, [draft] holds the changes; they are saved on
+ * The open notes tile: its content in a band under the tile, like an open folder. As it is, items
+ * can be ticked, added (with "+", one field) and removed (with ✕), each saved at once; the text
+ * and the items' wording wait for "edit", so a stray tap can't open the keyboard on them. While editing, [draft] holds the changes; they are saved on
  * "done", when the band closes, and when the launcher stops. An ink tile opens as [InkPanel].
  */
 @Composable
@@ -91,6 +92,10 @@ internal fun NotesPanel(
     onDone: () -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    onAdd: (String) -> Unit = {},
+    onRemove: (index: Int) -> Unit = {},
+    /** Whether the "add an item" field is open, so the start screen can make room for the keyboard. */
+    onTyping: (Boolean) -> Unit = {},
 ) {
     val editing = draft != null
     val shown = draft ?: notes
@@ -114,36 +119,126 @@ internal fun NotesPanel(
                 HeaderIcon("edit", onEdit) { color, stroke -> drawPencil(color, stroke) }
             }
         }
-        if (editing) NoteEdit(shown, onDraft) else NoteView(shown, onTick)
+        if (editing) NoteEdit(shown, onDraft) else NoteView(shown, onTick, onAdd, onRemove, onTyping)
     }
 }
 
-/** An open note as it reads: its text, then its checklist, in one area that scrolls when long. Items tick with a tap. */
+/**
+ * An open note as it reads: its text, then its checklist, in one area that scrolls when long.
+ * Items tick with a tap and go with ✕; under the list, "+ add an item" opens one field that adds
+ * an item each time the keyboard's "next" is pressed (or when it is left with something typed).
+ */
 @Composable
-private fun NoteView(notes: TileContent.Notes, onTick: (Int) -> Unit) {
+private fun NoteView(
+    notes: TileContent.Notes,
+    onTick: (Int) -> Unit,
+    onAdd: (String) -> Unit,
+    onRemove: (Int) -> Unit,
+    onTyping: (Boolean) -> Unit,
+) {
     val fg = Metro.colors.foreground
-    Column(Modifier.fillMaxWidth().heightIn(max = ViewMax).verticalScroll(rememberScrollState())) {
-        if (notes.text.isBlank() && notes.items.isEmpty()) {
-            MetroText("nothing here yet", MetroType.body, color = Metro.colors.subtle, modifier = Modifier.height(ItemHeight).padding(top = 8.dp))
+    val scroll = rememberScrollState()
+    var count by remember { mutableIntStateOf(notes.items.size) }
+    LaunchedEffect(notes.items.size) {
+        // A new item shows at the bottom, next to the field it came from.
+        if (notes.items.size > count) {
+            snapshotFlow { scroll.maxValue }.first { it > scroll.value || it == 0 }
+            scroll.animateScrollTo(scroll.maxValue)
         }
+        count = notes.items.size
+    }
+    Column(Modifier.fillMaxWidth().heightIn(max = ViewMax - ItemHeight).verticalScroll(scroll)) {
         if (notes.text.isNotBlank()) MetroText(notes.text, MetroType.body, modifier = Modifier.padding(vertical = 8.dp))
         notes.items.forEachIndexed { i, item ->
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = ItemHeight)
-                    .clickable(onClickLabel = if (item.done) "untick" else "tick") { onTick(i) }
-                    .semantics(mergeDescendants = true) {
-                        role = Role.Checkbox
-                        stateDescription = if (item.done) "done" else "not done"
-                    },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CheckBox(item.done)
-                Spacer(Modifier.width(14.dp))
-                MetroText(
-                    item.text, MetroType.body.copy(textDecoration = if (item.done) TextDecoration.LineThrough else null),
-                    color = if (item.done) fg.copy(alpha = 0.5f) else fg, maxLines = 2,
-                    modifier = Modifier.padding(vertical = 8.dp),
-                )
+            Row(Modifier.fillMaxWidth().heightIn(min = ItemHeight), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.weight(1f).heightIn(min = ItemHeight)
+                        .clickable(onClickLabel = if (item.done) "untick" else "tick") { onTick(i) }
+                        .semantics(mergeDescendants = true) {
+                            role = Role.Checkbox
+                            stateDescription = if (item.done) "done" else "not done"
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CheckBox(item.done)
+                    Spacer(Modifier.width(14.dp))
+                    MetroText(
+                        item.text, MetroType.body.copy(textDecoration = if (item.done) TextDecoration.LineThrough else null),
+                        color = if (item.done) fg.copy(alpha = 0.5f) else fg, maxLines = 2,
+                        modifier = Modifier.padding(vertical = 8.dp),
+                    )
+                }
+                RemoveButton(item.text) { onRemove(i) }
+            }
+        }
+    }
+    AddItemRow(full = notes.items.size >= ToolLimits.ITEMS, onAdd = onAdd, onTyping = onTyping)
+}
+
+/** ✕ at the end of a list item, which takes it off the list. */
+@Composable
+private fun RemoveButton(text: String, onRemove: () -> Unit) {
+    Box(
+        Modifier.size(40.dp).clickable(onClickLabel = "remove $text", onClick = onRemove).semantics { contentDescription = "remove $text" },
+        contentAlignment = Alignment.Center,
+    ) { MetroText("✕", MetroType.body, color = Metro.colors.subtle) }
+}
+
+/**
+ * "+ add an item" under a note's list as it reads. A tap opens one field with the keyboard; each
+ * "next" adds what was typed and keeps the field for the next item. Leaving the field (the
+ * keyboard closed and another tap, or the band closing) adds what is typed and closes it.
+ */
+@Composable
+private fun AddItemRow(full: Boolean, onAdd: (String) -> Unit, onTyping: (Boolean) -> Unit) {
+    if (full) {
+        MetroText("the list is full (${ToolLimits.ITEMS} items)", MetroType.caption, color = Metro.colors.subtle, modifier = Modifier.height(ItemHeight).padding(top = 14.dp))
+        return
+    }
+    var open by remember { mutableStateOf(false) }
+    val typing by androidx.compose.runtime.rememberUpdatedState(onTyping)
+    val add by androidx.compose.runtime.rememberUpdatedState(onAdd)
+    Row(Modifier.fillMaxWidth().height(ItemHeight), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(34.dp), contentAlignment = Alignment.CenterStart) { MetroText("+", MetroType.sectionTitle, color = Metro.colors.subtle) }
+        if (!open) {
+            Box(
+                Modifier.weight(1f).height(ItemHeight).clickable(onClickLabel = "add an item") {
+                    open = true
+                    typing(true)
+                },
+                contentAlignment = Alignment.CenterStart,
+            ) { MetroText("add an item", MetroType.body, color = Metro.colors.subtle) }
+        } else {
+            var text by remember { mutableStateOf("") }
+            val focus = remember { FocusRequester() }
+            var focused by remember { mutableStateOf(false) }
+            fun commit() {
+                val item = text.trim()
+                if (item.isNotEmpty()) add(item)
+                text = ""
+            }
+            fun close() {
+                commit()
+                open = false
+                typing(false)
+            }
+            PlainField(
+                text, { text = it.take(ToolLimits.ITEM) }, MetroType.body, placeholder = "add an item",
+                imeAction = ImeAction.Next, onIme = ::commit,
+                modifier = Modifier.weight(1f).focusRequester(focus).onFocusChanged {
+                    if (it.isFocused) focused = true else if (focused) close()
+                },
+            )
+            LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+            // The band closing while typing keeps what was typed.
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                onDispose {
+                    if (open) {
+                        val item = text.trim()
+                        if (item.isNotEmpty()) add(item)
+                        typing(false)
+                    }
+                }
             }
         }
     }
@@ -194,12 +289,7 @@ private fun NoteEdit(notes: TileContent.Notes, onDraft: (TileContent.Notes) -> U
                     { text -> onDraft(notes.copy(items = notes.items.mapIndexed { j, it -> if (j == i) it.copy(text = text.take(ToolLimits.ITEM)) else it })) },
                     MetroType.body, modifier = Modifier.weight(1f),
                 )
-                Box(
-                    Modifier.size(40.dp).clickable(onClickLabel = "remove ${item.text}") {
-                        onDraft(notes.copy(items = notes.items.filterIndexed { j, _ -> j != i }))
-                    }.semantics { contentDescription = "remove ${item.text}" },
-                    contentAlignment = Alignment.Center,
-                ) { MetroText("✕", MetroType.body, color = Metro.colors.subtle) }
+                RemoveButton(item.text) { onDraft(notes.copy(items = notes.items.filterIndexed { j, _ -> j != i })) }
             }
         }
     }
@@ -499,8 +589,8 @@ internal object NotesPanelSize {
                 val text = if (notes.text.isBlank()) 0.dp else with(density) {
                     measurer.measure(notes.text, MetroType.body, constraints = Constraints(maxWidth = inner.roundToPx().coerceAtLeast(1))).size.height.toDp()
                 } + 16.dp
-                val items = ItemHeight * if (notes.items.isEmpty() && notes.text.isBlank()) 1 else notes.items.size
-                minOf(text + items, ViewMax)
+                // The text and list (they scroll inside), then the "add an item" row: ViewMax at most.
+                minOf(text + ItemHeight * notes.items.size, ViewMax - ItemHeight) + ItemHeight
             }
             // The tools, the colours (wrapping onto as many lines as the width needs) and the page.
             NoteStyle.INK -> {
