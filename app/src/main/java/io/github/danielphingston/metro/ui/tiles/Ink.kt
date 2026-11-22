@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -162,7 +163,8 @@ private const val ERASER_RADIUS = 0.025f
  * (a tap opens it, a hold enters edit mode); otherwise a finger writes too until a pen has
  * touched the page, after which fingers (a resting palm) are ignored. While a pen hovers, a dot
  * shows where it will land. Only the stroke being drawn is redrawn as the pen moves; the finished
- * strokes sit in their own layer. [onChange] follows each added or erased stroke.
+ * strokes sit in their own layer. [onStart] comes before each gesture that writes or erases (not
+ * one that is passed through), and [onChange] follows each added or erased stroke.
  */
 @Composable
 internal fun InkCanvas(
@@ -173,6 +175,7 @@ internal fun InkCanvas(
     penOnly: Boolean,
     onChange: () -> Unit,
     modifier: Modifier = Modifier,
+    onStart: () -> Unit = {},
 ) {
     val active = remember { mutableStateListOf<InkPoint>() }
     var hover by remember { mutableStateOf<Offset?>(null) }
@@ -180,6 +183,7 @@ internal fun InkCanvas(
     val erasingNow by rememberUpdatedState(erasing)
     val colorNow by rememberUpdatedState(color)
     val changed by rememberUpdatedState(onChange)
+    val started by rememberUpdatedState(onStart)
     Box(
         modifier.fillMaxSize().clipToBounds()
             .pointerInput(Unit) {
@@ -216,6 +220,7 @@ internal fun InkCanvas(
                         if (strokes.removeAll { stroke -> stroke.points.any { hypot(it.x - p.x, it.y - p.y) < ERASER_RADIUS } }) changed()
                     }
                     down.consume()
+                    started()
                     if (erase) eraseAt(down.position) else {
                         active.clear()
                         active += point(down.position, down.pressure)
@@ -253,6 +258,51 @@ internal fun InkCanvas(
                 hover?.let { drawCircle(inkColor(colorNow, plain).copy(alpha = 0.6f), 3.dp.toPx(), it) }
             },
         )
+    }
+}
+
+/**
+ * Undo for the open ink page: one step per stroke written, per erasing gesture and per "clear",
+ * back to how the page was when it opened. Kept in memory only. A step holds the page's strokes
+ * (which never change) by reference, so it costs a list of pointers, not a copy of the drawing;
+ * the newest [MAX] steps are kept.
+ */
+internal class InkHistory {
+    private val steps = ArrayDeque<List<InkStroke>>()
+    private var before: List<InkStroke>? = null
+
+    /** How many steps can be taken back; observable, for the undo button. */
+    var size by mutableIntStateOf(0)
+        private set
+
+    /** A gesture starts on [page]: it becomes a step once the gesture changes something. */
+    fun begin(page: List<InkStroke>) {
+        before = page.toList()
+    }
+
+    /** The page changed: the first change since [begin] records the page as it was then. */
+    fun changed() {
+        before?.let(::push)
+        before = null
+    }
+
+    /** Records [page] as it is now, before a change that is not a gesture (clearing the page). */
+    fun record(page: List<InkStroke>) = push(page.toList())
+
+    /** The page as it was before the last step, which is dropped; null when there is nothing to take back. */
+    fun undo(): List<InkStroke>? {
+        before = null
+        return steps.removeLastOrNull()?.also { size = steps.size }
+    }
+
+    private fun push(page: List<InkStroke>) {
+        steps.addLast(page)
+        if (steps.size > MAX) steps.removeFirst()
+        size = steps.size
+    }
+
+    companion object {
+        const val MAX = 200
     }
 }
 

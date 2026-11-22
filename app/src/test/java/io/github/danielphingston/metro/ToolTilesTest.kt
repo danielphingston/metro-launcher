@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import org.robolectric.RuntimeEnvironment
 import io.github.danielphingston.metro.ui.start.FolderLayout
 import io.github.danielphingston.metro.ui.start.NotesPanelSize
+import io.github.danielphingston.metro.ui.tiles.InkHistory
 import io.github.danielphingston.metro.ui.start.Placement
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
@@ -332,7 +333,44 @@ class ToolTilesTest {
         // Text and fifty items together: still within about a screen, read or edited.
         assertTrue(rows(full.copy(text = "word ".repeat(400)), false) <= 5)
         assertTrue(rows(full.copy(text = "word ".repeat(400)), true) <= 7)
-        assertTrue(rows(TileContent.Notes("", NoteStyle.INK), true) <= 7)
+        // An ink page is always open for writing: tools, colours and the page, the same height either way, still within a screen.
+        val ink = TileContent.Notes("", NoteStyle.INK)
+        assertEquals(rows(ink, false), rows(ink, true))
+        assertTrue(rows(ink, false) in 6..7)
+    }
+
+    @Test
+    fun inkUndoTakesBackOneStrokeEraseOrClearAtATime() {
+        fun stroke(x: Float) = InkStroke(listOf(InkPoint(x, 0f, 0.5f), InkPoint(x, 1f, 0.5f)))
+        val page = mutableListOf(stroke(0f))
+        val history = InkHistory()
+        assertNull(history.undo())
+        // A gesture that changes nothing (a tap with the eraser on empty paper) is no step.
+        history.begin(page)
+        assertEquals(0, history.size)
+        // Two strokes, one step each.
+        history.begin(page); page += stroke(1f); history.changed()
+        history.begin(page); page += stroke(2f); history.changed()
+        // One erasing gesture that removes two strokes is one step.
+        history.begin(page); page.removeAt(2); history.changed(); page.removeAt(1); history.changed()
+        // Clearing is a step too.
+        history.record(page); page.clear()
+        assertEquals(4, history.size)
+        assertEquals(listOf(stroke(0f)), history.undo())
+        assertEquals(listOf(stroke(0f), stroke(1f), stroke(2f)), history.undo())
+        assertEquals(listOf(stroke(0f), stroke(1f)), history.undo())
+        assertEquals(listOf(stroke(0f)), history.undo())
+        // Back to how the page was when it opened, and no further.
+        assertNull(history.undo())
+        assertEquals(0, history.size)
+    }
+
+    @Test
+    fun inkUndoKeepsTheNewestSteps() {
+        val history = InkHistory()
+        repeat(InkHistory.MAX + 50) { n -> history.record(List(n) { InkStroke(emptyList()) }) }
+        assertEquals(InkHistory.MAX, history.size)
+        assertEquals(InkHistory.MAX + 49, history.undo()!!.size)
     }
 
     @Test

@@ -36,6 +36,7 @@ import io.github.danielphingston.metro.data.ToolLabels
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.start.LiveTileEntry
 import io.github.danielphingston.metro.ui.start.MetroTilesPanel
+import io.github.danielphingston.metro.ui.start.InkPanel
 import io.github.danielphingston.metro.ui.start.NotesPanel
 import io.github.danielphingston.metro.ui.start.TileCustomiseSheet
 import io.github.danielphingston.metro.ui.start.ToolSettings
@@ -232,10 +233,14 @@ class ToolTilesScreenshotTest {
             MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
                     Column(Modifier.padding(top = 40.dp).fillMaxWidth().background(Metro.colors.chrome.copy(alpha = 0.92f)).padding(horizontal = 8.dp)) {
-                        NotesPanel(
-                            notes = notes, label = ToolLabels.label(notes), draft = if (editing) notes else null,
-                            onTick = {}, onEdit = {}, onDraft = {}, onDone = {}, onCancel = {},
-                        )
+                        if (notes.style == NoteStyle.INK) {
+                            InkPanel(notes = notes, label = ToolLabels.label(notes), onUpdate = {}, onSaveInk = {})
+                        } else {
+                            NotesPanel(
+                                notes = notes, label = ToolLabels.label(notes), draft = if (editing) notes else null,
+                                onTick = {}, onEdit = {}, onDraft = {}, onDone = {}, onCancel = {},
+                            )
+                        }
                     }
                 }
             }
@@ -269,8 +274,9 @@ class ToolTilesScreenshotTest {
     @Test
     fun longListBandEditing() = panel("tools_notes_band_long_edit", editing = true, notes = fullList)
 
+    /** An open ink tile: always ready to write, with pen, eraser, clear, undo (nothing to take back yet) and colours. */
     @Test
-    fun handwritingBandEditing() = panel("tools_ink_band_edit", editing = true, notes = TileContent.Notes("scribble", NoteStyle.INK, inkId = "colours", penColor = 0xFFE53935.toInt()))
+    fun handwritingBand() = panel("tools_ink_band", editing = false, notes = TileContent.Notes("scribble", NoteStyle.INK, inkId = "colours", penColor = 0xFFE53935.toInt()))
 
     /** The handwriting tile's pen section: colours, and "write on the tile" greyed on a medium tile. */
     @Test
