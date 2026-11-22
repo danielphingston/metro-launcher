@@ -14,6 +14,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -286,9 +287,23 @@ class ToolTilesScreenshotTest {
     @Test
     fun longListBandEditing() = panel("tools_notes_band_long_edit", editing = true, notes = fullList)
 
-    /** An open ink tile: always ready to write, with pen, eraser, clear, undo (nothing to take back yet) and colours. */
+    private val inkNote = TileContent.Notes("scribble", NoteStyle.INK, inkId = "colours", penColor = 0xFFE53935.toInt())
+
+    /** An open ink tile: always ready to write; clear and the pencil in the header, the pen (a red drop on its nib), eraser and undo under it. */
     @Test
-    fun handwritingBand() = panel("tools_ink_band", editing = false, notes = TileContent.Notes("scribble", NoteStyle.INK, inkId = "colours", penColor = 0xFFE53935.toInt()))
+    fun handwritingBand() = panel("tools_ink_band", editing = false, notes = inkNote)
+
+    /** The pencil tapped: the name to type and the pen colours. */
+    @Test
+    fun handwritingBandEditing() = panel("tools_ink_band_edit", editing = false, notes = inkNote) {
+        rule.onNodeWithContentDescription("edit name and colour").performClick()
+    }
+
+    /** The bin tapped once: it turns red and asks for a second tap. */
+    @Test
+    fun handwritingBandClearing() = panel("tools_ink_band_clear", editing = false, notes = inkNote) {
+        rule.onNodeWithContentDescription("clear").performClick()
+    }
 
     /** The handwriting tile's pen section: colours, and "write on the tile" greyed on a medium tile. */
     @Test
