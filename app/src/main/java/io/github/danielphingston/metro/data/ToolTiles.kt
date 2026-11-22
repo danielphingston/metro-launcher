@@ -2,14 +2,11 @@ package io.github.danielphingston.metro.data
 
 import org.json.JSONArray
 import org.json.JSONObject
-import java.nio.ByteBuffer
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
-import java.util.Base64
 import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /**
  * The routine tile's rules, pure so they can be tested: what it shows at a moment and what a tap
@@ -239,75 +236,6 @@ object Countdowns {
     private fun month(date: LocalDate) = date.month.name.take(3).lowercase()
 }
 
-/** One point of handwriting: [x] and [y] as fractions of the drawing's width, [pressure] 0..1. */
-data class InkPoint(val x: Float, val y: Float, val pressure: Float)
-
-/**
- * Handwriting as a compact string: per stroke a point count, then 5 bytes a point (x and y to
- * 1/[SCALE] of the width, pressure to 1/255), Base64. A note of a few lines is 10 to 30 KB.
- * Anything unreadable decodes as no strokes.
- */
-object InkCodec {
-    private const val SCALE = 4000f
-    private const val VERSION: Byte = 1
-
-    /** The most points a note keeps; strokes past it are dropped so the layout stays small. */
-    const val MAX_POINTS = 12_000
-
-    fun encode(strokes: List<List<InkPoint>>): String {
-        if (strokes.isEmpty()) return ""
-        var total = 0
-        val kept = strokes.filter { it.isNotEmpty() }.takeWhile { stroke -> (total + stroke.size <= MAX_POINTS).also { if (it) total += stroke.size } }
-        val buffer = ByteBuffer.allocate(1 + kept.sumOf { 2 + it.size.coerceAtMost(65_535) * 5 })
-        buffer.put(VERSION)
-        kept.forEach { stroke ->
-            val points = stroke.take(65_535)
-            buffer.putShort(points.size.toShort())
-            points.forEach {
-                buffer.putShort((it.x * SCALE).roundToInt().coerceIn(0, 65_535).toShort())
-                buffer.putShort((it.y * SCALE).roundToInt().coerceIn(0, 65_535).toShort())
-                buffer.put((it.pressure * 255).roundToInt().coerceIn(0, 255).toByte())
-            }
-        }
-        return Base64.getEncoder().encodeToString(buffer.array())
-    }
-
-    fun decode(encoded: String): List<List<InkPoint>> {
-        if (encoded.isEmpty()) return emptyList()
-        return runCatching {
-            val buffer = ByteBuffer.wrap(Base64.getDecoder().decode(encoded))
-            if (buffer.get() != VERSION) return emptyList()
-            val strokes = ArrayList<List<InkPoint>>()
-            while (buffer.remaining() >= 2) {
-                val count = buffer.getShort().toInt() and 0xFFFF
-                if (buffer.remaining() < count * 5) break
-                strokes += List(count) {
-                    InkPoint(
-                        (buffer.getShort().toInt() and 0xFFFF) / SCALE,
-                        (buffer.getShort().toInt() and 0xFFFF) / SCALE,
-                        (buffer.get().toInt() and 0xFF) / 255f,
-                    )
-                }
-            }
-            strokes
-        }.getOrDefault(emptyList())
-    }
-
-    /** [stroke] without points closer than [minDistance] to the one kept before them (the last always stays). */
-    fun simplify(stroke: List<InkPoint>, minDistance: Float = 0.002f): List<InkPoint> {
-        if (stroke.size < 3) return stroke
-        val out = ArrayList<InkPoint>(stroke.size)
-        out += stroke.first()
-        for (i in 1 until stroke.size - 1) {
-            val p = stroke[i]
-            val q = out.last()
-            if (abs(p.x - q.x) + abs(p.y - q.y) >= minDistance) out += p
-        }
-        out += stroke.last()
-        return out
-    }
-}
-
 /** How tool tiles are saved in the layout's JSON; see [TileJson]. */
 internal object ToolJson {
     val TYPES = setOf("routine", "countdown", "coin", "dice", "notes")
@@ -320,7 +248,12 @@ internal object ToolJson {
         is TileContent.Dice -> obj.put("type", "dice").put("count", c.count).put("sides", c.sides).put("created", c.created)
         is TileContent.Notes -> obj.put("type", "notes").put("name", c.name).put("style", c.style.id)
             .put("items", JSONArray().apply { c.items.forEach { put(JSONObject().put("t", it.text).put("d", it.done)) } })
-            .put("text", c.text).put("ink", c.ink).put("created", c.created)
+            .put("text", c.text).put("created", c.created)
+            .apply {
+                if (c.inkId.isNotEmpty()) put("inkId", c.inkId)
+                if (c.penColor != 0) put("penColor", c.penColor)
+                if (c.penOnTile) put("penOnTile", true)
+            }
     }
 
     fun decode(obj: JSONObject): TileContent.Tool? = decodeRaw(obj)?.let(ToolLimits::clean)
@@ -344,13 +277,28 @@ internal object ToolJson {
                 (0 until list.length()).mapNotNull { list.optJSONObject(it) }.map { NoteItem(it.optString("t"), it.optBoolean("d")) }
             }.orEmpty(),
             text = obj.optString("text"),
-            ink = obj.optString("ink"),
+            inkId = inkIdOf(obj),
+            penColor = obj.optInt("penColor", 0),
+            penOnTile = obj.optBoolean("penOnTile"),
             created = obj.optLong("created"),
         )
         else -> null
     }
 
     val DICE_SIDES = listOf(6, 20)
+
+    /**
+     * The handwriting file a notes tile uses. Builds before ink had files of its own kept it in
+     * the tile as "ink"; such a drawing is handed to [InkLegacy] under a stable id and moves to
+     * its file the first time it is read.
+     */
+    private fun inkIdOf(obj: JSONObject): String {
+        obj.optString("inkId").takeIf { InkStore.isValidId(it) }?.let { return it }
+        val legacy = obj.optString("ink").takeIf { it.isNotEmpty() } ?: return ""
+        val id = "legacy-${obj.optLong("id")}-${obj.optLong("created")}"
+        InkLegacy.adopt(id, legacy)
+        return id
+    }
 
     private fun ints(array: JSONArray?) = (0 until (array?.length() ?: 0)).mapNotNull { (array?.opt(it) as? Number)?.toInt() }
 

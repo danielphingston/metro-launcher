@@ -17,7 +17,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import io.github.danielphingston.metro.data.IconCache
-import io.github.danielphingston.metro.data.InkCodec
+import io.github.danielphingston.metro.data.InkStroke
 import io.github.danielphingston.metro.data.InkPoint
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.NoteItem
@@ -36,12 +36,9 @@ import io.github.danielphingston.metro.ui.start.TileCustomiseSheet
 import io.github.danielphingston.metro.ui.start.ToolSettings
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroTheme
-import io.github.danielphingston.metro.ui.tiles.CoinTile
-import io.github.danielphingston.metro.ui.tiles.CountdownTile
-import io.github.danielphingston.metro.ui.tiles.DiceTile
+import io.github.danielphingston.metro.ui.tiles.LocalInkSource
 import io.github.danielphingston.metro.ui.tiles.LocalToolClock
-import io.github.danielphingston.metro.ui.tiles.NotesTile
-import io.github.danielphingston.metro.ui.tiles.RoutineTile
+import io.github.danielphingston.metro.ui.tiles.ToolFace
 import io.github.danielphingston.metro.ui.tiles.ToolMemory
 import io.github.danielphingston.metro.ui.tiles.rememberTileMetrics
 import org.junit.After
@@ -100,7 +97,7 @@ class ToolTilesScreenshotTest {
     private fun capture(name: String, items: List<Item>) {
         val icons = IconCache(RuntimeEnvironment.getApplication())
         rule.setContent {
-            CompositionLocalProvider(LocalToolClock provides { now }) {
+            CompositionLocalProvider(LocalToolClock provides { now }, LocalInkSource provides { inks[it].orEmpty() }) {
                 MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
                     Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
                         BoxWithConstraints(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 40.dp)) {
@@ -123,17 +120,7 @@ class ToolTilesScreenshotTest {
     }
 
     @Composable
-    private fun Face(tile: ResolvedTile, cell: androidx.compose.ui.unit.Dp, icons: IconCache) {
-        val m = rememberTileMetrics(cell)
-        when (tile.spec.content) {
-            is TileContent.Routine -> RoutineTile(tile, m, icons)
-            is TileContent.Countdown -> CountdownTile(tile, m)
-            is TileContent.Coin -> CoinTile(tile, m)
-            is TileContent.Dice -> DiceTile(tile, m)
-            is TileContent.Notes -> NotesTile(tile, m, open = false)
-            else -> Unit
-        }
-    }
+    private fun Face(tile: ResolvedTile, cell: androidx.compose.ui.unit.Dp, icons: IconCache) = ToolFace(tile, rememberTileMetrics(cell), icons, open = false)
 
     private fun routine(name: String, daily: Boolean, times: List<Int>, every: Int, marks: List<Long>) =
         TileContent.Routine(name, daily, times, every, marks)
@@ -196,7 +183,7 @@ class ToolTilesScreenshotTest {
         val allDone = groceries.copy(name = "packing", items = groceries.items.map { it.copy(done = true) })
         val note = TileContent.Notes("door", NoteStyle.NOTE, text = "gate code 4471#\nwifi: guest / tangerine22")
         val both = groceries.copy(name = "saturday", text = "bring the cooler bag; the shop closes at 9")
-        val ink = TileContent.Notes("scribble", NoteStyle.INK, ink = InkCodec.encode(scribble()))
+        val ink = TileContent.Notes("scribble", NoteStyle.INK, inkId = "scribble")
         capture(
             "tools_notes",
             listOf(
@@ -211,7 +198,16 @@ class ToolTilesScreenshotTest {
                 Item(0, 6, TileSize.MEDIUM, allDone),
                 Item(2, 6, TileSize.MEDIUM, TileContent.Notes("", NoteStyle.NOTE)),
                 Item(0, 8, TileSize.LARGE, both),
+                Item(0, 12, TileSize.WIDE, TileContent.Notes("colours", NoteStyle.INK, inkId = "colours", penOnTile = true)),
             ),
+        )
+    }
+
+    /** The drawings the tiles here show, by id: a white scribble and the same in colour. */
+    private val inks by lazy {
+        mapOf(
+            "scribble" to scribble().map { InkStroke(it) },
+            "colours" to scribble().mapIndexed { i, s -> InkStroke(s, if (i == 0) 0xFFE53935.toInt() else 0xFFFDD835.toInt()) },
         )
     }
 
@@ -227,6 +223,7 @@ class ToolTilesScreenshotTest {
 
     private fun panel(name: String, editing: Boolean, notes: TileContent.Notes) {
         rule.setContent {
+            CompositionLocalProvider(LocalInkSource provides { inks[it].orEmpty() }) {
             MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
                     Column(Modifier.padding(top = 40.dp).fillMaxWidth().background(Metro.colors.chrome.copy(alpha = 0.92f)).padding(horizontal = 8.dp)) {
@@ -236,6 +233,7 @@ class ToolTilesScreenshotTest {
                         )
                     }
                 }
+            }
             }
         }
         rule.waitForIdle()
@@ -267,7 +265,27 @@ class ToolTilesScreenshotTest {
     fun longListBandEditing() = panel("tools_notes_band_long_edit", editing = true, notes = fullList)
 
     @Test
-    fun handwritingBandEditing() = panel("tools_ink_band_edit", editing = true, notes = TileContent.Notes("scribble", NoteStyle.INK, ink = InkCodec.encode(scribble())))
+    fun handwritingBandEditing() = panel("tools_ink_band_edit", editing = true, notes = TileContent.Notes("scribble", NoteStyle.INK, inkId = "colours", penColor = 0xFFE53935.toInt()))
+
+    /** The handwriting tile's pen section: colours, and "write on the tile" greyed on a medium tile. */
+    @Test
+    fun inkSettings() {
+        val spec = TileSpec(1, TileSize.MEDIUM, TileContent.Notes("scribble", NoteStyle.INK, inkId = "scribble"), 0, 0)
+        rule.setContent {
+            MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
+                Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
+                    TileCustomiseSheet(
+                        spec = spec, options = TileOptions.available(spec), startTransparency = 0,
+                        onShowName = {}, onShowIcon = {}, onIconSource = {}, onPhoto = {}, onBackground = {},
+                        onColour = {}, onTransparency = {}, onWidgetSettings = null, onDismiss = {},
+                        tool = { ToolSettings(spec, onChange = {}, onData = {}, onChooseIcon = {}, onClearIcon = {}) },
+                    )
+                }
+            }
+        }
+        rule.waitForIdle()
+        rule.onRoot().captureRoboImage("src/test/screenshots/customise_handwriting.png", roborazziOptions = ScreenshotOptions)
+    }
 
     @Test
     fun metroTilesPanel() {

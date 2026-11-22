@@ -207,8 +207,9 @@ internal fun TileCustomiseSheet(
     }
 }
 
+/** A section heading in the customise sheet; tool tiles' own sections (ToolSettings) use it too. */
 @Composable
-private fun SheetSection(title: String) {
+internal fun SheetSection(title: String) {
     Spacer(Modifier.height(20.dp))
     MetroText(title, MetroType.sectionTitle, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp).semantics { heading() })
 }

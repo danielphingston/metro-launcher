@@ -3,6 +3,8 @@
 Android launcher (Kotlin, Jetpack Compose), package `io.github.danielphingston.metro`.
 Almost all state lives in one Preferences DataStore (`metroDataStore`, name "metro"): settings, the tiles
 JSON, weather, search keywords. Search history and purchases are SharedPreferences and are not backed up.
+Handwriting (the handwriting tile) is the exception: one compressed file per drawing in `files/ink`
+(`data/InkStore.kt`), named by the tile's `inkId`; backups carry those files in their "ink" section (format 2).
 
 ## Backups must keep importing
 

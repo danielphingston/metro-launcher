@@ -3,11 +3,8 @@ package io.github.danielphingston.metro.ui.start
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,8 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.NoteStyle
@@ -34,16 +29,13 @@ import io.github.danielphingston.metro.data.ToolLabels
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroText
-import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.search.SearchGlyphs
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.tileSurface
-import io.github.danielphingston.metro.ui.tiles.CoinTile
-import io.github.danielphingston.metro.ui.tiles.CountdownTile
-import io.github.danielphingston.metro.ui.tiles.DiceTile
-import io.github.danielphingston.metro.ui.tiles.NotesTile
-import io.github.danielphingston.metro.ui.tiles.RoutineTile
+import io.github.danielphingston.metro.ui.tiles.PickerRow
+import io.github.danielphingston.metro.ui.tiles.SectionTitle
+import io.github.danielphingston.metro.ui.tiles.ToolFace
 import io.github.danielphingston.metro.ui.tiles.rememberTileMetrics
 import java.time.LocalDate
 
@@ -55,7 +47,7 @@ internal data class ToolEntry(val title: String, val subtitle: String, val size:
 internal val ToolEntries = listOf(
     ToolEntry("routine", "tap when it's done, double-tap to undo: doses at set times each day, or something every few days", TileSize.MEDIUM) { Routines.new(it) },
     ToolEntry("notes", "a checklist and a few lines of text; opens right on start", TileSize.WIDE) { TileContent.Notes("", NoteStyle.NOTE, created = it) },
-    ToolEntry("handwriting", "write or draw with a pen or a finger", TileSize.MEDIUM) { TileContent.Notes("", NoteStyle.INK, created = it) },
+    ToolEntry("handwriting", "write or draw with a pen or a finger; a pen can write right on a wide or large tile", TileSize.MEDIUM) { TileContent.Notes("", NoteStyle.INK, inkId = io.github.danielphingston.metro.data.InkStore.newId(it), created = it) },
     ToolEntry("countdown", "days to a trip, a birthday or a deadline", TileSize.WIDE) {
         TileContent.Countdown("countdown", LocalDate.now().plusDays(7).toEpochDay(), created = it)
     },
@@ -102,17 +94,25 @@ internal fun MetroTilesPanel(
             contentPadding = PaddingValues(top = 20.dp, bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp),
         ) {
             item { MetroText("metro tiles", MetroType.pageTitle, modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) }
-            item { Section("live") }
+            item { SectionTitle("live") }
             items(live, key = { "live:" + it.label }) { entry ->
-                Row(entry.label, LiveSubtitles[entry.label].orEmpty(), { onAddLive(entry) }) {
-                    Box(Modifier.size(PreviewSize).tileSurface(), contentAlignment = Alignment.Center) {
-                        SearchGlyphs.byId(LiveGlyphs[entry.label] ?: "tiles")?.let { GlyphPicture(it, 40.dp, Metro.colors.onAccent) }
-                    }
-                }
+                PickerRow(
+                    onClickLabel = "add ${entry.label} tile", onClick = { onAddLive(entry) },
+                    preview = {
+                        Box(Modifier.size(PreviewSize).tileSurface(), contentAlignment = Alignment.Center) {
+                            SearchGlyphs.byId(LiveGlyphs[entry.label] ?: "tiles")?.let { GlyphPicture(it, 40.dp, Metro.colors.onAccent) }
+                        }
+                    },
+                    title = entry.label, subtitle = LiveSubtitles[entry.label].orEmpty(),
+                )
             }
-            item { Section("tools") }
+            item { SectionTitle("tools") }
             items(ToolEntries, key = { "tool:" + it.title }) { entry ->
-                Row(entry.title, entry.subtitle, { onAddTool(entry) }) { ToolPreview(entry, icons) }
+                PickerRow(
+                    onClickLabel = "add ${entry.title} tile", onClick = { onAddTool(entry) },
+                    preview = { ToolPreview(entry, icons) },
+                    title = entry.title, subtitle = entry.subtitle,
+                )
             }
         }
     }
@@ -124,42 +124,5 @@ private fun ToolPreview(entry: ToolEntry, icons: IconCache) {
     val content = remember(entry) { entry.make(0L) }
     val tile = ResolvedTile(TileSpec(-1, TileSize.SMALL, content), null, ToolLabels.label(content))
     val m = rememberTileMetrics(PreviewSize)
-    Box(Modifier.size(PreviewSize)) {
-        when (content) {
-            is TileContent.Routine -> RoutineTile(tile, m, icons)
-            is TileContent.Countdown -> CountdownTile(tile, m)
-            is TileContent.Coin -> CoinTile(tile, m)
-            is TileContent.Dice -> DiceTile(tile, m)
-            is TileContent.Notes -> NotesTile(tile, m, open = false)
-        }
-    }
-}
-
-@Composable
-private fun Section(text: String) {
-    MetroText(
-        text,
-        MetroType.caption,
-        color = Metro.colors.subtle,
-        modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 4.dp).semantics { heading() },
-    )
-}
-
-@Composable
-private fun Row(title: String, subtitle: String, onClick: () -> Unit, preview: @Composable () -> Unit) {
-    androidx.compose.foundation.layout.Row(
-        Modifier
-            .fillMaxWidth()
-            .metroTilt()
-            .clickable(onClickLabel = "add $title tile", onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        preview()
-        Column(Modifier.weight(1f)) {
-            MetroText(title, MetroType.listItem, maxLines = 1)
-            if (subtitle.isNotEmpty()) MetroText(subtitle, MetroType.caption, color = Metro.colors.subtle, maxLines = 3)
-        }
-    }
+    Box(Modifier.size(PreviewSize)) { ToolFace(tile, m, icons, open = false) }
 }

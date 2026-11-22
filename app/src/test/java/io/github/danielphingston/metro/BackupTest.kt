@@ -15,6 +15,10 @@ import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileJson
 import io.github.danielphingston.metro.data.LaunchStyle
+import io.github.danielphingston.metro.data.InkCodec
+import io.github.danielphingston.metro.data.InkPoint
+import io.github.danielphingston.metro.data.InkStroke
+import io.github.danielphingston.metro.data.NoteStyle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -80,6 +84,7 @@ class BackupTest {
         val files = fixtures()
         assertTrue("no fixtures found", files.isNotEmpty())
         assertTrue("format-1.json must exist", files.any { it.name == "format-1.json" })
+        assertTrue("a fixture of the current format must exist", files.any { it.name == "format-${Backup.FORMAT}.json" })
         val repository = SettingsRepository(RuntimeEnvironment.getApplication())
         for (file in files) {
             val prefs = try {
@@ -109,6 +114,26 @@ class BackupTest {
                 assertEquals("Pune", prefs[stringPreferencesKey("weather_name")])
                 assertEquals(18.5204, prefs[doublePreferencesKey("weather_latitude")]!!, 0.0)
                 assertEquals("kept", prefs[stringPreferencesKey("future_setting_from_newer_build")])
+            }
+            // format-2.json is an export from 0.9.0: tool tiles, and a handwriting tile whose drawing is in "ink".
+            if (file.name == "format-2.json") {
+                val contents = Backup.decodeContents(file.readText())
+                val tiles = TileJson.read(checkNotNull(prefs[stringPreferencesKey("tiles")]))!!.tiles
+                val ink = tiles.map { it.content }.filterIsInstance<TileContent.Notes>().single { it.style == NoteStyle.INK }
+                assertEquals("ink-1763700000000-42", ink.inkId)
+                assertEquals(0xFFE53935.toInt(), ink.penColor)
+                assertTrue(ink.penOnTile)
+                val drawing = InkCodec.decode(checkNotNull(contents.ink[ink.inkId]))
+                assertEquals(listOf(30, 20), drawing.map { it.points.size })
+                assertEquals(listOf(InkStroke.PLAIN, 0xFFE53935.toInt()), drawing.map { it.color })
+                val note = tiles.map { it.content }.filterIsInstance<TileContent.Notes>().single { it.style == NoteStyle.NOTE }
+                assertEquals("shop closes at 9", note.text)
+                assertEquals(2, note.items.size)
+                assertEquals(listOf(480, 1200), tiles.map { it.content }.filterIsInstance<TileContent.Routine>().single().times)
+                assertTrue(tiles.any { it.content == TileContent.Dice(2, 6, 1763700000003) })
+                // And its drawings survive a re-export too.
+                val again = Backup.decodeContents(Backup.encode(prefs, "x", 0, contents.ink))
+                assertTrue(contents.ink.keys == again.ink.keys && contents.ink.all { (id, bytes) -> again.ink[id]!!.contentEquals(bytes) })
             }
             // And a re-export of what was read must itself import to the same thing.
             assertEquals(prefs.asMap(), Backup.decode(Backup.encode(prefs, "x", 0)).asMap())
@@ -230,5 +255,22 @@ class BackupTest {
     fun formatOneNeedsNoMigration() {
         val root = org.json.JSONObject("""{"app":"metro-launcher","format":1,"prefs":{}}""")
         assertTrue(Backup.migrate(1, root) === root)
+    }
+
+    @Test
+    fun handwritingTravelsWithTheBackupAndDamagedInkStopsTheRestore() {
+        val drawing = InkCodec.encode(listOf(InkStroke(listOf(InkPoint(0.1f, 0.1f, 0.5f), InkPoint(0.3f, 0.3f, 0.5f)), 0xFF43A047.toInt())))
+        val json = Backup.encode(mutablePreferencesOf(stringPreferencesKey("tiles") to "[]"), "x", 0, mapOf("ink-1-1" to drawing))
+        assertEquals(Backup.FORMAT, org.json.JSONObject(json).getInt("format"))
+        assertTrue(Backup.decodeContents(json).ink.getValue("ink-1-1").contentEquals(drawing))
+        // A format 1 backup has no drawings and needs none.
+        assertTrue(Backup.decodeContents("""{"app":"metro-launcher","format":1,"prefs":{}}""").ink.isEmpty())
+        // Not a drawing, not Base64, or an id that could leave the ink folder: the restore stops before anything changes.
+        val bad = listOf(
+            """{"app":"metro-launcher","format":2,"prefs":{},"ink":{"ink-1":"bm90IGluaw=="}}""",
+            """{"app":"metro-launcher","format":2,"prefs":{},"ink":{"ink-1":"%%%"}}""",
+            """{"app":"metro-launcher","format":2,"prefs":{},"ink":{"../x":"${java.util.Base64.getEncoder().encodeToString(drawing)}"}}""",
+        )
+        bad.forEach { assertEquals("This backup is damaged: a drawing in it can't be read.", message { Backup.decodeContents(it) }) }
     }
 }

@@ -1,5 +1,7 @@
 package io.github.danielphingston.metro.ui.tiles
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.animation.core.Animatable
@@ -27,24 +29,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -58,8 +56,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import io.github.danielphingston.metro.data.Countdowns
 import io.github.danielphingston.metro.data.IconCache
-import io.github.danielphingston.metro.data.InkCodec
-import io.github.danielphingston.metro.data.InkPoint
 import io.github.danielphingston.metro.data.NoteStyle
 import io.github.danielphingston.metro.data.RoutineTap
 import io.github.danielphingston.metro.data.Routines
@@ -77,6 +73,7 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import io.github.danielphingston.metro.ui.theme.tileSurface
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.ZoneId
 import kotlin.math.PI
 import kotlin.math.abs
@@ -186,6 +183,18 @@ internal fun rememberToolNow(key: Any?, nextChange: (Long) -> Long): Long {
 
 /** The time tool tiles read; tests fix it so their faces are the same on every run. */
 internal val LocalToolClock = androidx.compose.runtime.staticCompositionLocalOf<() -> Long> { System::currentTimeMillis }
+
+/** A tool tile's face, by its kind: the one place that maps a tool to how it is drawn. */
+@Composable
+internal fun ToolFace(tile: ResolvedTile, m: TileMetrics, icons: IconCache, open: Boolean) {
+    when (tile.spec.content as? TileContent.Tool ?: return) {
+        is TileContent.Routine -> RoutineTile(tile, m, icons)
+        is TileContent.Countdown -> CountdownTile(tile, m)
+        is TileContent.Coin -> CoinTile(tile, m)
+        is TileContent.Dice -> DiceTile(tile, m)
+        is TileContent.Notes -> NotesTile(tile, m, open)
+    }
+}
 
 /** Whether tool animations play: off with the system's animations, like the launch animation. */
 @Composable
@@ -689,7 +698,7 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
             n.text.takeIf { it.isNotBlank() }?.take(200),
             if (n.items.isEmpty()) null else if (left == 0) "all ticked" else "$left of ${n.items.size} left",
         ).joinToString(", ").ifEmpty { "empty" }
-        NoteStyle.INK -> if (n.ink.isEmpty()) "empty" else "handwriting"
+        NoteStyle.INK -> "handwriting"
     }
     Box(Modifier.fillMaxSize().tileSurface().semantics { stateDescription = state }) {
         when (n.style) {
@@ -703,20 +712,7 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
                     NoteFace(n, tile.label, size, left, m)
                 }
             }
-            NoteStyle.INK -> {
-                val strokes = remember(n.ink) { InkCodec.decode(n.ink) }
-                if (strokes.isEmpty()) {
-                    ToolGlyph(ToolGlyphKind.PEN, if (size == TileSize.SMALL) m.dp(36f) else m.dp(44f), Modifier.align(Alignment.Center))
-                } else {
-                    // The whole drawing, fitted to the tile and clear of the name.
-                    val named = size != TileSize.SMALL && LocalTileDecor.current.showName
-                    InkPicture(
-                        strokes, ink,
-                        Modifier.fillMaxSize().padding(start = m.dp(6f), end = m.dp(6f), top = m.dp(6f), bottom = if (named) m.dp(24f) else m.dp(6f)),
-                        fit = true,
-                    )
-                }
-            }
+            NoteStyle.INK -> InkFace(tile.spec.id, n, size, m)
         }
         if (size != TileSize.SMALL && n.style == NoteStyle.INK) TileLabel(tile.label, m, Modifier.align(Alignment.BottomStart))
         if (open) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(m.dp(3f)).background(ink))
@@ -770,6 +766,44 @@ private fun NoteFace(n: TileContent.Notes, label: String, size: TileSize, left: 
     }
 }
 
+/**
+ * A handwriting tile: the whole drawing fitted to the tile, clear of its name. With "write on the
+ * tile" on (wide and large tiles), the page itself at the tile's width instead, which a pen writes
+ * on directly; every stroke is saved as the pen lifts. A finger still opens the tile.
+ */
+@Composable
+private fun BoxScope.InkFace(id: Long, n: TileContent.Notes, size: TileSize, m: TileMetrics) {
+    val ink = white()
+    val stored = rememberInk(n.inkId)
+    val writable = n.penOnTile && size.canWriteOnTile()
+    if (writable) {
+        val app = LocalContext.current.applicationContext as? io.github.danielphingston.metro.MetroApplication
+        // The strokes being written here; the store's copy replaces them whenever it changes.
+        val strokes = remember(stored) { androidx.compose.runtime.mutableStateListOf<io.github.danielphingston.metro.data.InkStroke>().apply { addAll(stored) } }
+        InkCanvas(
+            strokes, n.penColor, ink, erasing = false, penOnly = true,
+            onChange = {
+                val copy = strokes.toList()
+                app?.appScope?.launch(kotlinx.coroutines.Dispatchers.IO) { app.ink.write(n.inkId, copy) }
+            },
+        )
+        return
+    }
+    if (stored.isEmpty()) {
+        ToolGlyph(ToolGlyphKind.PEN, if (size == TileSize.SMALL) m.dp(36f) else m.dp(44f), Modifier.align(Alignment.Center))
+    } else {
+        val named = size != TileSize.SMALL && LocalTileDecor.current.showName
+        InkPicture(
+            stored, ink,
+            Modifier.fillMaxSize().padding(start = m.dp(6f), end = m.dp(6f), top = m.dp(6f), bottom = if (named) m.dp(24f) else m.dp(6f)),
+            fit = true,
+        )
+    }
+}
+
+/** Whether a tile of this size can be written on with a pen: wide and large only, the rest are too small to write on. */
+internal fun TileSize.canWriteOnTile() = this == TileSize.WIDE || this == TileSize.LARGE
+
 @Composable
 private fun NoteRow(text: String, done: Boolean, m: TileMetrics) {
     val ink = white()
@@ -781,65 +815,6 @@ private fun NoteRow(text: String, done: Boolean, m: TileMetrics) {
         }
         Spacer(Modifier.width(m.dp(7f)))
         MetroText(text, MetroType.style(m.text(13f)), color = if (done) ink.copy(alpha = 0.6f) else ink, maxLines = 1)
-    }
-}
-
-/**
- * Handwriting drawn to the width of the space it has, from its top. Built once per note into
- * the layer's cache, so scrolling start doesn't draw it again.
- */
-@Composable
-internal fun InkPicture(strokes: List<List<InkPoint>>, color: Color, modifier: Modifier = Modifier, fit: Boolean = false) {
-    Box(
-        modifier.clipToBounds().drawWithCache {
-            onDrawBehind { if (fit) drawInkFitted(strokes, color) else drawInk(strokes, color) }
-        },
-    )
-}
-
-/**
- * Draws [strokes] scaled to fit this scope and centred, keeping their shape: a tile shows the
- * whole drawing whatever its size. A small drawing (a word) is enlarged at most about three times.
- */
-internal fun DrawScope.drawInkFitted(strokes: List<List<InkPoint>>, color: Color) {
-    val points = strokes.flatten()
-    if (points.isEmpty()) return
-    val pad = 0.03f
-    val minX = points.minOf { it.x } - pad
-    val maxX = points.maxOf { it.x } + pad
-    val minY = points.minOf { it.y } - pad
-    val maxY = points.maxOf { it.y } + pad
-    val scale = minOf(size.width / (maxX - minX), size.height / (maxY - minY), size.width / 0.35f)
-    val ox = (size.width - (maxX - minX) * scale) / 2 - minX * scale
-    val oy = (size.height - (maxY - minY) * scale) / 2 - minY * scale
-    strokes.forEach { stroke ->
-        if (stroke.size == 1) {
-            val p = stroke[0]
-            drawCircle(color, scale * (0.0018f + 0.005f * p.pressure), Offset(ox + p.x * scale, oy + p.y * scale))
-            return@forEach
-        }
-        for (i in 1 until stroke.size) {
-            val a = stroke[i - 1]
-            val b = stroke[i]
-            drawLine(color, Offset(ox + a.x * scale, oy + a.y * scale), Offset(ox + b.x * scale, oy + b.y * scale), scale * (0.0035f + 0.01f * b.pressure), StrokeCap.Round)
-        }
-    }
-}
-
-/** Draws [strokes] scaled to this scope's width; line width follows pressure. */
-internal fun DrawScope.drawInk(strokes: List<List<InkPoint>>, color: Color) {
-    val w = size.width
-    strokes.forEach { stroke ->
-        if (stroke.size == 1) {
-            val p = stroke[0]
-            drawCircle(color, w * (0.0018f + 0.005f * p.pressure), Offset(p.x * w, p.y * w))
-            return@forEach
-        }
-        for (i in 1 until stroke.size) {
-            val a = stroke[i - 1]
-            val b = stroke[i]
-            drawLine(color, Offset(a.x * w, a.y * w), Offset(b.x * w, b.y * w), w * (0.0035f + 0.01f * b.pressure), StrokeCap.Round)
-        }
     }
 }
 

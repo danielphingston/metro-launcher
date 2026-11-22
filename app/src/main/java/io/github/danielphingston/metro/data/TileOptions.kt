@@ -174,7 +174,8 @@ object TileOptions {
             TileContent.Assistant, TileContent.Me, TileContent.Tracking, is TileContent.LayoutSwitch,
             -> options += TileOption.SHOW_NAME
             is TileContent.Feed -> options += setOf(TileOption.SHOW_NAME, TileOption.FEED_ADDRESS)
-            is TileContent.Coin, is TileContent.Notes -> options += TileOption.SHOW_NAME
+            is TileContent.Coin -> options += TileOption.SHOW_NAME
+            is TileContent.Notes -> options += if (spec.content.style == NoteStyle.INK) setOf(TileOption.SHOW_NAME, TileOption.TOOL) else setOf(TileOption.SHOW_NAME)
             is TileContent.Routine, is TileContent.Countdown, is TileContent.Dice -> options += setOf(TileOption.SHOW_NAME, TileOption.TOOL)
         }
         options += SURFACE

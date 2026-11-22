@@ -1,5 +1,7 @@
 package io.github.danielphingston.metro.ui.start
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.foundation.border
@@ -16,19 +18,17 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import io.github.danielphingston.metro.ui.tiles.PenColorRow
+import io.github.danielphingston.metro.ui.tiles.canWriteOnTile
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import io.github.danielphingston.metro.data.Countdowns
@@ -62,6 +62,7 @@ internal fun ToolSettings(
         is TileContent.Routine -> RoutineSettings(c, spec.icon, onChange, onData, onChooseIcon, onClearIcon)
         is TileContent.Countdown -> CountdownSettings(c, onChange)
         is TileContent.Dice -> DiceSettings(c, onChange)
+        is TileContent.Notes -> if (c.style == io.github.danielphingston.metro.data.NoteStyle.INK) InkSettings(c, spec.size, onChange)
         else -> Unit
     }
 }
@@ -78,7 +79,7 @@ private fun RoutineSettings(
     val context = LocalContext.current
     val is24 = android.text.format.DateFormat.is24HourFormat(context)
     val latest by rememberUpdatedState(r)
-    Section("routine")
+    SheetSection("routine")
     NameField(r.name, "name, such as vitamins") { name -> onChange(latest.copy(name = name)) }
     Spacer(Modifier.height(12.dp))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -116,7 +117,7 @@ private fun RoutineSettings(
         }
         Hint("The tile lights up in the accent colour when it's due and counts the days late after that.")
     }
-    Section("today")
+    SheetSection("today")
     val now = io.github.danielphingston.metro.ui.tiles.LocalToolClock.current()
     val zone = ZoneId.systemDefault()
     val done = Routines.doneToday(r, now, zone)
@@ -134,7 +135,7 @@ private fun RoutineSettings(
         MetroToggle("Done today", done > 0, { on -> onData { c -> (c as? TileContent.Routine)?.let { Routines.setToday(it, if (on) 1 else 0, now, zone) } ?: c } })
         MetroToggle("Done yesterday", Routines.doneYesterday(r, now, zone), { on -> onData { c -> (c as? TileContent.Routine)?.let { Routines.setYesterday(it, on, now, zone) } ?: c } })
     }
-    Section("picture")
+    SheetSection("picture")
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         MetroChoice("tick", icon == null, onClearIcon, Modifier.weight(1f))
         MetroChoice("emoji or icon…", icon != null, onChooseIcon, Modifier.weight(1f))
@@ -145,7 +146,7 @@ private fun RoutineSettings(
 private fun CountdownSettings(c: TileContent.Countdown, onChange: (TileContent.Tool) -> Unit) {
     val context = LocalContext.current
     val latest by rememberUpdatedState(c)
-    Section("countdown")
+    SheetSection("countdown")
     NameField(c.name, "name, such as holiday") { name -> onChange(latest.copy(name = name)) }
     MetroText("Date", MetroType.body, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
     MetroButton(Countdowns.dateLabel(c.epochDay) + " · change…", {
@@ -162,7 +163,7 @@ private fun CountdownSettings(c: TileContent.Countdown, onChange: (TileContent.T
 
 @Composable
 private fun DiceSettings(d: TileContent.Dice, onChange: (TileContent.Tool) -> Unit) {
-    Section("dice")
+    SheetSection("dice")
     MetroText("How many", MetroType.body, modifier = Modifier.padding(bottom = 8.dp))
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         (1..3).forEach { n -> MetroChoice("$n", d.count == n, { onChange(d.copy(count = n)) }, Modifier.weight(1f)) }
@@ -172,6 +173,29 @@ private fun DiceSettings(d: TileContent.Dice, onChange: (TileContent.Tool) -> Un
         ToolJson.DICE_SIDES.forEach { n -> MetroChoice("d$n", d.sides == n, { onChange(d.copy(sides = n)) }, Modifier.weight(1f)) }
     }
     Hint("A small tile shows the first die; medium shows them all, wide and large add the total.")
+}
+
+/**
+ * A handwriting tile's pen: its colour (the plain ink, or any colour with Metro Plus), and whether
+ * a pen writes right on the tile. Only wide and large tiles have room to write on; on smaller ones
+ * the switch is shown greyed with the reason, and a stored "on" waits until the tile is larger.
+ */
+@Composable
+private fun InkSettings(n: TileContent.Notes, size: io.github.danielphingston.metro.data.TileSize, onChange: (TileContent.Tool) -> Unit) {
+    SheetSection("pen")
+    MetroText("Colour", MetroType.body, modifier = Modifier.padding(bottom = 8.dp))
+    PenColorRow(n.penColor, Metro.colors.foreground) { onChange(n.copy(penColor = it)) }
+    Spacer(Modifier.height(12.dp))
+    val fits = size.canWriteOnTile()
+    MetroToggle(
+        "Write on the tile with a pen", n.penOnTile && fits, { onChange(n.copy(penOnTile = it)) },
+        description = when {
+            !fits -> "Make the tile wide or large to write on it"
+            n.penOnTile -> "A pen writes on the tile; a finger still opens it"
+            else -> "A pen opens the tile like a finger does"
+        },
+        enabled = fits,
+    )
 }
 
 /** A name typed in the sheet; saved once, when typing ends or the sheet closes, not per letter. */
@@ -210,12 +234,6 @@ private fun NameField(initial: String, placeholder: String, onCommit: (String) -
             }
         },
     )
-}
-
-@Composable
-private fun Section(title: String) {
-    Spacer(Modifier.height(20.dp))
-    MetroText(title, MetroType.sectionTitle, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp).semantics { heading() })
 }
 
 @Composable

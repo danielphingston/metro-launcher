@@ -150,12 +150,10 @@ import io.github.danielphingston.metro.ui.tiles.WidgetTiles
 import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTile
 import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles
 import io.github.danielphingston.metro.ui.tiles.widgetCustomActions
-import io.github.danielphingston.metro.ui.tiles.CoinTile
-import io.github.danielphingston.metro.ui.tiles.CountdownTile
-import io.github.danielphingston.metro.ui.tiles.DiceTile
-import io.github.danielphingston.metro.ui.tiles.NotesTile
-import io.github.danielphingston.metro.ui.tiles.RoutineTile
+import io.github.danielphingston.metro.ui.tiles.ToolFace
 import io.github.danielphingston.metro.ui.tiles.ToolTaps
+import io.github.danielphingston.metro.ui.tiles.canWriteOnTile
+import androidx.compose.ui.input.pointer.PointerType
 import io.github.danielphingston.metro.ui.tiles.rememberTileMetrics
 import io.github.danielphingston.metro.live.CalendarSource
 import io.github.danielphingston.metro.live.ClockSource
@@ -232,10 +230,15 @@ class StartState(val scroll: ScrollState) {
     private var noteDraftId: Long? = null
     internal var saveNote: (Long, TileContent.Notes) -> Unit = { _, _ -> }
 
+    /** A handwriting tile's strokes while it is edited, saved with [noteDraft]; null when they weren't touched. */
+    var inkDraft: List<io.github.danielphingston.metro.data.InkStroke>? = null
+    internal var saveInk: (String, List<io.github.danielphingston.metro.data.InkStroke>) -> Unit = { _, _ -> }
+
     fun startNoteEdit(id: Long, notes: TileContent.Notes) {
         endNoteEdit()
         noteDraftId = id
         noteDraft = notes
+        inkDraft = null
     }
 
     fun updateNoteDraft(notes: TileContent.Notes) {
@@ -245,13 +248,16 @@ class StartState(val scroll: ScrollState) {
     /** Writes the note being edited and keeps editing, e.g. when the launcher stops. */
     fun saveNoteDraft() {
         val id = noteDraftId ?: return
-        noteDraft?.let { saveNote(id, it) }
+        val draft = noteDraft ?: return
+        saveNote(id, draft)
+        inkDraft?.let { saveInk(draft.inkId, it) }
     }
 
     /** Stops editing without keeping the changes. */
     fun cancelNoteEdit() {
         noteDraftId = null
         noteDraft = null
+        inkDraft = null
     }
 
     /** Writes the note being edited, if any, and stops editing it. */
@@ -259,6 +265,7 @@ class StartState(val scroll: ScrollState) {
         saveNoteDraft()
         noteDraftId = null
         noteDraft = null
+        inkDraft = null
     }
 
     /** A tool tile just added: once it is on start its settings open (a routine's times), or a note opens to write in. */
@@ -521,6 +528,7 @@ fun StartScreen(
     val view = androidx.compose.ui.platform.LocalView.current
     // A note being edited is written when its band closes, on "done" and when the launcher stops.
     state.saveNote = { id, notes -> viewModel.updateTool(id) { it as? TileContent.Notes ?: return@updateTool it; notes } }
+    state.saveInk = { inkId, strokes -> viewModel.saveInk(inkId, strokes) }
     androidx.lifecycle.compose.LifecycleEventEffect(Lifecycle.Event.ON_STOP) { state.saveNoteDraft() }
     val haptics = LocalHapticFeedback.current
     val currentDoubleTap by rememberUpdatedState(onDoubleTap)
@@ -872,6 +880,7 @@ fun StartScreen(
                             },
                             onEdit = { state.startNoteEdit(noteId, openNotes) },
                             onDraft = state::updateNoteDraft,
+                            onInk = { state.inkDraft = it },
                             onDone = state::endNoteEdit,
                             onCancel = state::cancelNoteEdit,
                             modifier = Modifier
@@ -1271,6 +1280,10 @@ internal fun TileHost(
     val currentOnLongPress by rememberUpdatedState(onLongPress)
     val currentOnDoubleTap by rememberUpdatedState(onDoubleTap)
     val hasDoubleTap = onDoubleTap != null
+    // A handwriting tile a pen writes on: the pen draws, so it neither tilts the tile nor picks it up.
+    val penWritable = (tile.spec.content as? TileContent.Notes)
+        ?.let { it.style == io.github.danielphingston.metro.data.NoteStyle.INK && it.penOnTile && tile.spec.size.canWriteOnTile() } == true
+    val currentPenWritable by rememberUpdatedState(penWritable)
     val currentFolder by rememberUpdatedState(folder)
     val currentCellPx by rememberUpdatedState(cellPx)
     val folderOpen = state.openFolderId == id
@@ -1350,6 +1363,7 @@ internal fun TileHost(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     // Tiles are picked, not moved, while grouping.
                     if (state.grouping) return@awaitEachGesture
+                    if (currentPenWritable && !state.editing && (down.type == PointerType.Stylus || down.type == PointerType.Eraser)) return@awaitEachGesture
                     val immediate = state.editing && state.selectedId == id
                     val start = if (immediate) {
                         awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
@@ -1412,7 +1426,7 @@ internal fun TileHost(
                 )
             }
             // Constant for a tile, so edit mode (which turns the tilt off) never reshapes the modifier chain mid-gesture.
-            .then(if (isWidget) Modifier else Modifier.metroTilt(enabled = !state.editing)),
+            .then(if (isWidget) Modifier else Modifier.metroTilt(enabled = !state.editing && !penWritable)),
     ) {
         TileColourScope(tile, icons) {
             TileBody(
@@ -1582,16 +1596,7 @@ private fun TileBody(
             FeedTile(tile, tile.spec.content.urls, cell, flipped, unlocked)
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTile(tile, cell)
-        is TileContent.Tool -> {
-            val m = rememberTileMetrics(cell)
-            when (tile.spec.content) {
-                is TileContent.Routine -> RoutineTile(tile, m, icons)
-                is TileContent.Countdown -> CountdownTile(tile, m)
-                is TileContent.Coin -> CoinTile(tile, m)
-                is TileContent.Dice -> DiceTile(tile, m)
-                is TileContent.Notes -> NotesTile(tile, m, folderOpen)
-            }
-        }
+        is TileContent.Tool -> ToolFace(tile, rememberTileMetrics(cell), icons, folderOpen)
     }
 }
 

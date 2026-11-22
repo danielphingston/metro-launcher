@@ -136,15 +136,20 @@ sealed interface TileContent {
 
     /**
      * A note that opens in place on start, like a folder. [NoteStyle.NOTE] holds a few lines of
-     * [text] and a checklist of [items] together; [NoteStyle.INK] is handwriting, [ink] being
-     * [InkCodec]'s encoding. A tile is one or the other for good.
+     * [text] and a checklist of [items] together; [NoteStyle.INK] is handwriting, kept in its own
+     * file ([inkId], see [InkStore]) rather than in the layout. A tile is one or the other for good.
      */
     data class Notes(
         val name: String,
         val style: NoteStyle,
         val items: List<NoteItem> = emptyList(),
         val text: String = "",
-        val ink: String = "",
+        /** The handwriting's file in [InkStore]; empty for a [NoteStyle.NOTE]. */
+        val inkId: String = "",
+        /** The colour a pen writes in (ARGB); 0 is the plain ink, white on the tile. Colours are Metro Plus. */
+        val penColor: Int = 0,
+        /** A pen writes on the tile itself (wide and large tiles only); a finger still opens it. */
+        val penOnTile: Boolean = false,
         val created: Long = 0,
     ) : Tool
 }

@@ -210,8 +210,9 @@ internal fun MetroPlusPanel(
     }
 }
 
+/** A section heading in a tile picker panel (Metro Plus, metro tiles). */
 @Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     MetroText(
         text,
         MetroType.caption,
@@ -220,8 +221,9 @@ private fun SectionTitle(text: String) {
     )
 }
 
+/** One tile a picker panel offers: its preview, title and what it does. */
 @Composable
-private fun PickerRow(
+internal fun PickerRow(
     onClickLabel: String,
     onClick: () -> Unit,
     preview: @Composable () -> Unit,

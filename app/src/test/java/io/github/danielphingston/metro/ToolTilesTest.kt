@@ -3,6 +3,8 @@ package io.github.danielphingston.metro
 import io.github.danielphingston.metro.data.Countdowns
 import io.github.danielphingston.metro.data.InkCodec
 import io.github.danielphingston.metro.data.InkPoint
+import io.github.danielphingston.metro.data.InkStore
+import io.github.danielphingston.metro.data.InkStroke
 import io.github.danielphingston.metro.data.NoteItem
 import io.github.danielphingston.metro.data.NoteStyle
 import io.github.danielphingston.metro.data.RoutineTap
@@ -147,29 +149,89 @@ class ToolTilesTest {
     }
 
     @Test
-    fun handwritingRoundTripsAndDamagedInkIsEmpty() {
+    fun handwritingRoundTripsWithColoursAndCompresses() {
         val strokes = listOf(
-            listOf(InkPoint(0.1f, 0.2f, 0.5f), InkPoint(0.4f, 0.25f, 1f), InkPoint(0.9f, 0.3f, 0f)),
-            listOf(InkPoint(0.5f, 0.5f, 0.3f)),
+            InkStroke(listOf(InkPoint(0.1f, 0.2f, 0.5f), InkPoint(0.4f, 0.25f, 1f), InkPoint(0.9f, 0.3f, 0f))),
+            InkStroke(listOf(InkPoint(0.5f, 0.5f, 0.3f)), color = 0xFFE53935.toInt()),
         )
         val back = InkCodec.decode(InkCodec.encode(strokes))
-        assertEquals(2, back.size)
-        back.flatten().zip(strokes.flatten()).forEach { (a, b) ->
+        assertEquals(listOf(InkStroke.PLAIN, 0xFFE53935.toInt()), back.map { it.color })
+        back.flatMap { it.points }.zip(strokes.flatMap { it.points }).forEach { (a, b) ->
             assertEquals(b.x, a.x, 0.001f)
             assertEquals(b.y, a.y, 0.001f)
             assertEquals(b.pressure, a.pressure, 0.01f)
         }
-        assertEquals(emptyList<List<InkPoint>>(), InkCodec.decode("not ink"))
-        assertEquals("", InkCodec.encode(emptyList()))
+        // Damaged bytes, truncated bytes and nothing at all read as no drawing.
+        assertEquals(emptyList<InkStroke>(), InkCodec.decode("not ink".toByteArray()))
+        assertEquals(emptyList<InkStroke>(), InkCodec.decode(InkCodec.encode(strokes).copyOf(5)))
+        assertEquals(0, InkCodec.encode(emptyList()).size)
+        assertTrue(InkCodec.isReadable(InkCodec.encode(strokes)))
+        assertFalse(InkCodec.isReadable("not ink".toByteArray()))
+        // A page of handwriting, all points: what it costs, compressed, with a colour per stroke.
+        val page = List(120) { s -> InkStroke(List(100) { i -> InkPoint(0.05f + i * 0.009f, 0.05f + s * 0.0075f + (i % 7) * 0.002f, 0.4f + (i % 5) * 0.1f) }, color = s * 77_777) }
+        val bytes = InkCodec.encode(page)
+        assertEquals(InkCodec.MAX_POINTS, InkCodec.decode(bytes).sumOf { it.points.size })
+        val raw = 1 + page.sumOf { 6 + it.points.size * 5 }
+        assertTrue("compressed ${bytes.size} of $raw", bytes.size < raw * 0.75)
+        assertTrue("a full drawing stays under 40 KB, is ${bytes.size}", bytes.size < 40 * 1024)
         // Points closer than the threshold go (one in about 20 stays here); the ends stay.
         val dense = List(100) { InkPoint(it * 0.0001f, 0f, 0.5f) }
         val thin = InkCodec.simplify(dense)
         assertTrue(thin.size in 3..8)
         assertEquals(dense.first(), thin.first())
         assertEquals(dense.last(), thin.last())
-        // A note keeps at most MAX_POINTS.
-        val huge = List(5) { List(4_000) { i -> InkPoint(i / 4000f, 0.1f, 0.5f) } }
-        assertTrue(InkCodec.decode(InkCodec.encode(huge)).sumOf { it.size } <= InkCodec.MAX_POINTS)
+        // More than MAX_POINTS: whole strokes past the limit are dropped.
+        val huge = List(5) { InkStroke(List(4_000) { i -> InkPoint(i / 4000f, 0.1f, 0.5f) }) }
+        assertTrue(InkCodec.decode(InkCodec.encode(huge)).sumOf { it.points.size } <= InkCodec.MAX_POINTS)
+    }
+
+    @Test
+    fun drawingsLiveInTheirOwnFilesAndUnusedOnesGo() {
+        val dir = java.nio.file.Files.createTempDirectory("ink").toFile()
+        val store = InkStore(dir)
+        val one = listOf(InkStroke(listOf(InkPoint(0.1f, 0.1f, 0.5f), InkPoint(0.2f, 0.2f, 0.5f)), color = 0xFF1E88E5.toInt()))
+        store.write("ink-1", one)
+        store.write("ink-2", one)
+        assertEquals(one.map { it.color }, InkStore(dir).read("ink-1").map { it.color })
+        // Ids that could reach outside the folder are refused.
+        store.write("../evil", one)
+        assertFalse(java.io.File(dir.parentFile, "evil").exists())
+        assertEquals(emptyList<InkStroke>(), store.read("../evil"))
+        // Only drawings nothing names go; a drawing written moments ago is kept regardless.
+        assertEquals(1, store.deleteAllBut(setOf("ink-1"), keepSince = Long.MAX_VALUE))
+        assertTrue(java.io.File(dir, "ink-1").exists())
+        store.write("ink-3", one)
+        assertEquals(0, store.deleteAllBut(emptySet(), keepSince = 0L))
+        assertTrue(java.io.File(dir, "ink-3").exists())
+        // Erasing everything removes the file.
+        store.write("ink-1", emptyList())
+        assertFalse(java.io.File(dir, "ink-1").exists())
+        assertEquals(setOf("a-1", "b_2"), InkStore.referencedIn(listOf("""[{"inkId":"a-1"},{"x":1,"inkId" : "b_2"}]""", """{"inkId":"../no"}""")))
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun inkKeptInsideAnOldLayoutMovesToAFileOnce() {
+        val dir = java.nio.file.Files.createTempDirectory("ink").toFile()
+        val store = InkStore(dir)
+        // An earlier preview build kept version-1 ink inside the tile, as Base64.
+        val v1 = java.nio.ByteBuffer.allocate(1 + 2 + 2 * 5).apply {
+            put(1.toByte())
+            putShort(2.toShort())
+            putShort(400.toShort()); putShort(400.toShort()); put(100.toByte())
+            putShort(800.toShort()); putShort(800.toShort()); put(200.toByte())
+        }.array()
+        val old = """[{"id":7,"size":"MEDIUM","type":"notes","name":"","style":"ink","ink":"${java.util.Base64.getEncoder().encodeToString(v1)}","created":5}]"""
+        val notes = TileJson.decode(JSONArray(old)).single().content as TileContent.Notes
+        assertEquals("legacy-7-5", notes.inkId)
+        assertEquals(1, store.read(notes.inkId).size)
+        assertTrue(java.io.File(dir, notes.inkId).exists())
+        // Written over since: the old copy in the layout, read again at the next start, never wins.
+        store.write(notes.inkId, emptyList())
+        store.write(notes.inkId, List(3) { InkStroke(listOf(InkPoint(0.5f, 0.5f, 0.5f))) })
+        TileJson.decode(JSONArray(old))
+        assertEquals(3, InkStore(dir).read(notes.inkId).size)
+        dir.deleteRecursively()
     }
 
     @Test
@@ -180,7 +242,8 @@ class ToolTilesTest {
             TileSpec(3, TileSize.SMALL, TileContent.Coin(7), 2, 0),
             TileSpec(4, TileSize.MEDIUM, TileContent.Dice(3, 20, 8), 0, 4),
             TileSpec(5, TileSize.WIDE, TileContent.Notes("groceries", NoteStyle.NOTE, listOf(NoteItem("milk"), NoteItem("eggs", true)), "x", "", 9), 0, 6),
-            TileSpec(6, TileSize.MEDIUM, TileContent.Notes("", NoteStyle.INK, ink = InkCodec.encode(listOf(listOf(InkPoint(0.5f, 0.5f, 0.5f)))), created = 10), 0, 8),
+            TileSpec(6, TileSize.WIDE, TileContent.Notes("", NoteStyle.INK, inkId = "ink-10-1", penColor = 0xFFE53935.toInt(), penOnTile = true, created = 10), 0, 8),
+            TileSpec(7, TileSize.MEDIUM, TileContent.Notes("", NoteStyle.INK, inkId = "ink-11-1", created = 11), 0, 10),
         )
         assertEquals(tiles, TileJson.decode(JSONArray(TileJson.encode(tiles).toString())))
         // Out-of-range values from a damaged file are brought back into range.

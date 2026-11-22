@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import io.github.danielphingston.metro.data.IconCache
-import io.github.danielphingston.metro.data.InkCodec
+import io.github.danielphingston.metro.data.InkStroke
 import io.github.danielphingston.metro.data.InkPoint
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.NoteItem
@@ -31,12 +31,9 @@ import io.github.danielphingston.metro.data.ToolLabels
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroTheme
-import io.github.danielphingston.metro.ui.tiles.CoinTile
-import io.github.danielphingston.metro.ui.tiles.CountdownTile
-import io.github.danielphingston.metro.ui.tiles.DiceTile
+import io.github.danielphingston.metro.ui.tiles.LocalInkSource
 import io.github.danielphingston.metro.ui.tiles.LocalToolClock
-import io.github.danielphingston.metro.ui.tiles.NotesTile
-import io.github.danielphingston.metro.ui.tiles.RoutineTile
+import io.github.danielphingston.metro.ui.tiles.ToolFace
 import io.github.danielphingston.metro.ui.tiles.ToolMemory
 import io.github.danielphingston.metro.ui.tiles.rememberTileMetrics
 import org.junit.After
@@ -86,12 +83,12 @@ class ToolTilesReviewTest {
     private val now get() = at(21, 14)
 
     /** [content] small, medium, wide and large, laid out as on start. */
-    private fun sizes(name: String, content: TileContent.Tool, icon: String? = null, fontScale: Float = 1f) {
+    private fun sizes(name: String, content: TileContent.Tool, icon: String? = null, fontScale: Float = 1f, ink: Map<String, List<InkStroke>> = emptyMap()) {
         val icons = IconCache(RuntimeEnvironment.getApplication())
         val items = listOf(TileSize.SMALL to (0 to 0), TileSize.MEDIUM to (1 to 0), TileSize.WIDE to (0 to 2), TileSize.LARGE to (0 to 4))
         rule.setContent {
             val density = LocalDensity.current
-            CompositionLocalProvider(LocalToolClock provides { now }, LocalDensity provides Density(density.density, fontScale)) {
+            CompositionLocalProvider(LocalToolClock provides { now }, LocalDensity provides Density(density.density, fontScale), LocalInkSource provides { ink[it].orEmpty() }) {
                 MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
                     Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
                         BoxWithConstraints(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 24.dp)) {
@@ -114,17 +111,7 @@ class ToolTilesReviewTest {
     }
 
     @Composable
-    private fun Face(tile: ResolvedTile, cell: Dp, icons: IconCache) {
-        val m = rememberTileMetrics(cell)
-        when (tile.spec.content) {
-            is TileContent.Routine -> RoutineTile(tile, m, icons)
-            is TileContent.Countdown -> CountdownTile(tile, m)
-            is TileContent.Coin -> CoinTile(tile, m)
-            is TileContent.Dice -> DiceTile(tile, m)
-            is TileContent.Notes -> NotesTile(tile, m, open = false)
-            else -> Unit
-        }
-    }
+    private fun Face(tile: ResolvedTile, cell: androidx.compose.ui.unit.Dp, icons: IconCache) = ToolFace(tile, rememberTileMetrics(cell), icons, open = false)
 
     private val sixDoses = TileContent.Routine(
         "evening blood pressure medicine", daily = true,
@@ -204,9 +191,16 @@ class ToolTilesReviewTest {
         ),
     )
 
+    /** Written on with a pen: the page at the tile's width (a wide tile shows its top half), no fitting. */
+    @Test
+    fun inkOnTile() {
+        val lines = List(6) { row -> List(40) { i -> InkPoint(0.05f + i * 0.022f, 0.1f + row * 0.16f + (i % 5) * 0.01f, 0.6f) } }
+        sizes("notes_ink_pen", TileContent.Notes("sketch", NoteStyle.INK, inkId = "sketch", penOnTile = true), ink = mapOf("sketch" to lines.mapIndexed { i, l -> InkStroke(l, if (i % 2 == 0) 0 else 0xFFFDD835.toInt()) }))
+    }
+
     @Test
     fun ink() {
         val lines = List(6) { row -> List(40) { i -> InkPoint(0.05f + i * 0.022f, 0.1f + row * 0.16f + (i % 5) * 0.01f, 0.6f) } }
-        sizes("notes_ink", TileContent.Notes("sketch", NoteStyle.INK, ink = InkCodec.encode(lines)))
+        sizes("notes_ink", TileContent.Notes("sketch", NoteStyle.INK, inkId = "sketch"), ink = mapOf("sketch" to lines.map { InkStroke(it) }))
     }
 }

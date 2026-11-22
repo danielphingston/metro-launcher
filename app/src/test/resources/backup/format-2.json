@@ -1,0 +1,23 @@
+{
+  "app": "metro-launcher",
+  "format": 2,
+  "appVersion": "0.9.0",
+  "exportedAt": 1763800000000,
+  "prefs": {
+    "columns": {
+      "type": "int",
+      "value": 4
+    },
+    "theme": {
+      "type": "string",
+      "value": "DARK"
+    },
+    "tiles": {
+      "type": "string",
+      "value": "[{\"id\":1,\"size\":\"MEDIUM\",\"x\":0,\"y\":0,\"type\":\"app\",\"app\":\"com.example.mail\\\/com.example.mail.Main#0\"},{\"id\":2,\"size\":\"WIDE\",\"x\":0,\"y\":2,\"type\":\"notes\",\"name\":\"sketches\",\"style\":\"ink\",\"items\":[],\"text\":\"\",\"created\":1763700000000,\"inkId\":\"ink-1763700000000-42\",\"penColor\":-1754827,\"penOnTile\":true},{\"id\":3,\"size\":\"WIDE\",\"x\":0,\"y\":4,\"type\":\"notes\",\"name\":\"groceries\",\"style\":\"note\",\"items\":[{\"t\":\"milk\",\"d\":false},{\"t\":\"eggs\",\"d\":true}],\"text\":\"shop closes at 9\",\"created\":1763700000001},{\"id\":4,\"size\":\"MEDIUM\",\"x\":0,\"y\":6,\"type\":\"routine\",\"name\":\"vitamins\",\"daily\":true,\"times\":[480,1200],\"everyDays\":7,\"marks\":[1763710000000],\"created\":1763700000002},{\"id\":5,\"size\":\"SMALL\",\"x\":2,\"y\":6,\"type\":\"dice\",\"count\":2,\"sides\":6,\"created\":1763700000003}]"
+    }
+  },
+  "ink": {
+    "ink-1763700000000-42": "eNpjkmMAggVsB3gamBYwBjAg8HtGBvoJiPx\/aml6gGeB\/AzmBYxA91AJAwCVIzJB"
+  }
+}

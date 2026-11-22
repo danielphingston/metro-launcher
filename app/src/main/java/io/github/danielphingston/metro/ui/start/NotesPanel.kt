@@ -1,11 +1,11 @@
 package io.github.danielphingston.metro.ui.start
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,16 +26,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -44,13 +41,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.PointerType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.isPrimaryPressed
-import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -65,8 +55,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import io.github.danielphingston.metro.data.InkCodec
-import io.github.danielphingston.metro.data.InkPoint
+import io.github.danielphingston.metro.data.InkStroke
 import io.github.danielphingston.metro.data.NoteItem
 import io.github.danielphingston.metro.data.NoteStyle
 import io.github.danielphingston.metro.data.TileContent
@@ -74,12 +63,14 @@ import io.github.danielphingston.metro.data.ToolLimits
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.tiles.InkCanvas
 import io.github.danielphingston.metro.ui.tiles.InkPicture
-import io.github.danielphingston.metro.ui.tiles.drawInk
+import io.github.danielphingston.metro.ui.tiles.PenColorRow
+import io.github.danielphingston.metro.ui.tiles.rememberInk
+import io.github.danielphingston.metro.ui.components.metroTilt
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlin.math.ceil
-import kotlin.math.hypot
 import kotlinx.coroutines.flow.first
 
 /**
@@ -99,6 +90,8 @@ internal fun NotesPanel(
     onDone: () -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The handwriting as edited, for the draft; see [StartState.inkDraft]. */
+    onInk: (List<InkStroke>) -> Unit = {},
 ) {
     val editing = draft != null
     val shown = draft ?: notes
@@ -113,17 +106,18 @@ internal fun NotesPanel(
             } else {
                 MetroText(label, MetroType.sectionTitle, maxLines = 1, modifier = Modifier.weight(1f))
             }
-            Spacer(Modifier.width(12.dp))
-            // Cancel puts the note back as it was before "edit"; done keeps the changes.
+            Spacer(Modifier.width(8.dp))
+            // Plain icons, no boxes: edit; while editing, cancel (puts the note back as it was) and done.
             if (editing) {
-                MetroButton("cancel", onCancel)
-                Spacer(Modifier.width(8.dp))
+                HeaderIcon("cancel", onCancel) { color, stroke -> drawCross(color, stroke) }
+                HeaderIcon("done", onDone) { color, stroke -> drawTick(color, stroke) }
+            } else {
+                HeaderIcon("edit", onEdit) { color, stroke -> drawPencil(color, stroke) }
             }
-            MetroButton(if (editing) "done" else "edit", if (editing) onDone else onEdit)
         }
         when (shown.style) {
             NoteStyle.NOTE -> if (editing) NoteEdit(shown, onDraft) else NoteView(shown, onTick)
-            NoteStyle.INK -> InkBody(shown, editing, onDraft)
+            NoteStyle.INK -> InkBody(shown, editing, onDraft, onInk)
         }
     }
 }
@@ -253,12 +247,23 @@ private fun CheckBox(done: Boolean) {
 
 private enum class InkTool { PEN, ERASER }
 
+/**
+ * The open handwriting tile: the page, and while editing the pen, eraser, clear and the pen's
+ * colour. The strokes come from the drawing's file; while editing they are the draft ([onInk]),
+ * written on "done" with the rest of the note.
+ */
 @Composable
-private fun InkBody(notes: TileContent.Notes, editing: Boolean, onDraft: (TileContent.Notes) -> Unit) {
-    // While editing, the strokes here are the truth and the draft follows them, so they are decoded
-    // once per edit; otherwise they follow the saved note (which arrives just after "done").
-    val strokes = remember(editing, if (editing) null else notes.ink) { mutableStateListOf<List<InkPoint>>().apply { addAll(InkCodec.decode(notes.ink)) } }
+private fun InkBody(notes: TileContent.Notes, editing: Boolean, onDraft: (TileContent.Notes) -> Unit, onInk: (List<InkStroke>) -> Unit) {
+    val stored = rememberInk(notes.inkId)
+    // While editing, the strokes here are the truth and the draft follows them; otherwise they follow the file.
+    val strokes = remember(editing, if (editing) null else stored) { mutableStateListOf<InkStroke>().apply { addAll(stored) } }
+    // The file may still be loading when editing starts: take it once it arrives, unless writing has begun.
+    var touched by remember(editing) { mutableStateOf(false) }
+    LaunchedEffect(stored, editing) {
+        if (editing && !touched && strokes.isEmpty() && stored.isNotEmpty()) strokes.addAll(stored)
+    }
     var tool by remember { mutableStateOf(InkTool.PEN) }
+    val plain = Metro.colors.foreground
     if (editing) {
         Row(Modifier.fillMaxWidth().height(InkToolsHeight), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             MetroChoice("pen", tool == InkTool.PEN, { tool = InkTool.PEN }, Modifier.weight(1f))
@@ -274,10 +279,17 @@ private fun InkBody(notes: TileContent.Notes, editing: Boolean, onDraft: (TileCo
             MetroChoice(if (confirming) "clear all?" else "clear", confirming, {
                 if (confirming) {
                     strokes.clear()
-                    onDraft(notes.copy(ink = ""))
+                    touched = true
+                    onInk(emptyList())
                 }
                 confirming = !confirming
             }, Modifier.weight(1f))
+        }
+        Box(Modifier.padding(vertical = 6.dp)) {
+            PenColorRow(notes.penColor, plain) {
+                tool = InkTool.PEN
+                onDraft(notes.copy(penColor = it))
+            }
         }
     }
     // Square on a phone; on a wide screen no taller than InkMax, so the band stays in view.
@@ -288,14 +300,49 @@ private fun InkBody(notes: TileContent.Notes, editing: Boolean, onDraft: (TileCo
                 .border(1.dp, Metro.colors.subtle.copy(alpha = 0.4f)),
         ) {
             if (editing) {
-                InkCanvas(strokes, tool == InkTool.ERASER) { onDraft(notes.copy(ink = InkCodec.encode(strokes))) }
+                InkCanvas(
+                    strokes, notes.penColor, plain, erasing = tool == InkTool.ERASER, penOnly = false,
+                    onChange = {
+                        touched = true
+                        onInk(strokes.toList())
+                    },
+                    modifier = Modifier.semantics { contentDescription = "handwriting page" },
+                )
             } else if (strokes.isEmpty()) {
-                MetroText("tap edit to write", MetroType.body, color = Metro.colors.subtle, modifier = Modifier.align(Alignment.Center))
+                MetroText("tap the pencil to write", MetroType.body, color = Metro.colors.subtle, modifier = Modifier.align(Alignment.Center))
             } else {
-                InkPicture(strokes, Metro.colors.foreground, Modifier.fillMaxSize())
+                InkPicture(strokes, plain, Modifier.fillMaxSize())
             }
         }
     }
+}
+
+/** A plain icon in the band's header: no box, a full-size touch target, its [label] for TalkBack. */
+@Composable
+private fun HeaderIcon(label: String, onClick: () -> Unit, glyph: androidx.compose.ui.graphics.drawscope.DrawScope.(Color, Float) -> Unit) {
+    val color = Metro.colors.foreground
+    Box(
+        Modifier
+            .size(48.dp)
+            .metroTilt()
+            .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(26.dp)) { glyph(color, 2.dp.toPx()) }
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCross(color: Color, stroke: Float) {
+    val i = size.minDimension * 0.22f
+    drawLine(color, Offset(i, i), Offset(size.width - i, size.height - i), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+    drawLine(color, Offset(size.width - i, i), Offset(i, size.height - i), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTick(color: Color, stroke: Float) {
+    val s = size.minDimension
+    drawLine(color, Offset(s * 0.14f, s * 0.52f), Offset(s * 0.4f, s * 0.78f), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
+    drawLine(color, Offset(s * 0.4f, s * 0.78f), Offset(s * 0.88f, s * 0.24f), stroke, androidx.compose.ui.graphics.StrokeCap.Round)
 }
 
 /** "1,950 of 2,000 characters" once a field is nearly full, so it doesn't stop typing unexplained. */
@@ -303,88 +350,6 @@ private fun InkBody(notes: TileContent.Notes, editing: Boolean, onDraft: (TileCo
 private fun LimitNote(used: Int, max: Int, what: String) {
     if (used < max * 9 / 10) return
     MetroText("$used of $max $what", MetroType.caption, color = if (used >= max) Metro.colors.accent else Metro.colors.subtle)
-}
-
-/**
- * A page to write on. A pen draws with its pressure, and its button (or its eraser end) erases;
- * a finger draws too until a pen has touched the page, after which fingers (a resting palm) are
- * ignored. While a pen hovers, a dot shows where it will land. Only the stroke being drawn is
- * redrawn as the pen moves; the finished strokes sit in their own layer.
- */
-@Composable
-private fun InkCanvas(strokes: MutableList<List<InkPoint>>, erasing: Boolean, onChange: () -> Unit) {
-    val ink = Metro.colors.foreground
-    val active = remember { mutableStateListOf<InkPoint>() }
-    var hover by remember { mutableStateOf<Offset?>(null) }
-    var penSeen by remember { mutableStateOf(false) }
-    val erasingNow by androidx.compose.runtime.rememberUpdatedState(erasing)
-    Box(
-        Modifier.fillMaxSize().clipToBounds()
-            .semantics { contentDescription = "handwriting page" }
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull() ?: continue
-                        hover = when {
-                            event.type == PointerEventType.Exit || change.pressed -> null
-                            change.type == PointerType.Stylus -> change.position
-                            else -> hover
-                        }
-                    }
-                }
-            }
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    val pen = down.type == PointerType.Stylus || down.type == PointerType.Eraser
-                    if (pen) penSeen = true else if (penSeen && down.type == PointerType.Touch) return@awaitEachGesture
-                    val buttons = currentEvent.buttons
-                    val erase = erasingNow || down.type == PointerType.Eraser ||
-                        (down.type == PointerType.Stylus && (buttons.isPrimaryPressed || buttons.isSecondaryPressed))
-                    val w = size.width.toFloat().coerceAtLeast(1f)
-                    fun point(position: Offset, pressure: Float) = InkPoint(position.x / w, position.y / w, if (pen) pressure.coerceIn(0f, 1f) else 0.45f)
-                    fun eraseAt(position: Offset) {
-                        val p = point(position, 0f)
-                        val before = strokes.size
-                        strokes.removeAll { stroke -> stroke.any { hypot(it.x - p.x, it.y - p.y) < ERASER_RADIUS } }
-                        if (strokes.size != before) onChange()
-                    }
-                    down.consume()
-                    if (erase) eraseAt(down.position) else {
-                        active.clear()
-                        active += point(down.position, down.pressure)
-                    }
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
-                        if (erase) {
-                            eraseAt(change.position)
-                        } else {
-                            change.historical.forEach { active += point(it.position, change.pressure) }
-                            active += point(change.position, change.pressure)
-                        }
-                        change.consume()
-                    }
-                    if (!erase && active.isNotEmpty()) {
-                        strokes += InkCodec.simplify(active.toList())
-                        active.clear()
-                        onChange()
-                    }
-                }
-            },
-    ) {
-        // Finished strokes: their own layer, redrawn only when a stroke is added or erased.
-        Box(Modifier.fillMaxSize().graphicsLayer().drawBehind { drawInk(strokes.toList(), ink) })
-        // The stroke being drawn and the hover dot.
-        Box(
-            Modifier.fillMaxSize().drawBehind {
-                if (active.isNotEmpty()) drawInk(listOf(active.toList()), ink)
-                hover?.let { drawCircle(ink.copy(alpha = 0.5f), 3.dp.toPx(), it) }
-            },
-        )
-    }
 }
 
 /** A text field drawn like Metro text, with an underline while it can be typed in. */
@@ -418,7 +383,6 @@ private fun PlainField(
     )
 }
 
-private const val ERASER_RADIUS = 0.025f
 private val PanelPadding = 12.dp
 private val PanelVertical = 8.dp
 private val HeaderHeight = 52.dp

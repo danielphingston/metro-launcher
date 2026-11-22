@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import io.github.danielphingston.metro.data.metroDataStore
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -73,6 +74,11 @@ class MetroApplication : Application(), Configuration.Provider {
         )
     }
 
+    /** Handwriting, one file per drawing; see [io.github.danielphingston.metro.data.InkStore]. */
+    val ink: io.github.danielphingston.metro.data.InkStore by lazy {
+        io.github.danielphingston.metro.data.InkStore(java.io.File(filesDir, "ink"))
+    }
+
     /** Completed once [tiles] and [layouts] both exist; work started while they are being built waits for it. */
     private val wired = kotlinx.coroutines.CompletableDeferred<Unit>()
 
@@ -96,6 +102,7 @@ class MetroApplication : Application(), Configuration.Provider {
                     // The first load can finish inside the constructor above, before the rest is wired up.
                     wired.await()
                     reclaimWidgetIds(referenced, undecoded)
+                    deleteUnusedInk()
                 }
             },
         )
@@ -186,6 +193,22 @@ class MetroApplication : Application(), Configuration.Provider {
         val stale = WidgetReclaim.toDelete(held, used, undecoded)
         if (stale.isEmpty()) return
         withContext(Dispatchers.Default) { stale.forEach { WidgetTiles.release(this@MetroApplication, it) } }
+    }
+
+    /**
+     * Deletes handwriting no tile refers to any more: of a tile unpinned in an earlier session, or
+     * left behind when a backup replaced the layouts. Runs once per load (start, restore). Any
+     * layout that names a drawing keeps it: the live tiles, their saved copy, the saved layouts
+     * (read as stored text, so entries this build can't decode keep theirs too) and the undo steps.
+     */
+    private suspend fun deleteUnusedInk() {
+        layouts.awaitLoaded()
+        val prefs = metroDataStore.data.first()
+        val stored = listOf("tiles", "tiles_backup", "layouts").mapNotNull { prefs[androidx.datastore.preferences.core.stringPreferencesKey(it)] }
+        val referenced = io.github.danielphingston.metro.data.InkStore.referencedIn(stored) +
+            (listOfNotNull(tiles.tiles.value) + undo.snapshots() + layouts.heldTiles())
+                .flatMap { io.github.danielphingston.metro.data.InkStore.referencedBy(it) }
+        withContext(Dispatchers.IO) { ink.deleteAllBut(referenced, keepSince = System.currentTimeMillis() - 10 * 60_000L) }
     }
 
     /**
