@@ -1,5 +1,9 @@
 package io.github.danielphingston.metro
 
+import androidx.datastore.preferences.core.stringPreferencesKey
+import io.github.danielphingston.metro.data.InkStore
+import io.github.danielphingston.metro.data.InkStroke
+import io.github.danielphingston.metro.data.metroDataStore
 import android.app.Application
 import androidx.work.Configuration
 import io.github.danielphingston.metro.data.AppRepository
@@ -29,7 +33,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import io.github.danielphingston.metro.data.metroDataStore
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -74,9 +77,9 @@ class MetroApplication : Application(), Configuration.Provider {
         )
     }
 
-    /** Handwriting, one file per drawing; see [io.github.danielphingston.metro.data.InkStore]. */
-    val ink: io.github.danielphingston.metro.data.InkStore by lazy {
-        io.github.danielphingston.metro.data.InkStore(java.io.File(filesDir, "ink"))
+    /** Handwriting, one file per drawing; see [InkStore]. */
+    val ink: InkStore by lazy {
+        InkStore(java.io.File(filesDir, "ink"))
     }
 
     /**
@@ -86,7 +89,7 @@ class MetroApplication : Application(), Configuration.Provider {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     private val inkWrites = Dispatchers.IO.limitedParallelism(1)
 
-    fun saveInk(id: String, strokes: List<io.github.danielphingston.metro.data.InkStroke>, then: () -> Unit = {}) {
+    fun saveInk(id: String, strokes: List<InkStroke>, then: () -> Unit = {}) {
         if (id.isEmpty()) return
         appScope.launch {
             withContext(inkWrites) { ink.write(id, strokes) }
@@ -219,10 +222,10 @@ class MetroApplication : Application(), Configuration.Provider {
     private suspend fun deleteUnusedInk() {
         layouts.awaitLoaded()
         val prefs = metroDataStore.data.first()
-        val stored = listOf("tiles", "tiles_backup", "layouts").mapNotNull { prefs[androidx.datastore.preferences.core.stringPreferencesKey(it)] }
-        val referenced = io.github.danielphingston.metro.data.InkStore.referencedIn(stored) +
+        val stored = listOf("tiles", "tiles_backup", "layouts").mapNotNull { prefs[stringPreferencesKey(it)] }
+        val referenced = InkStore.referencedIn(stored) +
             (listOfNotNull(tiles.tiles.value) + undo.snapshots() + layouts.heldTiles())
-                .flatMap { io.github.danielphingston.metro.data.InkStore.referencedBy(it) }
+                .flatMap { InkStore.referencedBy(it) }
         withContext(Dispatchers.IO) { ink.deleteAllBut(referenced, keepSince = System.currentTimeMillis() - 10 * 60_000L) }
     }
 

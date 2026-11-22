@@ -20,8 +20,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
-import java.util.Base64
 import java.io.IOException
+import java.util.Base64
 
 /** A backup could not be read; [message] is written for the person using the app. */
 class BackupException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -251,13 +251,13 @@ object Backup {
         }
     }
 
+    /** The keys holding layouts, which name the drawings a backup carries. */
+    private val INK_HOLDERS = setOf("tiles", "tiles_backup", "layouts")
+
     /**
      * Keys read outside SettingsRepository (TileRepository, PhotoSource, WeatherStore) with the
      * type each is read as. The forecast keys are in [EXCLUDED_KEYS] and never imported.
      */
-    /** The keys holding layouts, which name the drawings a backup carries. */
-    private val INK_HOLDERS = setOf("tiles", "tiles_backup", "layouts")
-
     private val EXTERNAL_KEYS: Map<String, Class<*>> = mapOf(
         "tiles" to String::class.java,
         "tiles_backup" to String::class.java,
