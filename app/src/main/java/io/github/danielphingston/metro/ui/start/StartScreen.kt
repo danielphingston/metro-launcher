@@ -101,7 +101,9 @@ import io.github.danielphingston.metro.data.DefaultApps
 import io.github.danielphingston.metro.data.IconCache
 import io.github.danielphingston.metro.data.StartBackground
 import io.github.danielphingston.metro.data.StartPadding
+import io.github.danielphingston.metro.data.NoteStyle
 import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.ToolLimits
 import io.github.danielphingston.metro.data.TileFolders
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpan
@@ -230,15 +232,13 @@ class StartState(val scroll: ScrollState) {
     private var noteDraftId: Long? = null
     internal var saveNote: (Long, TileContent.Notes) -> Unit = { _, _ -> }
 
-    /** A handwriting tile's strokes while it is edited, saved with [noteDraft]; null when they weren't touched. */
-    var inkDraft: List<io.github.danielphingston.metro.data.InkStroke>? = null
-    internal var saveInk: (String, List<io.github.danielphingston.metro.data.InkStroke>) -> Unit = { _, _ -> }
+    /** Something in the open band is being typed (an ink tile's name, a new list item): the start screen makes room for the keyboard. */
+    var bandTyping by mutableStateOf(false)
 
     fun startNoteEdit(id: Long, notes: TileContent.Notes) {
         endNoteEdit()
         noteDraftId = id
         noteDraft = notes
-        inkDraft = null
     }
 
     fun updateNoteDraft(notes: TileContent.Notes) {
@@ -250,14 +250,12 @@ class StartState(val scroll: ScrollState) {
         val id = noteDraftId ?: return
         val draft = noteDraft ?: return
         saveNote(id, draft)
-        inkDraft?.let { saveInk(draft.inkId, it) }
     }
 
     /** Stops editing without keeping the changes. */
     fun cancelNoteEdit() {
         noteDraftId = null
         noteDraft = null
-        inkDraft = null
     }
 
     /** Writes the note being edited, if any, and stops editing it. */
@@ -265,7 +263,6 @@ class StartState(val scroll: ScrollState) {
         saveNoteDraft()
         noteDraftId = null
         noteDraft = null
-        inkDraft = null
     }
 
     /** A tool tile just added: once it is on start its settings open (a routine's times), or a note opens to write in. */
@@ -528,7 +525,6 @@ fun StartScreen(
     val view = androidx.compose.ui.platform.LocalView.current
     // A note being edited is written when its band closes, on "done" and when the launcher stops.
     state.saveNote = { id, notes -> viewModel.updateTool(id) { it as? TileContent.Notes ?: return@updateTool it; notes } }
-    state.saveInk = { inkId, strokes -> viewModel.saveInk(inkId, strokes) }
     // A checklist item ticked on the tile or in the open band: one change, no undo step, like a routine's tick.
     fun tickNote(id: Long, index: Int) {
         view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
@@ -536,6 +532,15 @@ fun StartScreen(
             val n = c as? TileContent.Notes ?: return@updateTool c
             n.copy(items = n.items.mapIndexed { j, item -> if (j == index) item.copy(done = !item.done) else item })
         }
+    }
+    // Adding and removing a list item from the open band, without editing: saved at once, like a tick.
+    fun addNoteItem(id: Long, text: String) = viewModel.updateTool(id) { c ->
+        val n = c as? TileContent.Notes ?: return@updateTool c
+        if (n.items.size >= ToolLimits.ITEMS) n else n.copy(items = n.items + io.github.danielphingston.metro.data.NoteItem(text.take(ToolLimits.ITEM)))
+    }
+    fun removeNoteItem(id: Long, index: Int) = viewModel.updateTool(id) { c ->
+        val n = c as? TileContent.Notes ?: return@updateTool c
+        n.copy(items = n.items.filterIndexed { j, _ -> j != index })
     }
     androidx.lifecycle.compose.LifecycleEventEffect(Lifecycle.Event.ON_STOP) { state.saveNoteDraft() }
     val haptics = LocalHapticFeedback.current
@@ -649,7 +654,8 @@ fun StartScreen(
             when (val c = spec.content) {
                 is TileContent.Notes -> {
                     state.openFolderId = id
-                    state.startNoteEdit(id, c)
+                    // An ink page is ready to write on as soon as it opens.
+                    if (c.style == NoteStyle.NOTE) state.startNoteEdit(id, c)
                 }
                 is TileContent.Routine, is TileContent.Countdown, is TileContent.Dice -> state.stylingId = id
                 else -> Unit
@@ -804,7 +810,7 @@ fun StartScreen(
                 .fillMaxSize()
                 // While a note is being written in, the keyboard takes the bottom of the screen: the
                 // scrolling area ends above it, so the field being typed in moves up with the keyboard.
-                .then(if (state.noteDraft != null) Modifier.imePadding() else Modifier)
+                .then(if (state.noteDraft != null || state.bandTyping) Modifier.imePadding() else Modifier)
                 .verticalScroll(state.scroll)
                 .pointerInput(Unit) {
                     var downAt = 0L
@@ -876,22 +882,37 @@ fun StartScreen(
                     androidx.compose.runtime.key(noteId) {
                         // Closing the band any way (back, a tap elsewhere, a drag) keeps what was written.
                         androidx.compose.runtime.DisposableEffect(Unit) { onDispose { state.endNoteEdit() } }
-                        NotesPanel(
-                            notes = openNotes,
-                            label = notesTile.label,
-                            draft = state.noteDraft,
-                            onTick = { i -> tickNote(noteId, i) },
-                            onEdit = { state.startNoteEdit(noteId, openNotes) },
-                            onDraft = state::updateNoteDraft,
-                            onInk = { state.inkDraft = it },
-                            onDone = state::endNoteEdit,
-                            onCancel = state::cancelNoteEdit,
-                            modifier = Modifier
-                                .offset(y = cell * layout.region.y)
-                                .width(gridWidth)
-                                .wrapContentHeight(Alignment.Top, unbounded = true)
-                                .onSizeChanged { noteHeight.intValue = it.height },
-                        )
+                        val bandModifier = Modifier
+                            .offset(y = cell * layout.region.y)
+                            .width(gridWidth)
+                            .wrapContentHeight(Alignment.Top, unbounded = true)
+                            .onSizeChanged { noteHeight.intValue = it.height }
+                        if (openNotes.style == NoteStyle.INK) {
+                            val inkId = openNotes.inkId
+                            InkPanel(
+                                notes = openNotes,
+                                label = notesTile.label,
+                                onUpdate = { change -> viewModel.updateTool(noteId) { (it as? TileContent.Notes)?.let(change) ?: it } },
+                                onSaveInk = { strokes -> viewModel.saveInk(inkId, strokes) },
+                                onNaming = { state.bandTyping = it },
+                                modifier = bandModifier,
+                            )
+                        } else {
+                            NotesPanel(
+                                notes = openNotes,
+                                label = notesTile.label,
+                                draft = state.noteDraft,
+                                onTick = { i -> tickNote(noteId, i) },
+                                onEdit = { state.startNoteEdit(noteId, openNotes) },
+                                onDraft = state::updateNoteDraft,
+                                onDone = state::endNoteEdit,
+                                onCancel = state::cancelNoteEdit,
+                                onAdd = { text -> addNoteItem(noteId, text) },
+                                onRemove = { i -> removeNoteItem(noteId, i) },
+                                onTyping = { state.bandTyping = it },
+                                modifier = bandModifier,
+                            )
+                        }
                     }
                 }
                 val appearFrom = folderPlacement?.let {
