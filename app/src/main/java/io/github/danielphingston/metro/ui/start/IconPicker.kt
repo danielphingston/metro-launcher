@@ -42,8 +42,8 @@ import kotlinx.coroutines.withContext
 private val Cell = 56.dp
 
 /**
- * Full-screen picker for a tile's icon: the app's white line glyphs, then the icons of every
- * installed icon pack. [onPick] gets "glyph:<id>" or "pack:<package>:<drawable>".
+ * Full-screen picker for a tile's icon: emoji, the app's white line glyphs, then the icons of
+ * every installed icon pack. [onPick] gets "emoji:<emoji>", "glyph:<id>" or "pack:<package>:<drawable>".
  */
 @Composable
 internal fun IconPicker(icons: IconCache, hasIcon: Boolean, onReset: () -> Unit, onPick: (String) -> Unit, onDismiss: () -> Unit) {
@@ -83,6 +83,7 @@ internal fun IconPicker(icons: IconCache, hasIcon: Boolean, onReset: () -> Unit,
                         )
                     }
                 }
+                if (q.isEmpty()) item { EmojiSection(onPick) }
                 item { MetroText("line icons", MetroType.sectionTitle, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)) }
                 item {
                     val shown = glyphs.filter { q.isEmpty() || it.first.contains(q) }
@@ -130,4 +131,80 @@ private fun PackSection(pack: IconPackInfo, icons: IconCache, query: String, onP
             ) { CustomTileIcon(icon, 40.dp, icons) }
         }
     }
+}
+
+/** Emoji people often use for routines, and any other from the keyboard. */
+private val SuggestedEmoji = listOf(
+    "💊", "💧", "🌱", "🪴", "🗑️", "🐾", "🐶", "🐱", "🦷", "🛏️", "🧺", "🍽️",
+    "🏃", "🧘", "📚", "☕", "🚗", "💰", "📞", "🧴", "💉", "🩺", "✉️", "♻️",
+)
+
+/**
+ * The emoji part of the picker: common choices, and a field that takes the first emoji typed
+ * with the keyboard's emoji key, which already has every emoji and a search.
+ */
+@Composable
+private fun EmojiSection(onPick: (String) -> Unit) {
+    MetroText("emoji", MetroType.sectionTitle, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+    ) {
+        SuggestedEmoji.forEach { emoji ->
+            Box(
+                Modifier.size(Cell).background(Metro.colors.accent).clickable(onClickLabel = "use $emoji") { onPick("emoji:$emoji") },
+                contentAlignment = Alignment.Center,
+            ) { EmojiPicture(emoji, 34.dp) }
+        }
+    }
+    var typed by remember { mutableStateOf("") }
+    BasicTextField(
+        typed,
+        { value ->
+            val emoji = firstEmoji(value)
+            if (emoji != null) onPick("emoji:$emoji") else typed = value
+        },
+        singleLine = true,
+        textStyle = MetroType.body.copy(color = Metro.colors.foreground),
+        cursorBrush = SolidColor(Metro.colors.foreground),
+        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).background(Metro.colors.subtle.copy(alpha = 0.2f)).padding(12.dp),
+        decorationBox = { inner ->
+            Box {
+                if (typed.isEmpty()) MetroText("or type any emoji", MetroType.body, color = Metro.colors.subtle)
+                inner()
+            }
+        },
+    )
+}
+
+/** The first character of [text] that is a pictograph (an emoji, with its modifiers and joins), or null. */
+internal fun firstEmoji(text: String): String? {
+    val it = android.icu.text.BreakIterator.getCharacterInstance()
+    it.setText(text)
+    var start = it.first()
+    var end = it.next()
+    while (end != android.icu.text.BreakIterator.DONE) {
+        val grapheme = text.substring(start, end)
+        val cp = grapheme.codePointAt(0)
+        if (android.icu.lang.UCharacter.hasBinaryProperty(cp, android.icu.lang.UProperty.EXTENDED_PICTOGRAPHIC) ||
+            android.icu.lang.UCharacter.hasBinaryProperty(cp, android.icu.lang.UProperty.REGIONAL_INDICATOR)
+        ) {
+            return grapheme
+        }
+        start = end
+        end = it.next()
+    }
+    return null
+}
+
+/** An emoji drawn at [size], in its own colours. */
+@Composable
+internal fun EmojiPicture(emoji: String, size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+    val sp = with(androidx.compose.ui.platform.LocalDensity.current) { (size * 0.78f).toSp() }
+    androidx.compose.foundation.text.BasicText(
+        emoji,
+        modifier,
+        style = androidx.compose.ui.text.TextStyle(fontSize = sp, lineHeight = sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+        maxLines = 1,
+    )
 }

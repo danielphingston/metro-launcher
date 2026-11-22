@@ -34,6 +34,8 @@ import androidx.compose.ui.semantics.semantics
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.AssistantChoice
 import io.github.danielphingston.metro.data.IconCache
+import io.github.danielphingston.metro.data.InkStore
+import io.github.danielphingston.metro.data.NoteStyle
 import io.github.danielphingston.metro.data.QuickSettingKind
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.ResolvedTile
@@ -107,7 +109,7 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     }
 }
 
-/** The picker's panel without the view model: the newest tiles first ("feed", "tracking", "assistant"), then "quick settings tiles". */
+/** The picker's panel without the view model: the newest tiles first ("ink", "feed", "tracking", "assistant"), then "quick settings tiles". */
 @Composable
 internal fun MetroPlusPanel(
     unlocked: Boolean,
@@ -150,6 +152,26 @@ internal fun MetroPlusPanel(
                         .padding(horizontal = 24.dp, vertical = 16.dp),
                 )
             }
+        }
+        item { SectionTitle("ink") }
+        item {
+            PickerRow(
+                onClickLabel = if (unlocked) "add ink tile" else "unlock metro plus",
+                onClick = {
+                    if (unlocked) {
+                        val now = System.currentTimeMillis()
+                        onAdd(TileContent.Notes("", NoteStyle.INK, inkId = InkStore.newId(now), created = now), TileSize.MEDIUM)
+                    } else {
+                        onBuy()
+                    }
+                },
+                preview = {
+                    val tile = ResolvedTile(TileSpec(0, TileSize.SMALL, TileContent.Notes("", NoteStyle.INK)), null, "ink")
+                    Box(Modifier.size(PreviewSize)) { ToolFace(tile, rememberTileMetrics(PreviewSize), icons, open = false) }
+                },
+                title = "ink",
+                subtitle = "write or draw with a pen or a finger, in any colour; a pen can write right on a wide or large tile",
+            )
         }
         item { SectionTitle("feed") }
         item {
@@ -210,8 +232,9 @@ internal fun MetroPlusPanel(
     }
 }
 
+/** A section heading in a tile picker panel (Metro Plus, metro tiles). */
 @Composable
-private fun SectionTitle(text: String) {
+internal fun SectionTitle(text: String) {
     MetroText(
         text,
         MetroType.caption,
@@ -220,8 +243,9 @@ private fun SectionTitle(text: String) {
     )
 }
 
+/** One tile a picker panel offers: its preview, title and what it does. */
 @Composable
-private fun PickerRow(
+internal fun PickerRow(
     onClickLabel: String,
     onClick: () -> Unit,
     preview: @Composable () -> Unit,

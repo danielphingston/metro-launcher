@@ -42,6 +42,7 @@ internal val MetroPlusContents = listOf(
     "layouts, each with its own tiles, wallpaper and settings",
     "gestures: double tap, two-finger swipes, sleep",
     "a feed tile for Lemmy communities and RSS feeds",
+    "an ink tile to write or draw on, with a pen and in any colour",
 )
 
 /**

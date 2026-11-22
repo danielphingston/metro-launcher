@@ -21,6 +21,7 @@ import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
+import java.util.Base64
 
 /** A backup could not be read; [message] is written for the person using the app. */
 class BackupException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -29,12 +30,15 @@ class BackupException(message: String, cause: Throwable? = null) : Exception(mes
  * Export and import of the launcher's tiles and settings as one JSON file.
  *
  * ```
- * {"app":"metro-launcher","format":1,"appVersion":"0.7.16","exportedAt":1700000000000,
- *  "prefs":{"<key>":{"type":"string|int|long|boolean|float|double|stringSet","value":...}}}
+ * {"app":"metro-launcher","format":2,"appVersion":"0.9.0","exportedAt":1700000000000,
+ *  "prefs":{"<key>":{"type":"string|int|long|boolean|float|double|stringSet","value":...}},
+ *  "ink":{"<ink id>":"<Base64 of the compressed drawing>"}}
  * ```
  *
  * The file mirrors the "metro" DataStore entry for entry (minus [EXCLUDED_KEYS]); search history
- * and purchases live elsewhere and are deliberately not included.
+ * and purchases live elsewhere and are deliberately not included. Format 2 added "ink": the
+ * handwriting the layouts in "prefs" use, which is kept in files of its own (see [InkStore]).
+ * Format 1 has no handwriting outside the layout, so it reads as format 2 with no "ink".
  *
  * COMPATIBILITY: every [FORMAT] ever shipped must stay importable forever. When anything stored
  * changes, either keep reading the old shape or bump [FORMAT] and add one branch to [migrate].
@@ -43,7 +47,7 @@ class BackupException(message: String, cause: Throwable? = null) : Exception(mes
  */
 object Backup {
     /** The format this build writes and the newest it can read. */
-    const val FORMAT = 1
+    const val FORMAT = 2
 
     private const val APP_ID = "metro-launcher"
 
@@ -64,7 +68,13 @@ object Backup {
         "onboarding_done",
     )
 
-    fun encode(prefs: Preferences, appVersion: String, now: Long): String {
+    /** What a backup restores: the settings store, and the handwriting files by id. */
+    class Contents(val prefs: Preferences, val ink: Map<String, ByteArray>)
+
+    /** The most one drawing may take in a backup; a compressed drawing at the point limit is far smaller. */
+    private const val MAX_INK_BYTES = 512 * 1024
+
+    fun encode(prefs: Preferences, appVersion: String, now: Long, ink: Map<String, ByteArray> = emptyMap()): String {
         val entries = JSONObject()
         prefs.asMap().entries
             .filter { it.key.name !in EXCLUDED_KEYS }
@@ -76,6 +86,11 @@ object Backup {
             .put("appVersion", appVersion)
             .put("exportedAt", now)
             .put("prefs", entries)
+            .apply {
+                if (ink.isNotEmpty()) {
+                    put("ink", JSONObject().apply { ink.toSortedMap().forEach { (id, bytes) -> put(id, Base64.getEncoder().encodeToString(bytes)) } })
+                }
+            }
             .toString(2)
     }
 
@@ -95,7 +110,10 @@ object Backup {
     }
 
     /** The preferences in [json], without [EXCLUDED_KEYS]. Throws [BackupException] for anything unusable. */
-    fun decode(json: String): Preferences {
+    fun decode(json: String): Preferences = decodeContents(json).prefs
+
+    /** The preferences and handwriting in [json]. Throws [BackupException] for anything unusable. */
+    fun decodeContents(json: String): Contents {
         val root = try {
             JSONObject(json)
         } catch (e: JSONException) {
@@ -129,7 +147,25 @@ object Backup {
                 throw malformed(name, e)
             }
         }
-        return result
+        return Contents(result, decodeInk(migrated.optJSONObject("ink")))
+    }
+
+    /** The drawings of a backup, each checked to be a drawing; a damaged one fails the whole restore. */
+    private fun decodeInk(json: JSONObject?): Map<String, ByteArray> {
+        json ?: return emptyMap()
+        val ink = HashMap<String, ByteArray>()
+        for (id in json.keys()) {
+            val bytes = try {
+                Base64.getDecoder().decode(json.getString(id))
+            } catch (e: Exception) {
+                throw BackupException("This backup is damaged: a drawing in it can't be read.", e)
+            }
+            if (!InkStore.isValidId(id) || bytes.size > MAX_INK_BYTES || !InkCodec.isReadable(bytes)) {
+                throw BackupException("This backup is damaged: a drawing in it can't be read.")
+            }
+            ink[id] = bytes
+        }
+        return ink
     }
 
     /** At most [limit] bytes of the stream. */
@@ -154,14 +190,16 @@ object Backup {
         BackupException("This backup is damaged: the entry \"$name\" can't be read.", cause)
 
     /**
-     * Brings a backup written in [format] up to [FORMAT], one step at a time. To add format 2:
-     * bump [FORMAT] and add `1 -> migrate1to2(current)` below; format 1 itself needs no change.
+     * Brings a backup written in [format] up to [FORMAT], one step at a time. To add format 3:
+     * bump [FORMAT] and add `2 -> migrate2to3(current)` below; older formats need no change.
      */
     internal fun migrate(format: Int, root: JSONObject): JSONObject {
         var current = root
         var version = format
         while (version < FORMAT) {
             val next: JSONObject? = when (version) {
+                // Format 1 had no handwriting files: it is format 2 without "ink".
+                1 -> current
                 else -> null
             }
             current = next ?: throw BackupException("This backup can't be restored by this version of Metro.")
@@ -173,7 +211,11 @@ object Backup {
     /** Writes the current tiles and settings to [uri]. */
     suspend fun export(context: Context, uri: Uri) = withContext(Dispatchers.IO) {
         val prefs = context.metroDataStore.data.first()
-        val text = encode(prefs, BuildConfig.VERSION_NAME, System.currentTimeMillis())
+        // The handwriting every exported layout uses (read as stored text, undecodable entries included).
+        val store = (context.applicationContext as MetroApplication).ink
+        val stored = prefs.asMap().filterKeys { it.name in INK_HOLDERS }.values.filterIsInstance<String>()
+        val ink = InkStore.referencedIn(stored).mapNotNull { id -> store.readBytes(id)?.let { id to it } }.toMap()
+        val text = encode(prefs, BuildConfig.VERSION_NAME, System.currentTimeMillis(), ink)
         val out = context.contentResolver.openOutputStream(uri, "wt") ?: throw IOException("Can't write to that file.")
         out.use { it.write(text.toByteArray(Charsets.UTF_8)) }
     }
@@ -186,7 +228,8 @@ object Backup {
         val input = context.contentResolver.openInputStream(uri) ?: throw IOException("Can't read that file.")
         val bytes = input.use { it.readBounded(MAX_BYTES + 1) }
         if (bytes.size > MAX_BYTES) throw BackupException("This file is too large to be a Metro backup.")
-        val restored = decode(bytes.toString(Charsets.UTF_8))
+        val contents = decodeContents(bytes.toString(Charsets.UTF_8))
+        val restored = contents.prefs
         // A value of the wrong type under a key the launcher reads would crash it on every start.
         try {
             SettingsRepository(context).settingsOf(restored)
@@ -199,11 +242,17 @@ object Backup {
             prefs += restored
         }
         val app = context.applicationContext as MetroApplication
+        // The drawings first, so the restored layout finds them (drawings it doesn't use go at the next clean-up).
+        contents.ink.forEach { (id, bytes) -> app.ink.writeBytes(id, bytes) }
+        app.ink.reloadAll()
         app.tiles.reloadFromStore() // Tiles are held in memory; show the restored layout and stop it being overwritten.
         if (restored.asMap().keys.any { it.name == "weather_latitude" }) {
             io.github.danielphingston.metro.live.weather.WeatherRefresh.onSettingsChanged(context)
         }
     }
+
+    /** The keys holding layouts, which name the drawings a backup carries. */
+    private val INK_HOLDERS = setOf("tiles", "tiles_backup", "layouts")
 
     /**
      * Keys read outside SettingsRepository (TileRepository, PhotoSource, WeatherStore) with the
