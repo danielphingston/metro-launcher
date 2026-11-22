@@ -82,9 +82,7 @@ object Backup {
             .forEach { (key, value) -> encodeEntry(value)?.let { entries.put(key.name, it) } }
         return JSONObject()
             .put("app", APP_ID)
-            // Format 2 only adds drawings: without any the file is format 1 exactly, which older
-            // versions restore (keeping the tiles they don't know, untouched, for a later update).
-            .put("format", if (ink.isEmpty()) 1 else FORMAT)
+            .put("format", FORMAT)
             .put("appVersion", appVersion)
             .put("exportedAt", now)
             .put("prefs", entries)
