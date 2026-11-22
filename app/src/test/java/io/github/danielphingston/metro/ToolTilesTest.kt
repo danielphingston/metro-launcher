@@ -334,4 +334,41 @@ class ToolTilesTest {
         assertTrue(rows(full.copy(text = "word ".repeat(400)), true) <= 7)
         assertTrue(rows(TileContent.Notes("", NoteStyle.INK), true) <= 7)
     }
+
+    @Test
+    fun aReadRacingAWriteNeverBringsBackTheOlderDrawing() {
+        val dir = java.nio.file.Files.createTempDirectory("ink").toFile()
+        val store = InkStore(dir)
+        val id = "ink-race-1"
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(6)
+        // Strokes added one at a time, each saved, while other threads keep reading (as the faces
+        // on start do after every save).
+        val strokes = ArrayList<InkStroke>()
+        val readers = List(4) {
+            pool.submit {
+                repeat(400) { store.read(id) }
+            }
+        }
+        repeat(60) { i ->
+            strokes += InkStroke(listOf(InkPoint(i / 100f, 0.1f, 0.5f), InkPoint(i / 100f, 0.2f, 0.5f)))
+            store.write(id, strokes.toList())
+        }
+        readers.forEach { it.get() }
+        pool.shutdown()
+        assertEquals(60, store.read(id).size)
+        assertEquals(60, InkStore(dir).read(id).size)
+        dir.deleteRecursively()
+    }
+
+    @Test
+    fun handwritingSavedWithoutAnIdGetsAStableOne() {
+        // A handwriting tile from a build before drawings had files: no "inkId", no ink.
+        val old = """[{"id":9,"size":"WIDE","type":"notes","name":"","style":"ink","ink":"","created":12}]"""
+        val first = TileJson.decode(JSONArray(old)).single().content as TileContent.Notes
+        assertEquals("legacy-9-12", first.inkId)
+        assertEquals(first.inkId, (TileJson.decode(JSONArray(old)).single().content as TileContent.Notes).inkId)
+        // A note has no drawing, so no id.
+        val note = """[{"id":3,"size":"WIDE","type":"notes","name":"","style":"note","created":1}]"""
+        assertEquals("", (TileJson.decode(JSONArray(note)).single().content as TileContent.Notes).inkId)
+    }
 }

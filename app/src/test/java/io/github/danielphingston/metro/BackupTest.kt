@@ -262,6 +262,8 @@ class BackupTest {
         val drawing = InkCodec.encode(listOf(InkStroke(listOf(InkPoint(0.1f, 0.1f, 0.5f), InkPoint(0.3f, 0.3f, 0.5f)), 0xFF43A047.toInt())))
         val json = Backup.encode(mutablePreferencesOf(stringPreferencesKey("tiles") to "[]"), "x", 0, mapOf("ink-1-1" to drawing))
         assertEquals(Backup.FORMAT, org.json.JSONObject(json).getInt("format"))
+        // Without drawings a backup is format 1, so older versions of Metro can still restore it.
+        assertEquals(1, org.json.JSONObject(Backup.encode(mutablePreferencesOf(stringPreferencesKey("tiles") to "[]"), "x", 0)).getInt("format"))
         assertTrue(Backup.decodeContents(json).ink.getValue("ink-1-1").contentEquals(drawing))
         // A format 1 backup has no drawings and needs none.
         assertTrue(Backup.decodeContents("""{"app":"metro-launcher","format":1,"prefs":{}}""").ink.isEmpty())

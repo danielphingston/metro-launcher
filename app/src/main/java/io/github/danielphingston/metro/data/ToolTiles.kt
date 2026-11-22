@@ -294,9 +294,11 @@ internal object ToolJson {
      */
     private fun inkIdOf(obj: JSONObject): String {
         obj.optString("inkId").takeIf { InkStore.isValidId(it) }?.let { return it }
-        val legacy = obj.optString("ink").takeIf { it.isNotEmpty() } ?: return ""
+        // Only handwriting has a drawing. One saved without an id (by a build before drawings had
+        // files) gets a stable one from its tile, so it reads the same every time until it is saved.
+        if (NoteStyle.fromId(obj.optString("style")) != NoteStyle.INK) return ""
         val id = "legacy-${obj.optLong("id")}-${obj.optLong("created")}"
-        InkLegacy.adopt(id, legacy)
+        obj.optString("ink").takeIf { it.isNotEmpty() }?.let { InkLegacy.adopt(id, it) }
         return id
     }
 

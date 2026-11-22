@@ -306,10 +306,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     /** Writes drawing [inkId] (off the main thread); see [io.github.danielphingston.metro.data.InkStore]. */
-    fun saveInk(inkId: String, strokes: List<io.github.danielphingston.metro.data.InkStroke>) {
-        if (inkId.isEmpty()) return
-        metro.appScope.launch(kotlinx.coroutines.Dispatchers.IO) { metro.ink.write(inkId, strokes) }
-    }
+    fun saveInk(inkId: String, strokes: List<io.github.danielphingston.metro.data.InkStroke>) = metro.saveInk(inkId, strokes)
 
     /**
      * Changes what tool tile [id] holds (a tick, a list item, a note) with no undo step: using a

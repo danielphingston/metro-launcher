@@ -778,13 +778,21 @@ private fun BoxScope.InkFace(id: Long, n: TileContent.Notes, size: TileSize, m: 
     val writable = n.penOnTile && size.canWriteOnTile()
     if (writable) {
         val app = LocalContext.current.applicationContext as? io.github.danielphingston.metro.MetroApplication
-        // The strokes being written here; the store's copy replaces them whenever it changes.
-        val strokes = remember(stored) { androidx.compose.runtime.mutableStateListOf<io.github.danielphingston.metro.data.InkStroke>().apply { addAll(stored) } }
+        // The strokes being written here. The saved copy replaces them when it changes elsewhere (the
+        // open page, a restore), but not while this tile's own saves are still on their way.
+        val strokes = remember(n.inkId) { androidx.compose.runtime.mutableStateListOf<io.github.danielphingston.metro.data.InkStroke>() }
+        var saving by remember(n.inkId) { mutableIntStateOf(0) }
+        LaunchedEffect(stored) {
+            if (saving == 0 && strokes.toList() != stored) {
+                strokes.clear()
+                strokes.addAll(stored)
+            }
+        }
         InkCanvas(
             strokes, n.penColor, ink, erasing = false, penOnly = true,
             onChange = {
-                val copy = strokes.toList()
-                app?.appScope?.launch(kotlinx.coroutines.Dispatchers.IO) { app.ink.write(n.inkId, copy) }
+                saving++
+                app?.saveInk(n.inkId, strokes.toList()) { saving-- }
             },
         )
         return

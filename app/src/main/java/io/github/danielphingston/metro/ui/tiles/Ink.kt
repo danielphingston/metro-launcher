@@ -204,9 +204,11 @@ internal fun InkCanvas(
                     } else if (penOnly || (penSeen && down.type == PointerType.Touch)) {
                         return@awaitEachGesture
                     }
-                    val buttons = currentEvent.buttons
-                    val erase = erasingNow || down.type == PointerType.Eraser ||
-                        (down.type == PointerType.Stylus && (buttons.isPrimaryPressed || buttons.isSecondaryPressed))
+                    // The pen's side button (or its eraser end) erases, from the moment it is pressed: at
+                    // touch-down or in the middle of a stroke, which then becomes erasing.
+                    fun buttonHeld(buttons: androidx.compose.ui.input.pointer.PointerButtons) =
+                        down.type == PointerType.Stylus && (buttons.isPrimaryPressed || buttons.isSecondaryPressed)
+                    var erase = erasingNow || down.type == PointerType.Eraser || buttonHeld(currentEvent.buttons)
                     val w = size.width.toFloat().coerceAtLeast(1f)
                     fun point(position: Offset, pressure: Float) = InkPoint(position.x / w, position.y / w, if (pen) pressure.coerceIn(0f, 1f) else 0.45f)
                     fun eraseAt(position: Offset) {
@@ -222,6 +224,10 @@ internal fun InkCanvas(
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (!change.pressed) break
+                        if (!erase && buttonHeld(event.buttons)) {
+                            erase = true
+                            active.clear()
+                        }
                         if (erase) {
                             eraseAt(change.position)
                         } else {

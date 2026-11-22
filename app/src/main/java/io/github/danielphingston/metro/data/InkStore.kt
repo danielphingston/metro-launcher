@@ -230,6 +230,9 @@ object InkLegacy {
  * routine or moving a tile never rewrites a drawing, and the layout stays small. Reads and writes
  * are blocking and belong off the main thread. Decoded drawings are cached; [changes] counts
  * writes so faces showing a drawing can read it again.
+ *
+ * Every method takes the store's lock: a read that missed the cache and is still decoding the
+ * file must not finish after a newer write and put the older drawing back in the cache.
  */
 class InkStore(private val dir: File) {
     private val cache = ConcurrentHashMap<String, List<InkStroke>>()
@@ -237,6 +240,7 @@ class InkStore(private val dir: File) {
     val changes: StateFlow<Int> = _changes.asStateFlow()
 
     /** The drawing [id], empty when there is none. */
+    @Synchronized
     fun read(id: String): List<InkStroke> {
         if (!isValidId(id)) return emptyList()
         cache[id]?.let { return it }
@@ -256,6 +260,7 @@ class InkStore(private val dir: File) {
     }
 
     /** Replaces drawing [id] with [strokes] (an empty drawing removes its file). */
+    @Synchronized
     fun write(id: String, strokes: List<InkStroke>) {
         if (!isValidId(id)) return
         val kept = InkCodec.capped(strokes)
@@ -265,6 +270,7 @@ class InkStore(private val dir: File) {
     }
 
     /** The stored bytes of drawing [id] (compressed), for a backup; null when there is none. */
+    @Synchronized
     fun readBytes(id: String): ByteArray? {
         if (!isValidId(id)) return null
         return fileBytes(id) ?: InkLegacy.peek(id)?.let(InkCodec::encode)
@@ -277,6 +283,7 @@ class InkStore(private val dir: File) {
     }
 
     /** Writes [bytes] as drawing [id] atomically (a temporary file renamed over it). */
+    @Synchronized
     fun writeBytes(id: String, bytes: ByteArray) {
         if (!isValidId(id)) return
         cache.remove(id)
@@ -299,6 +306,7 @@ class InkStore(private val dir: File) {
     }
 
     /** Forgets what is cached and tells every face to read again, e.g. after a backup was restored. */
+    @Synchronized
     fun reloadAll() {
         cache.clear()
         _changes.update { it + 1 }
@@ -308,6 +316,7 @@ class InkStore(private val dir: File) {
      * Deletes the drawings none of [referenced] names, except those written since [keepSince]
      * (a tile added moments ago may not be in the saved layout yet); returns how many went.
      */
+    @Synchronized
     fun deleteAllBut(referenced: Set<String>, keepSince: Long): Int {
         val files = dir.listFiles().orEmpty()
         var deleted = 0

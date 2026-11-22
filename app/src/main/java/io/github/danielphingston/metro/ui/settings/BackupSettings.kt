@@ -49,6 +49,11 @@ internal fun BackupSettingsSection() {
                 toast("Backup saved")
             } catch (e: IOException) {
                 toast("Couldn't save the backup: ${e.message ?: "write failed"}")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: RuntimeException) {
+                // A file provider refusing the file, say: a message, never a crash of the launcher.
+                toast("Couldn't save the backup: ${e.message ?: e.javaClass.simpleName}")
             }
         }
     }
@@ -116,6 +121,11 @@ internal fun RestoreFromBackupButton(modifier: Modifier = Modifier, onRestored: 
                                 toast(e.message ?: "This backup can't be restored.")
                             } catch (e: IOException) {
                                 toast("Couldn't read the backup: ${e.message ?: "read failed"}")
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                throw e
+                            } catch (e: RuntimeException) {
+                                // Anything unexpected: a message, never a crash of the launcher.
+                                toast("This backup can't be restored: ${e.message ?: e.javaClass.simpleName}")
                             }
                         }
                     })

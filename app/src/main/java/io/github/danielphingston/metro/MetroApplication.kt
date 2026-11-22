@@ -79,6 +79,21 @@ class MetroApplication : Application(), Configuration.Provider {
         io.github.danielphingston.metro.data.InkStore(java.io.File(filesDir, "ink"))
     }
 
+    /**
+     * Writes a drawing off the main thread, one write at a time in the order they were asked for:
+     * a pen writing on a tile saves after every stroke, and an older save must never finish last.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val inkWrites = Dispatchers.IO.limitedParallelism(1)
+
+    fun saveInk(id: String, strokes: List<io.github.danielphingston.metro.data.InkStroke>, then: () -> Unit = {}) {
+        if (id.isEmpty()) return
+        appScope.launch {
+            withContext(inkWrites) { ink.write(id, strokes) }
+            then()
+        }
+    }
+
     /** Completed once [tiles] and [layouts] both exist; work started while they are being built waits for it. */
     private val wired = kotlinx.coroutines.CompletableDeferred<Unit>()
 
