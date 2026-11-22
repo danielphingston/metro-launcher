@@ -529,6 +529,14 @@ fun StartScreen(
     // A note being edited is written when its band closes, on "done" and when the launcher stops.
     state.saveNote = { id, notes -> viewModel.updateTool(id) { it as? TileContent.Notes ?: return@updateTool it; notes } }
     state.saveInk = { inkId, strokes -> viewModel.saveInk(inkId, strokes) }
+    // A checklist item ticked on the tile or in the open band: one change, no undo step, like a routine's tick.
+    fun tickNote(id: Long, index: Int) {
+        view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+        viewModel.updateTool(id) { c ->
+            val n = c as? TileContent.Notes ?: return@updateTool c
+            n.copy(items = n.items.mapIndexed { j, item -> if (j == index) item.copy(done = !item.done) else item })
+        }
+    }
     androidx.lifecycle.compose.LifecycleEventEffect(Lifecycle.Event.ON_STOP) { state.saveNoteDraft() }
     val haptics = LocalHapticFeedback.current
     val currentDoubleTap by rememberUpdatedState(onDoubleTap)
@@ -782,6 +790,7 @@ fun StartScreen(
             },
             onLongPress = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
             onDoubleTap = if (ToolTaps.hasDoubleTap(tile.spec.content)) ({ ToolTaps.undo(view, tile.spec.id, viewModel::updateTool) }) else null,
+            onNoteTick = if (tile.spec.content is TileContent.Notes) ({ i -> tickNote(tile.spec.id, i) }) else null,
             appearFrom = appearFrom,
             onRemoveFromFolder = onRemoveFromFolder,
             onDragMove = onDragMove,
@@ -871,13 +880,7 @@ fun StartScreen(
                             notes = openNotes,
                             label = notesTile.label,
                             draft = state.noteDraft,
-                            onTick = { i ->
-                                view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
-                                viewModel.updateTool(noteId) { c ->
-                                    val n = c as? TileContent.Notes ?: return@updateTool c
-                                    n.copy(items = n.items.mapIndexed { j, item -> if (j == i) item.copy(done = !item.done) else item })
-                                }
-                            },
+                            onTick = { i -> tickNote(noteId, i) },
                             onEdit = { state.startNoteEdit(noteId, openNotes) },
                             onDraft = state::updateNoteDraft,
                             onInk = { state.inkDraft = it },
@@ -1201,6 +1204,8 @@ internal fun TileHost(
     onLongPress: () -> Unit,
     /** A double tap's action (a routine's undo); with it, a single tap waits the double-tap timeout. */
     onDoubleTap: (() -> Unit)? = null,
+    /** Ticks a notes item shown on the tile, by its index. */
+    onNoteTick: ((Int) -> Unit)? = null,
     onDragMove: () -> Unit = {},
     /** Where a folder's child slides out from when the folder opens. */
     appearFrom: IntOffset? = null,
@@ -1431,8 +1436,9 @@ internal fun TileHost(
         TileColourScope(tile, icons) {
             TileBody(
                 tile, liveContent, flipped, monochromeIcons, icons, cell, folderOpen,
-                editing = state.editing,
+                editing = state.editing || state.grouping,
                 onWidgetLongPress = { onLongPress(); state.select(id) },
+                onNoteTick = onNoteTick,
             )
         }
         if (groupAnchor) Box(Modifier.fillMaxSize().border(2.dp, Metro.colors.foreground))
@@ -1572,6 +1578,7 @@ private fun TileBody(
     folderOpen: Boolean,
     editing: Boolean,
     onWidgetLongPress: () -> Unit,
+    onNoteTick: ((Int) -> Unit)? = null,
 ) {
     when (tile.spec.content) {
         is TileContent.App -> tile.app?.let {
@@ -1596,7 +1603,7 @@ private fun TileBody(
             FeedTile(tile, tile.spec.content.urls, cell, flipped, unlocked)
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTile(tile, cell)
-        is TileContent.Tool -> ToolFace(tile, rememberTileMetrics(cell), icons, folderOpen)
+        is TileContent.Tool -> ToolFace(tile, rememberTileMetrics(cell), icons, folderOpen, onNoteTick.takeIf { !editing })
     }
 }
 

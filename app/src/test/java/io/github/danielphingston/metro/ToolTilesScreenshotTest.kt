@@ -13,7 +13,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
+import org.junit.Assert.assertEquals
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import io.github.danielphingston.metro.data.IconCache
@@ -320,5 +325,24 @@ class ToolTilesScreenshotTest {
         }
         rule.waitForIdle()
         rule.onRoot().captureRoboImage("src/test/screenshots/customise_routine.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** An item shown on a notes tile ticks with a tap on it; a hold leaves it for edit mode. */
+    @Test
+    fun itemsOnTheTileTickWithATap() {
+        val notes = TileContent.Notes("groceries", NoteStyle.NOTE, listOf(NoteItem("milk"), NoteItem("eggs", true), NoteItem("bread")))
+        val ticked = mutableListOf<Int>()
+        rule.setContent {
+            MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
+                Box(Modifier.size(400.dp, 200.dp)) {
+                    ToolFace(ResolvedTile(TileSpec(1, TileSize.WIDE, notes), null, "groceries"), rememberTileMetrics(100.dp), IconCache(RuntimeEnvironment.getApplication()), open = false) { ticked += it }
+                }
+            }
+        }
+        rule.onNodeWithText("bread").performClick()
+        rule.onNodeWithText("eggs").performClick()
+        assertEquals(listOf(2, 1), ticked)
+        rule.onNodeWithText("milk").performTouchInput { longClick() }
+        assertEquals(listOf(2, 1), ticked)
     }
 }

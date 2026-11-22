@@ -46,6 +46,11 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -186,13 +191,20 @@ internal val LocalToolClock = androidx.compose.runtime.staticCompositionLocalOf<
 
 /** A tool tile's face, by its kind: the one place that maps a tool to how it is drawn. */
 @Composable
-internal fun ToolFace(tile: ResolvedTile, m: TileMetrics, icons: IconCache, open: Boolean) {
+internal fun ToolFace(
+    tile: ResolvedTile,
+    m: TileMetrics,
+    icons: IconCache,
+    open: Boolean,
+    /** Ticks the notes item at that index, from the tile itself; null where the tile can't be used (edit mode, previews). */
+    onTick: ((Int) -> Unit)? = null,
+) {
     when (tile.spec.content as? TileContent.Tool ?: return) {
         is TileContent.Routine -> RoutineTile(tile, m, icons)
         is TileContent.Countdown -> CountdownTile(tile, m)
         is TileContent.Coin -> CoinTile(tile, m)
         is TileContent.Dice -> DiceTile(tile, m)
-        is TileContent.Notes -> NotesTile(tile, m, open)
+        is TileContent.Notes -> NotesTile(tile, m, open, onTick)
     }
 }
 
@@ -686,9 +698,12 @@ private fun DieFace(value: Int, sides: Int, ink: Color) {
     }
 }
 
-/** The notes tile: a checklist, a note or handwriting; a tap opens it in place (see NotesPanel). */
+/**
+ * The notes tile: a checklist and text, or handwriting; a tap opens it in place (see NotesPanel).
+ * A checklist item shown on the tile ticks with a tap on it ([onTick]), without opening the tile.
+ */
 @Composable
-internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
+internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean, onTick: ((Int) -> Unit)? = null) {
     val n = tile.spec.content as? TileContent.Notes ?: return
     val ink = white()
     val size = tile.spec.size
@@ -709,7 +724,7 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
                     val mark = if (n.items.isNotEmpty() && left == 0) "✓" else if (left > 0) "$left" else ""
                     MetroText(mark, MetroType.style(m.text(13f), FontWeight.SemiBold), color = ink, modifier = Modifier.align(Alignment.TopEnd).padding(m.dp(5f)))
                 } else {
-                    NoteFace(n, tile.label, size, left, m)
+                    NoteFace(n, tile.label, size, left, m, onTick)
                 }
             }
             NoteStyle.INK -> InkFace(tile.spec.id, n, size, m)
@@ -724,17 +739,27 @@ internal fun NotesTile(tile: ResolvedTile, m: TileMetrics, open: Boolean) {
  * as many unticked items as fit under them, ticked ones last, and "+n more" for the rest.
  */
 @Composable
-private fun NoteFace(n: TileContent.Notes, label: String, size: TileSize, left: Int, m: TileMetrics) {
+private fun NoteFace(n: TileContent.Notes, label: String, size: TileSize, left: Int, m: TileMetrics, onTick: ((Int) -> Unit)?) {
     val ink = white()
-    // Rows of 13sp the tile has under its name: text lines come out of the same room as items.
+    // Rows the tile has under its name: text lines come out of the same room as items.
     val rows = when (size) {
         TileSize.MEDIUM -> 5
         TileSize.WIDE -> 4
-        else -> 14
+        else -> 12
     }
     val hasText = n.text.isNotBlank()
     val textLines = if (!hasText) 0 else if (n.items.isEmpty()) rows else minOf(if (size == TileSize.LARGE) 4 else 2, rows - 1)
-    val ordered = n.items.filter { !it.done } + n.items.filter { it.done }
+    // Unticked items first, ticked ones last. The order is taken when start is shown and kept while
+    // items are ticked on the tile, so a ticked row stays where it is instead of jumping away from
+    // the finger; it moves down the next time start comes back.
+    var shownAt by remember { mutableIntStateOf(0) }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        shownAt++
+        onPauseOrDispose { }
+    }
+    val texts = n.items.map { it.text }
+    val order = remember(texts, shownAt) { n.items.indices.sortedBy { if (n.items[it].done) 1 else 0 } }
+    val ordered = order.filter { it in n.items.indices }.map { it to n.items[it] }
     // Wide tiles list items in two columns.
     val columns = if (size == TileSize.WIDE) 2 else 1
     val shown = ordered.take((rows - textLines) * columns)
@@ -747,20 +772,19 @@ private fun NoteFace(n: TileContent.Notes, label: String, size: TileSize, left: 
         Spacer(Modifier.height(m.dp(4f)))
         when {
             !hasText && n.items.isEmpty() -> MetroText("empty · tap to open", MetroType.style(m.text(13f)), color = ink.copy(alpha = 0.8f))
-            !hasText && left == 0 -> MetroText("all ticked", MetroType.style(m.text(22f), FontWeight.Light), color = ink)
             else -> {
-                if (hasText) MetroText(n.text, MetroType.style(m.text(13f)), color = ink, maxLines = textLines)
+                if (hasText) MetroText(n.text, MetroType.style(m.text(14f)), color = ink, maxLines = textLines)
                 if (hasText && shown.isNotEmpty()) Spacer(Modifier.height(m.dp(4f)))
                 if (columns == 2 && shown.size > 1) {
                     val half = (shown.size + 1) / 2
                     Row(horizontalArrangement = Arrangement.spacedBy(m.dp(12f))) {
-                        Column(Modifier.weight(1f)) { shown.take(half).forEach { NoteRow(it.text, it.done, m) } }
-                        Column(Modifier.weight(1f)) { shown.drop(half).forEach { NoteRow(it.text, it.done, m) } }
+                        Column(Modifier.weight(1f)) { shown.take(half).forEach { (i, item) -> NoteRow(item.text, item.done, m, onTick?.let { { it(i) } }) } }
+                        Column(Modifier.weight(1f)) { shown.drop(half).forEach { (i, item) -> NoteRow(item.text, item.done, m, onTick?.let { { it(i) } }) } }
                     }
                 } else {
-                    shown.forEach { NoteRow(it.text, it.done, m) }
+                    shown.forEach { (i, item) -> NoteRow(item.text, item.done, m, onTick?.let { { it(i) } }) }
                 }
-                if (more > 0) MetroText("+$more more", MetroType.style(m.text(12f)), color = ink.copy(alpha = 0.8f))
+                if (more > 0) MetroText("+$more more", MetroType.style(m.text(13f)), color = ink.copy(alpha = 0.85f))
             }
         }
     }
@@ -812,17 +836,57 @@ private fun BoxScope.InkFace(id: Long, n: TileContent.Notes, size: TileSize, m: 
 /** Whether a tile of this size can be written on with a pen: wide and large only, the rest are too small to write on. */
 internal fun TileSize.canWriteOnTile() = this == TileSize.WIDE || this == TileSize.LARGE
 
+/**
+ * One checklist item on the tile. With [onTick], a quick tap on the row ticks it (or takes the
+ * tick back) and the tile doesn't open; a hold is left alone, so it still picks the tile up for
+ * edit mode, and a drag still scrolls start.
+ */
 @Composable
-private fun NoteRow(text: String, done: Boolean, m: TileMetrics) {
+private fun NoteRow(text: String, done: Boolean, m: TileMetrics, onTick: (() -> Unit)?) {
     val ink = white()
-    Row(Modifier.padding(vertical = m.dp(2f)), verticalAlignment = Alignment.CenterVertically) {
-        Canvas(Modifier.size(m.dp(11f))) {
+    val tick by rememberUpdatedState(onTick)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(
+                if (onTick == null) {
+                    Modifier
+                } else {
+                    Modifier
+                        .semantics { stateDescription = if (done) "done" else "not done" }
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                // Up within the long-press time and without moving: a tap on the item.
+                                val up = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) { waitForUpOrCancellation() }
+                                    ?: return@awaitEachGesture
+                                val action = tick ?: return@awaitEachGesture
+                                up.consume()
+                                action()
+                            }
+                        }
+                },
+            )
+            .padding(vertical = m.dp(2f)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // A box, with a tick in it once done.
+        Canvas(Modifier.size(m.dp(13f))) {
             val stroke = 1.5.dp.toPx()
             drawRect(ink, topLeft = Offset(stroke / 2, stroke / 2), size = Size(size.width - stroke, size.height - stroke), style = Stroke(stroke))
-            if (done) drawRect(ink)
+            if (done) {
+                val s = size.minDimension
+                drawLine(ink, Offset(s * 0.2f, s * 0.52f), Offset(s * 0.42f, s * 0.74f), stroke * 1.2f, StrokeCap.Round)
+                drawLine(ink, Offset(s * 0.42f, s * 0.74f), Offset(s * 0.82f, s * 0.28f), stroke * 1.2f, StrokeCap.Round)
+            }
         }
-        Spacer(Modifier.width(m.dp(7f)))
-        MetroText(text, MetroType.style(m.text(13f)), color = if (done) ink.copy(alpha = 0.6f) else ink, maxLines = 1)
+        Spacer(Modifier.width(m.dp(8f)))
+        MetroText(
+            text,
+            MetroType.style(m.text(15f)).copy(textDecoration = if (done) androidx.compose.ui.text.style.TextDecoration.LineThrough else null),
+            color = if (done) ink.copy(alpha = 0.65f) else ink,
+            maxLines = 1,
+        )
     }
 }
 
