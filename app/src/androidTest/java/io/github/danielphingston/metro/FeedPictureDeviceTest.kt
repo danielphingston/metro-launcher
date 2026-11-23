@@ -74,6 +74,13 @@ class FeedPictureDeviceTest {
         return ByteArrayOutputStream().also { bitmap.compress(format, quality, it) }.toByteArray().also { bitmap.recycle() }
     }
 
+    /** Random pixels as a PNG: as large in bytes as a picture of that size gets. */
+    private fun noise(w: Int, h: Int): ByteArray {
+        val random = Random(2)
+        val bitmap = Bitmap.createBitmap(IntArray(w * h) { random.nextInt() or (0xFF shl 24) }, w, h, Bitmap.Config.ARGB_8888)
+        return ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray().also { bitmap.recycle() }
+    }
+
     private fun boundsOf(bytes: ByteArray): Pair<Int, Int> {
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
@@ -126,12 +133,13 @@ class FeedPictureDeviceTest {
 
     @Test
     fun aPictureNoBiggerThanTheTileIsKeptAsItCame() {
-        // Large in bytes, but no bigger than the tile: shrinking would only lose quality.
-        val jpeg = photo(400, 400, quality = 100)
-        assertTrue("the picture must be over the size kept as is: ${jpeg.size}", jpeg.size > FeedStore.KEEP_AS_IS_BYTES)
-        serve(jpeg)
-        assertNotNull(FeedStore.image(context, "https://example.com/exact.jpg", 400, 400))
-        assertArrayEquals(jpeg, stored().single().readBytes())
+        // Large in bytes, but no bigger than the tile: shrinking would only lose quality. Random
+        // pixels as PNG don't compress, so it is several times the size kept as is.
+        val png = noise(400, 400)
+        assertTrue("the picture must be over the size kept as is: ${png.size}", png.size > FeedStore.KEEP_AS_IS_BYTES)
+        serve(png)
+        assertNotNull(FeedStore.image(context, "https://example.com/exact.png", 400, 400))
+        assertArrayEquals(png, stored().single().readBytes())
     }
 
     @Test
