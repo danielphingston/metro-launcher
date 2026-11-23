@@ -29,8 +29,12 @@ Unit tests run unminified code, so they never see what R8 removed. Every CI buil
   (manifest components, startup initializers, Room databases, WorkManager workers) lost its constructor.
 - `tools/smoke-test.sh <release apk>` in the `smoke` job: installs the release APK on an emulator,
   drives it with random input and fails on any crash or ANR. Releases publish only after it passes.
+- `tools/device-tests.sh <dir>` in the same `smoke` job, first: runs the instrumented tests
+  (`app/src/androidTest`) on that emulator with the debug build. Code that needs a real Android
+  (the image decoder, which Robolectric can't run) is tested there. Locally, on the emulator below:
+  `./gradlew assembleDebug assembleDebugAndroidTest`, then `tools/device-tests.sh app/build/outputs/apk`.
 
-Both must pass for every new build. When you add a library that creates classes by reflection, add
+All of these must pass for every new build. When you add a library that creates classes by reflection, add
 a keep rule and, if the check can't see it yet, extend `check-release-apk.py`.
 
 ## Battery and performance
@@ -72,8 +76,9 @@ Cloud containers have no KVM, so the emulator runs in software: it works, but sl
 
 - Install on demand (about 1.5 GB): `sdkmanager "emulator" "system-images;android-33;default;x86_64"`, then
   `avdmanager create avd -n dog -k "system-images;android-33;default;x86_64" -d pixel_5`.
-- Start: `emulator -avd dog -no-window -accel off -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -memory 4096 -cores 3`.
+- Start: `ANDROID_I_WANT_MY_TCG=yes emulator -avd dog -no-window -accel off -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -memory 4096 -cores 3`.
   Boot takes 10 to 15 minutes; wait for `adb shell getprop sys.boot_completed` to print 1, then another minute.
+  Emulator 37 and later refuse `-accel off` without `ANDROID_I_WANT_MY_TCG=yes`.
 - Stop the Gradle and Kotlin daemons first (`./gradlew --stop`). With them holding 6 GB the emulator's
   system_server starves and shows "System UI isn't responding" forever; a reboot does not cure it while they run.
   Never start a second emulator on the same AVD.

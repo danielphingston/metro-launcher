@@ -10,6 +10,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -131,6 +132,75 @@ class FeedImageTest {
         }
         assertNull(FeedStore.image(context, pictrs, 330, 330, declaredBytes = 30_000_000))
         assertEquals(listOf(small), asked)
+    }
+
+    private val shrinkOriginal = FeedStore.shrink
+
+    @Test
+    fun picturesAreStoredAtTileSizeOncePerSize() {
+        val big = ByteArray(FeedStore.KEEP_AS_IS_BYTES + 1).also { png().copyInto(it) }
+        val small = png()
+        val asked = ArrayList<String>()
+        FeedStore.http = FeedHttp { url, _, _ ->
+            asked += url
+            Fetched(big, url, "image/png")
+        }
+        val shrunk = ArrayList<Pair<Int, Int>>()
+        FeedStore.shrink = { _, w, h ->
+            shrunk += w to h
+            small
+        }
+        FeedStore.decodeFile = { _, w, h -> Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888) }
+        try {
+            val url = "https://example.com/a.jpg"
+            assertNotNull(FeedStore.image(context, url, 330, 330))
+            // Stored as the shrunk copy, for the tile's size rounded up to 100s.
+            val dir = java.io.File(context.cacheDir, "feed_images")
+            val stored = dir.listFiles().orEmpty().filterNot { it.name.endsWith(".tmp") }
+            assertEquals(1, stored.size)
+            assertTrue(stored.single().readBytes().contentEquals(small))
+            assertEquals(listOf(400 to 400), shrunk)
+            // A tile of nearly the same size shares the copy; after a restart too.
+            FeedStore.clearMemory()
+            assertNotNull(FeedStore.image(context, url, 360, 395))
+            assertEquals(1, asked.size)
+            // A bigger tile gets its own, sharper copy.
+            assertNotNull(FeedStore.image(context, url, 690, 330))
+            assertEquals(2, asked.size)
+            assertEquals(listOf(400 to 400, 700 to 400), shrunk)
+        } finally {
+            FeedStore.shrink = shrinkOriginal
+        }
+    }
+
+    @Test
+    fun aPictureThatCantBeShrunkIsKeptAsItCame() {
+        val big = ByteArray(FeedStore.KEEP_AS_IS_BYTES + 1).also { png().copyInto(it) }
+        FeedStore.http = FeedHttp { url, _, _ -> Fetched(big, url, "image/png") }
+        FeedStore.decodeFile = { _, w, h -> Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888) }
+        val dir = java.io.File(context.cacheDir, "feed_images")
+        try {
+            for ((i, failing) in listOf<(ByteArray, Int, Int) -> ByteArray?>({ _, _, _ -> null }, { _, _, _ -> throw IllegalStateException("no") }).withIndex()) {
+                FeedStore.shrink = failing
+                assertNotNull(FeedStore.image(context, "https://example.com/$i.jpg", 330, 330))
+            }
+            val stored = dir.listFiles().orEmpty().filterNot { it.name.endsWith(".tmp") }
+            assertEquals(2, stored.size)
+            assertTrue(stored.all { it.readBytes().contentEquals(big) })
+        } finally {
+            FeedStore.shrink = shrinkOriginal
+        }
+    }
+
+    @Test
+    fun theCacheGrowsWithTheFeedsInUse() {
+        assertEquals(120, FeedStore.cacheLimit(0))
+        assertEquals(120, FeedStore.cacheLimit(4))
+        assertEquals(360, FeedStore.cacheLimit(12))
+        assertEquals(600, FeedStore.cacheLimit(100))
+        assertEquals(400 to 400, FeedStore.storeBox(330, 330))
+        assertEquals(700 to 400, FeedStore.storeBox(690, 330))
+        assertEquals(100 to 100, FeedStore.storeBox(0, -5))
     }
 
     @Test

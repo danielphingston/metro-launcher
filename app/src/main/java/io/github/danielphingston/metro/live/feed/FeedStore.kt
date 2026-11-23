@@ -113,7 +113,21 @@ object FeedStore {
     val RETRY_MS = TimeUnit.MINUTES.toMillis(5)
     private const val MAX_FEED_BYTES = 2 * 1024 * 1024
     private const val MAX_IMAGE_BYTES = 3 * 1024 * 1024
-    private const val MAX_CACHED_IMAGES = 120
+    /**
+     * The picture cache keeps [IMAGES_PER_FEED] pictures for each feed in use (a feed lists at
+     * most [FeedParser.MAX_ITEMS] posts, so all of a feed's pictures fit), between
+     * [MIN_CACHED_IMAGES] and [MAX_CACHED_IMAGES] files. Pictures are stored at tile size, so even
+     * the most is tens of MB.
+     */
+    private const val IMAGES_PER_FEED = 30
+    private const val MIN_CACHED_IMAGES = 120
+    private const val MAX_CACHED_IMAGES = 600
+
+    /** A picture this small (or one no bigger than the tile) is kept as downloaded: shrinking it would gain little and cost quality. */
+    internal const val KEEP_AS_IS_BYTES = 150 * 1024
+
+    /** How long a picture in use goes before it is marked as used again, so the cache keeps it. */
+    private val TOUCH_AFTER_MS = TimeUnit.HOURS.toMillis(1)
 
     private val _feeds = MutableStateFlow<Map<String, CachedFeed>>(emptyMap())
     val feeds: StateFlow<Map<String, CachedFeed>> = _feeds.asStateFlow()
@@ -272,11 +286,18 @@ object FeedStore {
     private fun load(context: Context, fetch: String, width: Int, height: Int): Bitmap? =
         runCatching {
             val dir = File(context.cacheDir, "feed_images").apply { mkdirs() }
-            val file = File(dir, hash(fetch))
-            if (!file.exists()) {
+            // Stored at the tile's size (rounded up), so each size of tile has its own copy.
+            val (boxW, boxH) = storeBox(width, height)
+            val file = File(dir, hash("$fetch@${boxW}x$boxH"))
+            if (file.exists()) {
+                touch(file)
+            } else {
                 val bytes = http.get(fetch, MAX_IMAGE_BYTES, "image/*").bytes
+                if (!isWebImage(bytes.copyOf(minOf(bytes.size, 32)))) throw IOException("not a web picture")
+                // A picture that can't be shrunk (or isn't worth it) is kept as it came.
+                val stored = runCatching { shrink(bytes, boxW, boxH) }.getOrNull() ?: bytes
                 val tmp = File(dir, file.name + ".tmp")
-                tmp.writeBytes(bytes)
+                tmp.writeBytes(stored)
                 tmp.renameTo(file)
                 trim(dir)
             }
@@ -286,6 +307,51 @@ object FeedStore {
             }
             decodeFile(file, width, height)
         }.getOrNull()
+
+    /** The size a picture is stored at for a [width] x [height] tile: rounded up to steps of 100, so close sizes share a copy. */
+    internal fun storeBox(width: Int, height: Int): Pair<Int, Int> =
+        ((width.coerceAtLeast(1) + 99) / 100 * 100) to ((height.coerceAtLeast(1) + 99) / 100 * 100)
+
+    /**
+     * [bytes] (a downloaded picture) shrunk to cover a [boxW] x [boxH] tile, as WebP; null to keep
+     * them as they are: small already ([KEEP_AS_IS_BYTES]), no bigger than the tile, or when the
+     * smaller copy wouldn't be smaller. Decoded once more on the first showing, off the main
+     * thread; every later showing then decodes the small copy. Replaceable in tests.
+     */
+    internal var shrink: (ByteArray, Int, Int) -> ByteArray? = { bytes, boxW, boxH ->
+        if (bytes.size <= KEEP_AS_IS_BYTES) {
+            null
+        } else {
+            var smaller = false
+            val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))) { decoder, info, _ ->
+                val target = decodeTarget(info.size.width, info.size.height, boxW, boxH)
+                smaller = target.width < info.size.width || target.height < info.size.height || target.crop != null
+                // Pixels in ordinary memory: a picture in graphics memory can't be compressed.
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.setTargetSize(target.width, target.height)
+                target.crop?.let { decoder.crop = it }
+            }
+            try {
+                if (!smaller) {
+                    null
+                } else {
+                    val out = ByteArrayOutputStream(64 * 1024)
+                    if (!bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, WEBP_QUALITY, out)) null
+                    else out.toByteArray().takeIf { it.isNotEmpty() && it.size < bytes.size }
+                }
+            } finally {
+                bitmap.recycle()
+            }
+        }
+    }
+
+    private const val WEBP_QUALITY = 85
+
+    /** Marks [file] as used (at most once an hour), so the cache keeps pictures still on tiles. */
+    private fun touch(file: File) {
+        val now = System.currentTimeMillis()
+        if (now - file.lastModified() > TOUCH_AFTER_MS) file.setLastModified(now)
+    }
 
     /** Decodes a downloaded picture for a [width] x [height] tile; replaceable in tests (Robolectric can't run ImageDecoder). */
     internal var decodeFile: (File, Int, Int) -> Bitmap = { file, width, height ->
@@ -401,10 +467,13 @@ object FeedStore {
     /** Whether [fetch] is a smaller picture asked of a Lemmy server (see [sizedImageUrl]). */
     private fun isLemmyThumbnail(fetch: String): Boolean = fetch.endsWith("&format=webp") && "thumbnail=" in fetch
 
-    /** Keeps the picture cache to the newest [MAX_CACHED_IMAGES] files. */
+    /** How many pictures the cache keeps for [feeds] feeds in use; see [IMAGES_PER_FEED]. */
+    internal fun cacheLimit(feeds: Int): Int = (IMAGES_PER_FEED * feeds).coerceIn(MIN_CACHED_IMAGES, MAX_CACHED_IMAGES)
+
+    /** Keeps the picture cache to the most recently used [cacheLimit] files. */
     private fun trim(dir: File) {
         val files = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return
-        files.drop(MAX_CACHED_IMAGES).forEach { it.delete() }
+        files.drop(cacheLimit(_feeds.value.size)).forEach { it.delete() }
     }
 
     internal fun download(url: String, maxBytes: Int, accept: String): Fetched {

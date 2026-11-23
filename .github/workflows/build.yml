@@ -76,8 +76,10 @@ jobs:
           METRO_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           # Releases must be signed with the real key; PR builds have no secrets and fall back.
           REQUIRE_SIGNING: ${{ steps.plan.outputs.release == 'true' && '-PrequireReleaseSigning=true' || ' ' }}
+        # The debug app and its instrumented tests are built here too; the smoke job runs them.
         run: >
           ./gradlew testDebugUnitTest lintDebug assembleRelease bundleRelease
+          assembleDebug assembleDebugAndroidTest
           -PversionName=${{ steps.plan.outputs.version }}
           -PversionCode=${{ github.run_number }}
           $REQUIRE_SIGNING
@@ -99,6 +101,14 @@ jobs:
         with:
           name: metro-launcher-${{ steps.plan.outputs.version }}
           path: dist/
+
+      # Kept apart from the release files above: only those are ever published.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: device-tests
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -125,13 +135,20 @@ jobs:
           name: metro-launcher-${{ needs.build.outputs.version }}
           path: dist
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: device-tests
+          path: device-tests
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Launch and exercise the release build
+      # First the instrumented tests (code that needs a real Android, e.g. the image decoder), on
+      # the debug build, which is then uninstalled; then the release build, from a clean install.
+      - name: Run the instrumented tests, then launch and exercise the release build
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -139,13 +156,17 @@ jobs:
           target: google_apis
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: tools/smoke-test.sh dist/*.apk
+          script: |
+            tools/device-tests.sh device-tests
+            tools/smoke-test.sh dist/*.apk
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: smoke-logcat
-          path: smoke-logcat.txt
+          path: |
+            smoke-logcat.txt
+            device-tests.txt
           if-no-files-found: ignore
 
   # Publishes the build above once it passed every check: for a merged PR labelled release,
