@@ -121,8 +121,22 @@ object FeedStore {
     internal var http: FeedHttp = FeedHttp(::download)
 
     private const val FEED_ACCEPT = "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8"
-    private val alternate = Regex("""<link\b[^>]*>""", RegexOption.IGNORE_CASE)
-    private val attribute = Regex("""([a-zA-Z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
+    // Bounded, so a crafted page can't make these backtrack for hours (see FeedParser).
+    private val alternate = Regex("""<link\b[^<>]{0,4096}>""", RegexOption.IGNORE_CASE)
+    private val attribute = Regex("""([a-zA-Z-]{1,40})\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
+
+    /**
+     * Sent with every feed request: who is asking, as feed hosts (Lemmy instances included) ask of
+     * automated clients. Without the app's version, so a host can't single out builds to target.
+     */
+    internal val USER_AGENT = "android:${BuildConfig.APPLICATION_ID} (Metro launcher feed tile)"
+
+    /**
+     * The most one download (a feed or a picture, redirects included) may take in all. Each read
+     * also has its own limit, but a server sending a byte every few seconds would pass those
+     * forever. A minute fits a 2 MB feed on a slow connection.
+     */
+    internal var downloadLimitMs = TimeUnit.SECONDS.toMillis(60)
 
     private val lock = Mutex()
     private val inFlight = HashSet<String>()
@@ -257,11 +271,82 @@ object FeedStore {
                 tmp.renameTo(file)
                 trim(dir)
             }
+            if (!isWebImage(readHead(file))) {
+                file.delete()
+                throw IOException("not a web picture")
+            }
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
-                val (w, h) = ImageDecode.coverSize(info.size.width, info.size.height, width.coerceAtLeast(1), height.coerceAtLeast(1))
-                decoder.setTargetSize(w, h)
+                val target = decodeTarget(info.size.width, info.size.height, width, height)
+                decoder.setTargetSize(target.width, target.height)
+                target.crop?.let { decoder.crop = it }
             }
         }.onFailure { failedImages += url }.getOrNull()
+    }
+
+    /** The size to decode a picture at, and the part of it to keep (null: all of it). */
+    internal data class DecodeTarget(val width: Int, val height: Int, val crop: android.graphics.Rect?)
+
+    /**
+     * Pictures are scaled to cover the tile ([ImageDecode.coverSize]). A very long one (a 65000x400
+     * panorama, a few KB as a PNG) would still cover it at full size, about 100 MB; such a picture
+     * is cut to its middle, at most [MAX_COVER_FACTOR] times the tile's side, which is more than
+     * the tile shows (the middle). Any ordinary picture is decoded as before, uncut.
+     */
+    internal fun decodeTarget(srcW: Int, srcH: Int, boxW: Int, boxH: Int): DecodeTarget {
+        val bw = boxW.coerceAtLeast(1)
+        val bh = boxH.coerceAtLeast(1)
+        val (w, h) = ImageDecode.coverSize(srcW.coerceAtLeast(1), srcH.coerceAtLeast(1), bw, bh)
+        val maxW = bw.toLong() * MAX_COVER_FACTOR
+        val maxH = bh.toLong() * MAX_COVER_FACTOR
+        if (w <= maxW && h <= maxH) return DecodeTarget(w, h, null)
+        val cw = minOf(w.toLong(), maxW).toInt()
+        val ch = minOf(h.toLong(), maxH).toInt()
+        val left = (w - cw) / 2
+        val top = (h - ch) / 2
+        return DecodeTarget(w, h, android.graphics.Rect(left, top, left + cw, top + ch))
+    }
+
+    private const val MAX_COVER_FACTOR = 4
+
+    private fun readHead(file: File): ByteArray = file.inputStream().use { input ->
+        val head = ByteArray(32)
+        var n = 0
+        while (n < head.size) {
+            val read = input.read(head, n, head.size - n)
+            if (read < 0) break
+            n += read
+        }
+        head.copyOf(n)
+    }
+
+    /**
+     * Whether [head], a file's first bytes, starts a JPEG, PNG, GIF, WebP or AVIF picture, the
+     * formats feeds use. Anything else isn't decoded: Android would also decode camera raw (DNG),
+     * HEIF, BMP and ICO, large native decoders a stranger's feed has no need to reach.
+     */
+    internal fun isWebImage(head: ByteArray): Boolean {
+        fun at(offset: Int, vararg bytes: Int) =
+            head.size >= offset + bytes.size && bytes.indices.all { head[offset + it] == bytes[it].toByte() }
+        fun ascii(offset: Int, text: String) = at(offset, *text.map { it.code }.toIntArray())
+        return when {
+            at(0, 0xFF, 0xD8, 0xFF) -> true // JPEG
+            at(0, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) -> true // PNG
+            ascii(0, "GIF87a") || ascii(0, "GIF89a") -> true
+            ascii(0, "RIFF") && ascii(8, "WEBP") -> true
+            ascii(4, "ftyp") -> {
+                // AVIF: an ISO box whose major brand, or a compatible one, is avif or avis.
+                val boxSize = ((head[0].toInt() and 0xFF) shl 24) or ((head[1].toInt() and 0xFF) shl 16) or
+                    ((head[2].toInt() and 0xFF) shl 8) or (head[3].toInt() and 0xFF)
+                val end = minOf(head.size, boxSize.coerceAtLeast(0))
+                val brands = buildList {
+                    if (end >= 12) add(8)
+                    var i = 16
+                    while (i + 4 <= end) { add(i); i += 4 }
+                }
+                brands.any { ascii(it, "avif") || ascii(it, "avis") }
+            }
+            else -> false
+        }
     }
 
     /**
@@ -289,17 +374,18 @@ object FeedStore {
         files.drop(MAX_CACHED_IMAGES).forEach { it.delete() }
     }
 
-    private fun download(url: String, maxBytes: Int, accept: String): Fetched {
+    internal fun download(url: String, maxBytes: Int, accept: String): Fetched {
         var target = URL(url)
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(downloadLimitMs)
         // Follows https redirects only (HttpURLConnection won't change protocol by itself anyway).
         repeat(5) {
+            if (System.nanoTime() > deadline) throw java.net.SocketTimeoutException("download took too long")
             val connection = target.openConnection() as HttpURLConnection
             try {
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 15_000
                 connection.instanceFollowRedirects = false
-                // A descriptive agent, as feed hosts (Lemmy instances included) ask of automated clients.
-                connection.setRequestProperty("User-Agent", "android:${BuildConfig.APPLICATION_ID}:${BuildConfig.VERSION_NAME} (Metro launcher feed tile)")
+                connection.setRequestProperty("User-Agent", USER_AGENT)
                 connection.setRequestProperty("Accept", accept)
                 val code = connection.responseCode
                 if (code in 300..399) {
@@ -309,7 +395,7 @@ object FeedStore {
                     return@repeat
                 }
                 if (code !in 200..299) throw HttpStatusException(code)
-                val bytes = connection.inputStream.use { readLimited(it, maxBytes) }
+                val bytes = connection.inputStream.use { readLimited(it, maxBytes, deadline) }
                 return Fetched(bytes, target.toString(), connection.contentType)
             } finally {
                 connection.disconnect()
@@ -318,10 +404,11 @@ object FeedStore {
         throw IOException("too many redirects")
     }
 
-    private fun readLimited(input: InputStream, maxBytes: Int): ByteArray {
+    private fun readLimited(input: InputStream, maxBytes: Int, deadline: Long): ByteArray {
         val out = ByteArrayOutputStream()
         val buffer = ByteArray(16 * 1024)
         while (true) {
+            if (System.nanoTime() > deadline) throw java.net.SocketTimeoutException("download took too long")
             val n = input.read(buffer)
             if (n < 0) break
             out.write(buffer, 0, n)
@@ -376,11 +463,12 @@ object FeedStore {
         val array = obj.optJSONArray("items") ?: JSONArray()
         val items = (0 until array.length()).mapNotNull { i ->
             val o = array.optJSONObject(i) ?: return@mapNotNull null
-            val title = o.optString("title").ifEmpty { return@mapNotNull null }
+            // Copies saved by earlier versions may hold longer text than the parser now keeps.
+            val title = o.optString("title").ifEmpty { return@mapNotNull null }.let { FeedParser.cap(it, FeedParser.MAX_TITLE) }
             FeedItem(
                 title,
                 o.optString("link").ifEmpty { null },
-                o.optString("author").ifEmpty { null },
+                o.optString("author").ifEmpty { null }?.let { FeedParser.cap(it, FeedParser.MAX_AUTHOR) },
                 if (o.has("publishedAt")) o.optLong("publishedAt") else null,
                 o.optString("image").ifEmpty { null },
                 if (o.has("points")) o.optInt("points") else null,
@@ -389,7 +477,8 @@ object FeedStore {
                 if (o.has("imageBytes")) o.optLong("imageBytes") else null,
             )
         }
-        CachedFeed(obj.getString("url"), Feed(obj.optString("title").ifEmpty { null }, items), obj.optLong("fetchedAt"))
+        val feedTitle = obj.optString("title").ifEmpty { null }?.let { FeedParser.cap(it, FeedParser.MAX_FEED_TITLE) }
+        CachedFeed(obj.getString("url"), Feed(feedTitle, items), obj.optLong("fetchedAt"))
     }.getOrNull()
 
     private val postLink = Regex("^https://([A-Za-z0-9.-]+)/post/(\\d+)/?$")
@@ -424,7 +513,7 @@ object FeedStore {
             connection.connectTimeout = 5_000
             connection.readTimeout = 5_000
             connection.instanceFollowRedirects = false
-            connection.setRequestProperty("User-Agent", "android:${BuildConfig.APPLICATION_ID}:${BuildConfig.VERSION_NAME} (Metro launcher feed tile)")
+            connection.setRequestProperty("User-Agent", USER_AGENT)
             connection.setRequestProperty("Accept", "application/activity+json")
             val code = connection.responseCode
             when {

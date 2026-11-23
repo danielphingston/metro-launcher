@@ -1,6 +1,7 @@
 package io.github.danielphingston.metro.live.feed
 
 import java.net.URI
+import java.net.URL
 import java.util.Locale
 
 /**
@@ -101,16 +102,21 @@ object FeedAddress {
         return uri(t)?.host?.lowercase(Locale.ROOT) in redditHosts
     }
 
-    /** An RSS or Atom address for [input], or null when it can't be one. Plain http is upgraded: Android refuses it. */
+    /**
+     * An RSS or Atom address for [input], or null when it can't be one. Plain http is upgraded:
+     * Android refuses it. A user name and password in it are dropped ([withoutCredentials]).
+     */
     fun normalize(input: String): String? {
         val text = input.trim()
         if (text.isEmpty() || text.any { it.isWhitespace() }) return null
-        val withScheme = when {
-            text.startsWith("https://", ignoreCase = true) -> text
-            text.startsWith("http://", ignoreCase = true) -> "https://" + text.substring("http://".length)
-            text.contains("://") -> return null
-            else -> "https://$text"
-        }
+        val withScheme = withoutCredentials(
+            when {
+                text.startsWith("https://", ignoreCase = true) -> text
+                text.startsWith("http://", ignoreCase = true) -> "https://" + text.substring("http://".length)
+                text.contains("://") -> return null
+                else -> "https://$text"
+            },
+        )
         val parsed = runCatching { URI(withScheme) }.getOrNull() ?: return null
         val h = parsed.host ?: return null
         return if (host.matches(h)) withScheme else null
@@ -125,6 +131,38 @@ object FeedAddress {
             else -> "https://$t"
         }
         return runCatching { URI(withScheme) }.getOrNull()?.takeIf { it.host != null }
+    }
+
+    /** Whether [text] is an http or https address. */
+    fun isWeb(text: String): Boolean = text.startsWith("https://", ignoreCase = true) || text.startsWith("http://", ignoreCase = true)
+
+    /**
+     * [url] without a user name and password ("https://me:secret@example.com/feed" ->
+     * "https://example.com/feed"). Android's downloader never sent them, so no feed needed them;
+     * dropped, they can't travel in a backup. Everything else is left exactly as it was. Other
+     * secrets (a token in the query) can't be told apart from ordinary parameters, so they stay.
+     */
+    fun withoutCredentials(url: String): String {
+        if (!isWeb(url)) return url
+        val authorityStart = url.indexOf("://") + 3
+        val authorityEnd = url.indexOfAny(charArrayOf('/', '?', '#'), authorityStart).let { if (it < 0) url.length else it }
+        val at = url.lastIndexOf('@', authorityEnd - 1)
+        if (at < authorityStart) return url
+        return url.substring(0, authorityStart) + url.substring(at + 1)
+    }
+
+    /**
+     * A feed address read from a saved or restored layout, as it may be used: an http or https
+     * address with a host, without credentials; null for anything else (a crafted backup's
+     * "intent:" or "file:" address). Every address the app itself ever saved passes unchanged
+     * unless it held credentials.
+     */
+    fun fromLayout(url: String): String? {
+        val text = url.trim()
+        if (!isWeb(text)) return null
+        val clean = withoutCredentials(text)
+        val host = runCatching { URL(clean).host }.getOrNull()
+        return clean.takeIf { !host.isNullOrEmpty() }
     }
 
     /** The host of [url] when it is a site's front page ("https://programming.dev/"), else null. */
@@ -151,10 +189,13 @@ object FeedAddress {
     /** How a feed is listed in the editor: "!linux@lemmy.ml", or the address. */
     fun shown(url: String): String = lemmy(url)?.first?.toString() ?: url
 
-    /** What to open when the tile has no headline to open yet: the community's page, else the site. */
+    /**
+     * What to open when the tile has no headline to open yet: the community's page, else the site.
+     * Always a web address: anything else opens a blank page, never another kind of link.
+     */
     fun homePage(url: String): String {
         lemmy(url)?.let { (community, _) -> return "https://${community.instance}/c/${community.name}" }
-        val uri = uri(url) ?: return url
+        val uri = uri(url) ?: return url.takeIf(::isWeb) ?: "about:blank"
         return "https://${uri.host}/"
     }
 

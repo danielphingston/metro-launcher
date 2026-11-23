@@ -1,6 +1,5 @@
 package io.github.danielphingston.metro.live.weather
 
-import io.github.danielphingston.metro.BuildConfig
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -34,7 +33,8 @@ object WeatherApi {
         try {
             connection.connectTimeout = 10_000
             connection.readTimeout = 15_000
-            connection.setRequestProperty("User-Agent", "MetroLauncher/${BuildConfig.VERSION_NAME}")
+            // No version: a server has no need to know which build is asking.
+            connection.setRequestProperty("User-Agent", "MetroLauncher")
             if (connection.responseCode !in 200..299) throw IOException("HTTP ${connection.responseCode}")
             return connection.inputStream.bufferedReader().use { it.readText() }
         } finally {
