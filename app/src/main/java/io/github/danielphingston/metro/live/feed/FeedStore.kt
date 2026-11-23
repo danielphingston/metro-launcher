@@ -255,13 +255,22 @@ object FeedStore {
      */
     fun image(context: Context, url: String, width: Int, height: Int, declaredBytes: Long? = null): Bitmap? {
         if (url in failedImages) return null
-        val fetch = sizedImageUrl(url, width)
-        // Declared too big and the site can't be asked for a smaller one: not even started.
-        if (fetch == url && declaredBytes != null && declaredBytes > MAX_IMAGE_BYTES) {
-            failedImages += url
-            return null
+        val sized = sizedImageUrl(url, width, height)
+        // A Lemmy server that can't make the smaller picture (an old one, a format it can't
+        // convert) still has the picture itself: that is tried next, as before this was asked.
+        val tries = if (sized != url && isLemmyThumbnail(sized)) listOf(sized, url) else listOf(sized)
+        for (fetch in tries) {
+            // Declared too big and the site can't be asked for a smaller one: not even started.
+            if (fetch == url && declaredBytes != null && declaredBytes > MAX_IMAGE_BYTES) break
+            load(context, fetch, width, height)?.let { return it }
         }
-        return runCatching {
+        failedImages += url
+        return null
+    }
+
+    /** The picture downloaded from [fetch] (or its copy in the cache dir), decoded for the tile; null when it can't be had. */
+    private fun load(context: Context, fetch: String, width: Int, height: Int): Bitmap? =
+        runCatching {
             val dir = File(context.cacheDir, "feed_images").apply { mkdirs() }
             val file = File(dir, hash(fetch))
             if (!file.exists()) {
@@ -275,12 +284,16 @@ object FeedStore {
                 file.delete()
                 throw IOException("not a web picture")
             }
-            ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
-                val target = decodeTarget(info.size.width, info.size.height, width, height)
-                decoder.setTargetSize(target.width, target.height)
-                target.crop?.let { decoder.crop = it }
-            }
-        }.onFailure { failedImages += url }.getOrNull()
+            decodeFile(file, width, height)
+        }.getOrNull()
+
+    /** Decodes a downloaded picture for a [width] x [height] tile; replaceable in tests (Robolectric can't run ImageDecoder). */
+    internal var decodeFile: (File, Int, Int) -> Bitmap = { file, width, height ->
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+            val target = decodeTarget(info.size.width, info.size.height, width, height)
+            decoder.setTargetSize(target.width, target.height)
+            target.crop?.let { decoder.crop = it }
+        }
     }
 
     /** The size to decode a picture at, and the part of it to keep (null: all of it). */
@@ -356,17 +369,37 @@ object FeedStore {
     private val failedImages: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /**
-     * The address to download [url] from for a tile [width] pixels wide. WordPress sites (their
-     * pictures live under /wp-content/uploads/) resize on request with "?w=": nasa.gov answers a
-     * 27 MB original with about 140 KB. Sites that can't, ignore it. Widths are rounded up to
-     * steps of 200 so tiles of similar sizes share one download. Other addresses, and ones that
-     * already have a query, are left as they are.
+     * The address to download [url] from for a tile [width] x [height] pixels. Sizes are rounded
+     * up to steps of 200 so tiles of similar sizes share one download. Other addresses, and ones
+     * that already have a query (or a fragment), are left as they are.
+     *
+     * - WordPress sites (pictures under /wp-content/uploads/) resize on request with "?w=":
+     *   nasa.gov answers a 27 MB original with about 140 KB. Sites that can't, ignore it.
+     * - Lemmy's picture server (pict-rs: /pictrs/image/..., and the /api/v3/image_proxy that
+     *   lemmy.ml sends every picture through) makes a smaller WebP with "thumbnail=N&format=webp",
+     *   N being the longest side; it never enlarges. As the tile shows the picture cropped to
+     *   cover it, N is twice the tile's longer side, so any picture up to 2:1 still covers the
+     *   tile as sharply as the original. Measured on lemmy.world: a 5.6 MB photo comes as about
+     *   1 MB at 1400, a 3 MB one as about 450 KB.
      */
-    internal fun sizedImageUrl(url: String, width: Int): String {
-        if ("/wp-content/uploads/" !in url || '?' in url || '#' in url) return url
-        val step = ((width.coerceIn(200, 1600) + 199) / 200) * 200
-        return "$url?w=$step"
+    internal fun sizedImageUrl(url: String, width: Int, height: Int = width): String {
+        if ('#' in url) return url
+        if ("/wp-content/uploads/" in url && '?' !in url) {
+            val step = ((width.coerceIn(200, 1600) + 199) / 200) * 200
+            return "$url?w=$step"
+        }
+        val side = ((2 * maxOf(width, height)).coerceIn(400, 2000) + 199) / 200 * 200
+        if (pictrsImage.containsMatchIn(url) && '?' !in url) return "$url?thumbnail=$side&format=webp"
+        if (imageProxy.containsMatchIn(url) && "thumbnail=" !in url) return "$url&thumbnail=$side&format=webp"
+        return url
     }
+
+    /** A picture on a Lemmy instance's own picture server, and one it passes on through its proxy. */
+    private val pictrsImage = Regex("^https://[^/?#]+/pictrs/image/[^/?#]+$")
+    private val imageProxy = Regex("^https://[^/?#]+/api/v3/image_proxy\\?url=[^&#]+$")
+
+    /** Whether [fetch] is a smaller picture asked of a Lemmy server (see [sizedImageUrl]). */
+    private fun isLemmyThumbnail(fetch: String): Boolean = fetch.endsWith("&format=webp") && "thumbnail=" in fetch
 
     /** Keeps the picture cache to the newest [MAX_CACHED_IMAGES] files. */
     private fun trim(dir: File) {

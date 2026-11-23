@@ -29,10 +29,12 @@ import java.io.ByteArrayOutputStream
 class FeedImageTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val original = FeedStore.http
+    private val originalDecode = FeedStore.decodeFile
 
     @After
     fun restore() {
         FeedStore.http = original
+        FeedStore.decodeFile = originalDecode
         FeedStore.clearMemory()
         java.io.File(context.cacheDir, "feed_images").deleteRecursively()
     }
@@ -68,6 +70,67 @@ class FeedImageTest {
         FeedStore.clearMemory()
         FeedStore.image(context, nasa, 720, 400, declaredBytes = 26_985_150)
         assertEquals(1, asked.size)
+    }
+
+    @Test
+    fun lemmyPicturesAreAskedForAtTileSize() {
+        val pictrs = "https://lemmy.world/pictrs/image/22e7080d-a117-4bff-91e8-d7df913a0d1b.jpeg"
+        // Twice the tile's longer side, in steps of 200: a picture up to 2:1 still covers the tile.
+        assertEquals("$pictrs?thumbnail=800&format=webp", FeedStore.sizedImageUrl(pictrs, 330, 330))
+        assertEquals("$pictrs?thumbnail=1400&format=webp", FeedStore.sizedImageUrl(pictrs, 690, 330))
+        assertEquals("$pictrs?thumbnail=400&format=webp", FeedStore.sizedImageUrl(pictrs, 90, 90))
+        assertEquals("$pictrs?thumbnail=2000&format=webp", FeedStore.sizedImageUrl(pictrs, 1500, 1500))
+        // lemmy.ml passes every picture through its proxy, which takes the same request.
+        val proxy = "https://lemmy.ml/api/v3/image_proxy?url=https%3A%2F%2Flemmy.zip%2Fpictrs%2Fimage%2F0a55bb6c.avif"
+        assertEquals("$proxy&thumbnail=800&format=webp", FeedStore.sizedImageUrl(proxy, 330, 330))
+        // Already sized, or anything else: as it is.
+        for (same in listOf(
+            "$pictrs?thumbnail=256",
+            "$proxy&thumbnail=256",
+            "$pictrs#x",
+            "http://lemmy.world/pictrs/image/a.jpeg",
+            "https://lemmy.world/pictrs/image/a/b.jpeg",
+            "https://media.piefed.social/posts/a.jpg",
+            "https://raw.githubusercontent.com/a/b/main/pictrs/image.png",
+        )) assertEquals(same, FeedStore.sizedImageUrl(same, 330, 330))
+    }
+
+    @Test
+    fun aLemmyPictureComesSmallAndFallsBackToTheOriginal() {
+        val pictrs = "https://lemmy.world/pictrs/image/4b23b8b3.jpeg"
+        val small = "$pictrs?thumbnail=800&format=webp"
+        // A server that can't make the smaller picture: the original, as before.
+        val asked = ArrayList<String>()
+        FeedStore.http = FeedHttp { url, _, _ ->
+            asked += url
+            if (url == small) throw HttpStatusException(400)
+            Fetched(png(), url, "image/png")
+        }
+        FeedStore.image(context, pictrs, 330, 330)
+        assertEquals(listOf(small, pictrs), asked)
+        // The smaller one first: the original isn't asked for when that works.
+        restore()
+        asked.clear()
+        FeedStore.http = FeedHttp { url, _, _ ->
+            asked += url
+            Fetched(png(), url, "image/png")
+        }
+        FeedStore.decodeFile = { _, w, h -> Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888) }
+        assertNotNull(FeedStore.image(context, pictrs, 330, 330))
+        assertEquals(listOf(small), asked)
+        // Kept on disk under its own address: shown again without another download.
+        FeedStore.clearMemory()
+        assertNotNull(FeedStore.image(context, pictrs, 330, 330))
+        assertEquals(listOf(small), asked)
+        // Too big to fetch whole (declared): only the smaller picture is tried.
+        restore()
+        asked.clear()
+        FeedStore.http = FeedHttp { url, _, _ ->
+            asked += url
+            throw HttpStatusException(400)
+        }
+        assertNull(FeedStore.image(context, pictrs, 330, 330, declaredBytes = 30_000_000))
+        assertEquals(listOf(small), asked)
     }
 
     @Test
