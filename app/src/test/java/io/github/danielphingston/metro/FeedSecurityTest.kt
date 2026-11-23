@@ -201,9 +201,17 @@ class FeedSecurityTest {
         val subdomain = item("https://media.piefed.social/posts/a.jpg", home = "piefed.social")
         assertEquals(subdomain, FeedTiles.lemmyPicture(subdomain, "lemmy.world"))
         assertEquals(item(null), FeedTiles.lemmyPicture(item(null), "lemmy.world"))
-        // Dropped: any other server, chosen by whoever posted.
+        // Kept: big hosts that give an uploader no visitor logs (the GitHub picture is from programming.dev's live feed).
+        for (shared in listOf(
+            item("https://raw.githubusercontent.com/sebastiancarlos/shobr/refs/heads/main/docs/progress-linkedin-6months.png", home = "lemmy.sdf.org"),
+            item("https://user-images.githubusercontent.com/1/2.png", home = "lemmy.sdf.org"),
+            item("https://i.imgur.com/abc123.jpg", home = "lemmy.sdf.org"),
+        )) assertEquals(shared, FeedTiles.lemmyPicture(shared, "programming.dev"))
+        // Dropped: any other server, chosen by whoever posted; lookalikes of the shared hosts too.
         for (other in listOf(
-            item("https://raw.githubusercontent.com/someone/repo/main/a.png", home = "lemmy.sdf.org"),
+            item("https://someone.github.io/a.png", home = "lemmy.sdf.org"),
+            item("https://imgur.com.evil.example/a.png"),
+            item("https://evil.i.imgur.com.example/a.png"),
             item("https://tracker.example/pixel.gif?id=42", home = "lemmy.world.example"),
             item("https://evil-lemmy.world/a.png"),
             item("https://lemmy.world.evil.example/a.png"),
