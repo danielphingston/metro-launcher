@@ -18,7 +18,8 @@ adb install -r -t "$TESTS" || exit 1
 adb logcat -c
 adb shell am instrument -w -r "$PKG.test/androidx.test.runner.AndroidJUnitRunner" > "$OUT" 2>&1
 STATUS=$?
-# The tests' own log, kept before the smoke test clears it: errors the code caught and skipped show here.
+# The tests' own log, kept before the smoke test clears it: crashes and system errors during the tests show
+# here. (The picture code skips a picture it can't use without logging; the tests' assertions check those paths.)
 adb logcat -d > "$LOG"
 if adb logcat -d -b crash | grep -q "Process: $PKG"; then
   echo "::error::The app crashed during the instrumented tests:"
