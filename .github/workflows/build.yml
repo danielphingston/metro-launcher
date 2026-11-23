@@ -167,6 +167,7 @@ jobs:
           path: |
             smoke-logcat.txt
             device-tests.txt
+            device-tests-logcat.txt
           if-no-files-found: ignore
 
   # Publishes the build above once it passed every check: for a merged PR labelled release,

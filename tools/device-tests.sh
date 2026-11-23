@@ -12,10 +12,19 @@ if [ -z "$APP" ] || [ -z "$TESTS" ]; then
 fi
 PKG=io.github.danielphingston.metro
 OUT=device-tests.txt
+LOG=device-tests-logcat.txt
 adb install -r -t "$APP" || exit 1
 adb install -r -t "$TESTS" || exit 1
+adb logcat -c
 adb shell am instrument -w -r "$PKG.test/androidx.test.runner.AndroidJUnitRunner" > "$OUT" 2>&1
 STATUS=$?
+# The tests' own log, kept before the smoke test clears it: errors the code caught and skipped show here.
+adb logcat -d > "$LOG"
+if adb logcat -d -b crash | grep -q "Process: $PKG"; then
+  echo "::error::The app crashed during the instrumented tests:"
+  adb logcat -d -b crash
+  STATUS=1
+fi
 adb uninstall "$PKG.test" > /dev/null 2>&1
 adb uninstall "$PKG" > /dev/null 2>&1
 grep -E "^INSTRUMENTATION_STATUS: (class|test)=|^INSTRUMENTATION_STATUS_CODE: -2" "$OUT" | tail -n 40
