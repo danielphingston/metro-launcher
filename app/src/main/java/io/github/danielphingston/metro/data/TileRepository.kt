@@ -823,7 +823,10 @@ internal object TileJson {
             "tracking" -> TileContent.Tracking
             "feed" -> {
                 val list = obj.optJSONArray("urls")
-                val urls = (0 until (list?.length() ?: 0)).mapNotNull { list?.optString(it)?.ifEmpty { null } }
+                // Only web addresses, without credentials: a restored backup is a file from anywhere.
+                val urls = (0 until (list?.length() ?: 0)).mapNotNull { i ->
+                    list?.optString(i)?.ifEmpty { null }?.let(io.github.danielphingston.metro.live.feed.FeedAddress::fromLayout)
+                }
                 TileContent.Feed(urls.ifEmpty { return null })
             }
             "action" -> TileContent.Action(

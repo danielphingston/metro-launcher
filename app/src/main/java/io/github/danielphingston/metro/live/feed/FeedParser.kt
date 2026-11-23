@@ -37,8 +37,24 @@ data class Feed(val title: String?, val items: List<FeedItem>)
 object FeedParser {
     const val MAX_ITEMS = 25
 
-    private val imgSrc = Regex("""<img[^>]+src\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-    private val tags = Regex("<[^>]*>")
+    /**
+     * The longest headline, author and feed name kept. A tile shows at most five lines (about 150
+     * characters) and Lemmy titles stop at 200, so nothing shown is lost; a feed can't make the
+     * tile lay out megabytes of text at every flip.
+     */
+    const val MAX_TITLE = 300
+    const val MAX_AUTHOR = 100
+    const val MAX_FEED_TITLE = 200
+
+    /** The longest <img> tag searched for its picture. */
+    private const val MAX_IMG_TAG = 4096
+
+    /**
+     * Every pattern here runs in time proportional to its input: a feed may be 2 MB, and patterns
+     * that backtrack (an unbounded run before a part that must follow) took hours on crafted text.
+     */
+    private val imgSrc = Regex("""src\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+    private val tags = Regex("<[^<>]*>")
     private val space = Regex("\\s+")
 
     fun parse(xml: String): Feed {
@@ -48,7 +64,7 @@ object FeedParser {
         var sawRoot = false
         var feedTitle: String? = null
         val items = ArrayList<FeedItem>()
-        var event = runCatching { parser.next() }.getOrElse { throw FeedFormatException("not XML") }
+        var event = prolog(parser)
         while (event != XmlPullParser.END_DOCUMENT && items.size < MAX_ITEMS) {
             if (event == XmlPullParser.START_TAG) {
                 when (local(parser.name)) {
@@ -57,7 +73,7 @@ object FeedParser {
                         sawRoot = true
                         readItem(parser)?.let(items::add)
                     }
-                    "title" -> if (feedTitle == null && sawRoot) feedTitle = clean(readText(parser))
+                    "title" -> if (feedTitle == null && sawRoot) feedTitle = cap(clean(readText(parser)), MAX_FEED_TITLE)
                 }
             }
             event = parser.next()
@@ -146,13 +162,38 @@ object FeedParser {
             }
             event = parser.next()
         }
-        val text = title?.takeIf { it.isNotEmpty() } ?: return null
+        val text = title?.takeIf { it.isNotEmpty() }?.let { cap(it, MAX_TITLE) } ?: return null
         val picture = (image ?: htmlImage)?.let(::unescape)?.takeIf { it.startsWith("https://") || it.startsWith("http://") }
         // Only web links are opened from a tile: a feed can't make a tap run "intent:" or "javascript:".
         val web = link?.trim()?.takeIf { it.startsWith("https://", ignoreCase = true) || it.startsWith("http://", ignoreCase = true) }
         // The declared size belongs to the enclosure; it says nothing about a picture found elsewhere.
         val declared = imageBytes?.takeIf { picture != null && picture == image?.let(::unescape) }
-        return FeedItem(text, web, author, date, picture, counts?.first, counts?.second, authorHome, declared)
+        return FeedItem(text, web, author?.let { cap(it, MAX_AUTHOR) }, date, picture, counts?.first, counts?.second, authorHome, declared)
+    }
+
+    /**
+     * Reads up to the root element and returns its START_TAG. A document whose DOCTYPE declares
+     * entities is refused before any is used: the parser expands them, and a few nested ones
+     * (the "billion laughs") turn a 1 KB feed into gigabytes of text. Feeds don't declare their
+     * own entities; a plain DOCTYPE (RSS 0.91's) is fine.
+     */
+    private fun prolog(parser: XmlPullParser): Int {
+        var event = runCatching { parser.nextToken() }.getOrElse { throw FeedFormatException("not XML") }
+        while (event != XmlPullParser.START_TAG && event != XmlPullParser.END_DOCUMENT) {
+            if (event == XmlPullParser.DOCDECL && parser.text.orEmpty().contains("ENTITY")) {
+                throw FeedFormatException("declares entities")
+            }
+            event = runCatching { parser.nextToken() }.getOrElse { throw FeedFormatException("not XML") }
+        }
+        return event
+    }
+
+    /** [text] cut to [max] characters (never inside a surrogate pair), with an ellipsis when cut. */
+    internal fun cap(text: String, max: Int): String {
+        if (text.length <= max) return text
+        var end = max - 1
+        if (Character.isHighSurrogate(text[end - 1])) end--
+        return text.substring(0, end).trimEnd() + "…"
     }
 
     /** The element name without its namespace prefix ("media:thumbnail" -> "thumbnail"). */
@@ -195,7 +236,7 @@ object FeedParser {
         }
         val raw = clean(name ?: text.toString())
         // "mail@example.com (Name)" shows the name.
-        val shown = Regex("""^\S+@\S+\s+\((.+)\)$""").matchEntire(raw)?.groupValues?.get(1) ?: raw
+        val shown = mailName.matchEntire(raw)?.groupValues?.get(1) ?: raw
         // Lemmy names the author by their profile link: "https://lemmy.ml/u/someone" shows "someone".
         if (shown.startsWith("https://") || shown.startsWith("http://")) {
             val home = runCatching { java.net.URI(shown).host?.lowercase(Locale.ROOT) }.getOrNull()
@@ -204,13 +245,33 @@ object FeedParser {
         return shown.removePrefix("/").ifEmpty { null } to null
     }
 
-    private val countsLine = Regex("""(-?\d+) points?\s*\|\s*(?:<a[^>]*>)?\s*(\d+) comments?""", RegexOption.IGNORE_CASE)
+    /** "mail@example.com (Name)"; the address can't hold a second "@", so there is one way to match. */
+    private val mailName = Regex("""^[^\s@]+@\S+\s+\((.+)\)$""")
+
+    // Bounded runs: an unbounded digit or space run before a part that must follow backtracks.
+    private val countsLine = Regex("""(?<!\d)(-?\d{1,10}) points?\s{0,20}\|\s{0,20}(?:<a[^<>]{0,1000}>)?\s{0,20}(\d{1,10}) comments?""", RegexOption.IGNORE_CASE)
 
     /** Lemmy's "479 points | 94 comments" line, as (points, comments). */
     internal fun counts(html: String): Pair<Int, Int>? =
         countsLine.find(html)?.let { m -> m.groupValues[1].toIntOrNull()?.let { p -> m.groupValues[2].toIntOrNull()?.let { c -> p to c } } }
 
-    private fun firstImage(html: String): String? = imgSrc.find(html)?.groupValues?.get(1)
+    /**
+     * The picture of the first <img> tag that has one (its last src, as lazy-loading pages put
+     * the real picture in data-src after a placeholder). Each tag is searched on its own, once.
+     */
+    internal fun firstImage(html: String): String? {
+        var from = 0
+        while (true) {
+            val start = html.indexOf("<img", from, ignoreCase = true)
+            if (start < 0) return null
+            val end = html.indexOf('>', start)
+            if (end < 0) return null
+            if (end - start <= MAX_IMG_TAG) {
+                imgSrc.findAll(html.subSequence(start, end)).lastOrNull()?.let { return it.groupValues[1] }
+            }
+            from = end + 1
+        }
+    }
 
     /** Text for a title: tags removed, entities decoded (feeds often escape them twice), spaces collapsed. */
     internal fun clean(text: String): String = unescape(unescape(text).replace(tags, " ")).replace(space, " ").trim()

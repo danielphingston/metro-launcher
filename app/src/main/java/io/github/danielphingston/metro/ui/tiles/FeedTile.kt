@@ -234,6 +234,29 @@ object FeedTiles {
         ) != null
     }.getOrDefault(false)
 
+    /**
+     * [item] from a community on [instance], keeping its picture only when it is stored by that
+     * instance or by the poster's own (or a subdomain of either: media.piefed.social for
+     * piefed.social). A Lemmy post's picture is chosen by whoever posted it: from anywhere else,
+     * showing it would tell any server they pick your address and when you looked at Start, with
+     * no tap. Pictures uploaded on Lemmy live on those two instances. Pictures on [sharedHosts] are
+     * kept too: whoever put them there can't see who downloads them.
+     */
+    fun lemmyPicture(item: FeedItem, instance: String): FeedItem {
+        val image = item.image ?: return item
+        val host = runCatching { java.net.URL(image).host?.lowercase(java.util.Locale.ROOT) }.getOrNull()
+        val allowed = listOfNotNull(instance, item.authorHome).map { it.lowercase(java.util.Locale.ROOT) }
+        val ok = host != null && (host in sharedHosts || allowed.any { host == it || host.endsWith(".$it") })
+        return if (ok) item else item.copy(image = null, imageBytes = null)
+    }
+
+    /**
+     * Large picture hosts where an uploader gets no visitor logs, so a picture there tells the
+     * poster nothing about who looked at it: GitHub's raw files and issue pictures, and Imgur.
+     * Exact hosts only (github.io, say, serves pages its owner controls).
+     */
+    private val sharedHosts = setOf("raw.githubusercontent.com", "user-images.githubusercontent.com", "i.imgur.com")
+
     /** How much older than the rest a post at the top must be to count as pinned; see [withoutPinned]. */
     private val PINNED_AGE_MS = TimeUnit.DAYS.toMillis(7)
 
@@ -331,8 +354,9 @@ fun FeedTile(tile: ResolvedTile, urls: List<String>, cellSize: Dp, flipped: Bool
         FeedTiles.merge(
             copies.mapIndexed { i, copy ->
                 val items = copy?.feed?.items.orEmpty()
+                val community = FeedAddress.lemmy(urls[i])?.first
                 // A community's pinned posts lead every listing: rules and notices, not news.
-                if (FeedAddress.lemmy(urls[i]) != null) FeedTiles.withoutPinned(items) else items
+                if (community != null) FeedTiles.withoutPinned(items).map { FeedTiles.lemmyPicture(it, community.instance) } else items
             },
         )
     }

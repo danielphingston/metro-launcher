@@ -17,6 +17,7 @@ import io.github.danielphingston.metro.MetroApplication
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import io.github.danielphingston.metro.live.feed.FeedAddress
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -79,7 +80,11 @@ object Backup {
         prefs.asMap().entries
             .filter { it.key.name !in EXCLUDED_KEYS }
             .sortedBy { it.key.name }
-            .forEach { (key, value) -> encodeEntry(value)?.let { entries.put(key.name, it) } }
+            .forEach { (key, value) ->
+                // Layouts go out without feed addresses' user names and passwords (backups get shared).
+                val exported = if (key.name in INK_HOLDERS && value is String) withoutFeedCredentials(value) else value
+                encodeEntry(exported)?.let { entries.put(key.name, it) }
+            }
         return JSONObject()
             .put("app", APP_ID)
             .put("format", FORMAT)
@@ -249,6 +254,41 @@ object Backup {
         if (restored.asMap().keys.any { it.name == "weather_latitude" }) {
             io.github.danielphingston.metro.live.weather.WeatherRefresh.onSettingsChanged(context)
         }
+    }
+
+    /**
+     * [layout] (a stored layout: tiles, folders, saved layouts) with the user name and password
+     * taken out of every feed tile's addresses ([FeedAddress.withoutCredentials]). Returned exactly
+     * as it was, byte for byte, when there are none or it can't be read.
+     */
+    internal fun withoutFeedCredentials(layout: String): String = runCatching { stripFeedCredentials(layout) }.getOrDefault(layout)
+
+    private fun stripFeedCredentials(layout: String): String {
+        if ('@' !in layout) return layout
+        val root = runCatching { org.json.JSONTokener(layout).nextValue() }.getOrNull() ?: return layout
+        var changed = false
+        fun visit(value: Any?, depth: Int) {
+            if (depth > 64) return
+            when (value) {
+                is JSONObject -> {
+                    val urls = if (value.optString("type") == "feed") value.optJSONArray("urls") else null
+                    if (urls != null) {
+                        for (i in 0 until urls.length()) {
+                            val url = urls.opt(i) as? String ?: continue
+                            val clean = FeedAddress.withoutCredentials(url)
+                            if (clean != url) {
+                                urls.put(i, clean)
+                                changed = true
+                            }
+                        }
+                    }
+                    value.keys().forEach { visit(value.opt(it), depth + 1) }
+                }
+                is JSONArray -> for (i in 0 until value.length()) visit(value.opt(i), depth + 1)
+            }
+        }
+        visit(root, 0)
+        return if (changed) root.toString() else layout
     }
 
     /** The keys holding layouts, which name the drawings a backup carries. */

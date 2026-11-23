@@ -16,6 +16,9 @@ android {
         // CI passes the tag (e.g. 0.2.0) and the run number; local builds use the defaults.
         versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
         versionName = providers.gradleProperty("versionName").orNull ?: "0.2.0"
+        // Instrumented tests (src/androidTest): code that needs a real Android, such as the image
+        // decoder, which Robolectric can't run. CI runs them on the smoke test's emulator.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -112,6 +115,9 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.robolectric)
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)

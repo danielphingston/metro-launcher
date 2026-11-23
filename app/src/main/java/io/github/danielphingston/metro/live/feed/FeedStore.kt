@@ -113,7 +113,21 @@ object FeedStore {
     val RETRY_MS = TimeUnit.MINUTES.toMillis(5)
     private const val MAX_FEED_BYTES = 2 * 1024 * 1024
     private const val MAX_IMAGE_BYTES = 3 * 1024 * 1024
-    private const val MAX_CACHED_IMAGES = 120
+    /**
+     * The picture cache keeps [IMAGES_PER_FEED] pictures for each feed in use (a feed lists at
+     * most [FeedParser.MAX_ITEMS] posts, so all of a feed's pictures fit), between
+     * [MIN_CACHED_IMAGES] and [MAX_CACHED_IMAGES] files. Pictures are stored at tile size, so even
+     * the most is tens of MB.
+     */
+    private const val IMAGES_PER_FEED = 30
+    private const val MIN_CACHED_IMAGES = 120
+    private const val MAX_CACHED_IMAGES = 600
+
+    /** A picture this small (or one no bigger than the tile) is kept as downloaded: shrinking it would gain little and cost quality. */
+    internal const val KEEP_AS_IS_BYTES = 150 * 1024
+
+    /** How long a picture in use goes before it is marked as used again, so the cache keeps it. */
+    private val TOUCH_AFTER_MS = TimeUnit.HOURS.toMillis(1)
 
     private val _feeds = MutableStateFlow<Map<String, CachedFeed>>(emptyMap())
     val feeds: StateFlow<Map<String, CachedFeed>> = _feeds.asStateFlow()
@@ -121,8 +135,22 @@ object FeedStore {
     internal var http: FeedHttp = FeedHttp(::download)
 
     private const val FEED_ACCEPT = "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8"
-    private val alternate = Regex("""<link\b[^>]*>""", RegexOption.IGNORE_CASE)
-    private val attribute = Regex("""([a-zA-Z-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
+    // Bounded, so a crafted page can't make these backtrack for hours (see FeedParser).
+    private val alternate = Regex("""<link\b[^<>]{0,4096}>""", RegexOption.IGNORE_CASE)
+    private val attribute = Regex("""([a-zA-Z-]{1,40})\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
+
+    /**
+     * Sent with every feed request: who is asking, as feed hosts (Lemmy instances included) ask of
+     * automated clients. Without the app's version, so a host can't single out builds to target.
+     */
+    internal val USER_AGENT = "android:${BuildConfig.APPLICATION_ID} (Metro launcher feed tile)"
+
+    /**
+     * The most one download (a feed or a picture, redirects included) may take in all. Each read
+     * also has its own limit, but a server sending a byte every few seconds would pass those
+     * forever. A minute fits a 2 MB feed on a slow connection.
+     */
+    internal var downloadLimitMs = TimeUnit.SECONDS.toMillis(60)
 
     private val lock = Mutex()
     private val inFlight = HashSet<String>()
@@ -241,27 +269,163 @@ object FeedStore {
      */
     fun image(context: Context, url: String, width: Int, height: Int, declaredBytes: Long? = null): Bitmap? {
         if (url in failedImages) return null
-        val fetch = sizedImageUrl(url, width)
-        // Declared too big and the site can't be asked for a smaller one: not even started.
-        if (fetch == url && declaredBytes != null && declaredBytes > MAX_IMAGE_BYTES) {
-            failedImages += url
-            return null
+        val sized = sizedImageUrl(url, width, height)
+        // A Lemmy server that can't make the smaller picture (an old one, a format it can't
+        // convert) still has the picture itself: that is tried next, as before this was asked.
+        val tries = if (sized != url && isLemmyThumbnail(sized)) listOf(sized, url) else listOf(sized)
+        for (fetch in tries) {
+            // Declared too big and the site can't be asked for a smaller one: not even started.
+            if (fetch == url && declaredBytes != null && declaredBytes > MAX_IMAGE_BYTES) break
+            load(context, fetch, width, height)?.let { return it }
         }
-        return runCatching {
+        failedImages += url
+        return null
+    }
+
+    /** The picture downloaded from [fetch] (or its copy in the cache dir), decoded for the tile; null when it can't be had. */
+    private fun load(context: Context, fetch: String, width: Int, height: Int): Bitmap? =
+        runCatching {
             val dir = File(context.cacheDir, "feed_images").apply { mkdirs() }
-            val file = File(dir, hash(fetch))
-            if (!file.exists()) {
+            // Stored at the tile's size (rounded up), so each size of tile has its own copy.
+            val (boxW, boxH) = storeBox(width, height)
+            val file = File(dir, hash("$fetch@${boxW}x$boxH"))
+            if (file.exists()) {
+                touch(file)
+            } else {
                 val bytes = http.get(fetch, MAX_IMAGE_BYTES, "image/*").bytes
+                if (!isWebImage(bytes.copyOf(minOf(bytes.size, 32)))) throw IOException("not a web picture")
+                // A picture that can't be shrunk (or isn't worth it) is kept as it came.
+                val stored = runCatching { shrink(bytes, boxW, boxH) }.getOrNull() ?: bytes
                 val tmp = File(dir, file.name + ".tmp")
-                tmp.writeBytes(bytes)
+                tmp.writeBytes(stored)
                 tmp.renameTo(file)
                 trim(dir)
             }
-            ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
-                val (w, h) = ImageDecode.coverSize(info.size.width, info.size.height, width.coerceAtLeast(1), height.coerceAtLeast(1))
-                decoder.setTargetSize(w, h)
+            if (!isWebImage(readHead(file))) {
+                file.delete()
+                throw IOException("not a web picture")
             }
-        }.onFailure { failedImages += url }.getOrNull()
+            decodeFile(file, width, height)
+        }.getOrNull()
+
+    /** The size a picture is stored at for a [width] x [height] tile: rounded up to steps of 100, so close sizes share a copy. */
+    internal fun storeBox(width: Int, height: Int): Pair<Int, Int> =
+        ((width.coerceAtLeast(1) + 99) / 100 * 100) to ((height.coerceAtLeast(1) + 99) / 100 * 100)
+
+    /**
+     * [bytes] (a downloaded picture) shrunk to cover a [boxW] x [boxH] tile, as WebP; null to keep
+     * them as they are: small already ([KEEP_AS_IS_BYTES]), no bigger than the tile, or when the
+     * smaller copy wouldn't be smaller. Decoded once more on the first showing, off the main
+     * thread; every later showing then decodes the small copy. Replaceable in tests.
+     */
+    internal var shrink: (ByteArray, Int, Int) -> ByteArray? = { bytes, boxW, boxH ->
+        if (bytes.size <= KEEP_AS_IS_BYTES) {
+            null
+        } else {
+            var smaller = false
+            val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes))) { decoder, info, _ ->
+                val target = decodeTarget(info.size.width, info.size.height, boxW, boxH)
+                smaller = target.width < info.size.width || target.height < info.size.height || target.crop != null
+                // Pixels in ordinary memory: a picture in graphics memory can't be compressed.
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.setTargetSize(target.width, target.height)
+                target.crop?.let { decoder.crop = it }
+            }
+            try {
+                if (!smaller) {
+                    null
+                } else {
+                    val out = ByteArrayOutputStream(64 * 1024)
+                    if (!bitmap.compress(Bitmap.CompressFormat.WEBP_LOSSY, WEBP_QUALITY, out)) null
+                    else out.toByteArray().takeIf { it.isNotEmpty() && it.size < bytes.size }
+                }
+            } finally {
+                bitmap.recycle()
+            }
+        }
+    }
+
+    private const val WEBP_QUALITY = 85
+
+    /** Marks [file] as used (at most once an hour), so the cache keeps pictures still on tiles. */
+    private fun touch(file: File) {
+        val now = System.currentTimeMillis()
+        if (now - file.lastModified() > TOUCH_AFTER_MS) file.setLastModified(now)
+    }
+
+    /** Decodes a downloaded picture for a [width] x [height] tile; replaceable in tests (Robolectric can't run ImageDecoder). */
+    internal var decodeFile: (File, Int, Int) -> Bitmap = { file, width, height ->
+        ImageDecoder.decodeBitmap(ImageDecoder.createSource(file)) { decoder, info, _ ->
+            val target = decodeTarget(info.size.width, info.size.height, width, height)
+            decoder.setTargetSize(target.width, target.height)
+            target.crop?.let { decoder.crop = it }
+        }
+    }
+
+    /** The size to decode a picture at, and the part of it to keep (null: all of it). */
+    internal data class DecodeTarget(val width: Int, val height: Int, val crop: android.graphics.Rect?)
+
+    /**
+     * Pictures are scaled to cover the tile ([ImageDecode.coverSize]). A very long one (a 65000x400
+     * panorama, a few KB as a PNG) would still cover it at full size, about 100 MB; such a picture
+     * is cut to its middle, at most [MAX_COVER_FACTOR] times the tile's side, which is more than
+     * the tile shows (the middle). Any ordinary picture is decoded as before, uncut.
+     */
+    internal fun decodeTarget(srcW: Int, srcH: Int, boxW: Int, boxH: Int): DecodeTarget {
+        val bw = boxW.coerceAtLeast(1)
+        val bh = boxH.coerceAtLeast(1)
+        val (w, h) = ImageDecode.coverSize(srcW.coerceAtLeast(1), srcH.coerceAtLeast(1), bw, bh)
+        val maxW = bw.toLong() * MAX_COVER_FACTOR
+        val maxH = bh.toLong() * MAX_COVER_FACTOR
+        if (w <= maxW && h <= maxH) return DecodeTarget(w, h, null)
+        val cw = minOf(w.toLong(), maxW).toInt()
+        val ch = minOf(h.toLong(), maxH).toInt()
+        val left = (w - cw) / 2
+        val top = (h - ch) / 2
+        return DecodeTarget(w, h, android.graphics.Rect(left, top, left + cw, top + ch))
+    }
+
+    private const val MAX_COVER_FACTOR = 4
+
+    private fun readHead(file: File): ByteArray = file.inputStream().use { input ->
+        val head = ByteArray(32)
+        var n = 0
+        while (n < head.size) {
+            val read = input.read(head, n, head.size - n)
+            if (read < 0) break
+            n += read
+        }
+        head.copyOf(n)
+    }
+
+    /**
+     * Whether [head], a file's first bytes, starts a JPEG, PNG, GIF, WebP or AVIF picture, the
+     * formats feeds use. Anything else isn't decoded: Android would also decode camera raw (DNG),
+     * HEIF, BMP and ICO, large native decoders a stranger's feed has no need to reach.
+     */
+    internal fun isWebImage(head: ByteArray): Boolean {
+        fun at(offset: Int, vararg bytes: Int) =
+            head.size >= offset + bytes.size && bytes.indices.all { head[offset + it] == bytes[it].toByte() }
+        fun ascii(offset: Int, text: String) = at(offset, *text.map { it.code }.toIntArray())
+        return when {
+            at(0, 0xFF, 0xD8, 0xFF) -> true // JPEG
+            at(0, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A) -> true // PNG
+            ascii(0, "GIF87a") || ascii(0, "GIF89a") -> true
+            ascii(0, "RIFF") && ascii(8, "WEBP") -> true
+            ascii(4, "ftyp") -> {
+                // AVIF: an ISO box whose major brand, or a compatible one, is avif or avis.
+                val boxSize = ((head[0].toInt() and 0xFF) shl 24) or ((head[1].toInt() and 0xFF) shl 16) or
+                    ((head[2].toInt() and 0xFF) shl 8) or (head[3].toInt() and 0xFF)
+                val end = minOf(head.size, boxSize.coerceAtLeast(0))
+                val brands = buildList {
+                    if (end >= 12) add(8)
+                    var i = 16
+                    while (i + 4 <= end) { add(i); i += 4 }
+                }
+                brands.any { ascii(it, "avif") || ascii(it, "avis") }
+            }
+            else -> false
+        }
     }
 
     /**
@@ -271,35 +435,59 @@ object FeedStore {
     private val failedImages: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     /**
-     * The address to download [url] from for a tile [width] pixels wide. WordPress sites (their
-     * pictures live under /wp-content/uploads/) resize on request with "?w=": nasa.gov answers a
-     * 27 MB original with about 140 KB. Sites that can't, ignore it. Widths are rounded up to
-     * steps of 200 so tiles of similar sizes share one download. Other addresses, and ones that
-     * already have a query, are left as they are.
+     * The address to download [url] from for a tile [width] x [height] pixels. Sizes are rounded
+     * up to steps of 200 so tiles of similar sizes share one download. Other addresses, and ones
+     * that already have a query (or a fragment), are left as they are.
+     *
+     * - WordPress sites (pictures under /wp-content/uploads/) resize on request with "?w=":
+     *   nasa.gov answers a 27 MB original with about 140 KB. Sites that can't, ignore it.
+     * - Lemmy's picture server (pict-rs: /pictrs/image/..., and the /api/v3/image_proxy that
+     *   lemmy.ml sends every picture through) makes a smaller WebP with "thumbnail=N&format=webp",
+     *   N being the longest side; it never enlarges. As the tile shows the picture cropped to
+     *   cover it, N is twice the tile's longer side, so any picture up to 2:1 still covers the
+     *   tile as sharply as the original. Measured on lemmy.world: a 5.6 MB photo comes as about
+     *   1 MB at 1400, a 3 MB one as about 450 KB.
      */
-    internal fun sizedImageUrl(url: String, width: Int): String {
-        if ("/wp-content/uploads/" !in url || '?' in url || '#' in url) return url
-        val step = ((width.coerceIn(200, 1600) + 199) / 200) * 200
-        return "$url?w=$step"
+    internal fun sizedImageUrl(url: String, width: Int, height: Int = width): String {
+        if ('#' in url) return url
+        if ("/wp-content/uploads/" in url && '?' !in url) {
+            val step = ((width.coerceIn(200, 1600) + 199) / 200) * 200
+            return "$url?w=$step"
+        }
+        val side = ((2 * maxOf(width, height)).coerceIn(400, 2000) + 199) / 200 * 200
+        if (pictrsImage.containsMatchIn(url) && '?' !in url) return "$url?thumbnail=$side&format=webp"
+        if (imageProxy.containsMatchIn(url) && "thumbnail=" !in url) return "$url&thumbnail=$side&format=webp"
+        return url
     }
 
-    /** Keeps the picture cache to the newest [MAX_CACHED_IMAGES] files. */
+    /** A picture on a Lemmy instance's own picture server, and one it passes on through its proxy. */
+    private val pictrsImage = Regex("^https://[^/?#]+/pictrs/image/[^/?#]+$")
+    private val imageProxy = Regex("^https://[^/?#]+/api/v3/image_proxy\\?url=[^&#]+$")
+
+    /** Whether [fetch] is a smaller picture asked of a Lemmy server (see [sizedImageUrl]). */
+    private fun isLemmyThumbnail(fetch: String): Boolean = fetch.endsWith("&format=webp") && "thumbnail=" in fetch
+
+    /** How many pictures the cache keeps for [feeds] feeds in use; see [IMAGES_PER_FEED]. */
+    internal fun cacheLimit(feeds: Int): Int = (IMAGES_PER_FEED * feeds).coerceIn(MIN_CACHED_IMAGES, MAX_CACHED_IMAGES)
+
+    /** Keeps the picture cache to the most recently used [cacheLimit] files. */
     private fun trim(dir: File) {
         val files = dir.listFiles()?.sortedByDescending { it.lastModified() } ?: return
-        files.drop(MAX_CACHED_IMAGES).forEach { it.delete() }
+        files.drop(cacheLimit(_feeds.value.size)).forEach { it.delete() }
     }
 
-    private fun download(url: String, maxBytes: Int, accept: String): Fetched {
+    internal fun download(url: String, maxBytes: Int, accept: String): Fetched {
         var target = URL(url)
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(downloadLimitMs)
         // Follows https redirects only (HttpURLConnection won't change protocol by itself anyway).
         repeat(5) {
+            if (System.nanoTime() > deadline) throw java.net.SocketTimeoutException("download took too long")
             val connection = target.openConnection() as HttpURLConnection
             try {
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 15_000
                 connection.instanceFollowRedirects = false
-                // A descriptive agent, as feed hosts (Lemmy instances included) ask of automated clients.
-                connection.setRequestProperty("User-Agent", "android:${BuildConfig.APPLICATION_ID}:${BuildConfig.VERSION_NAME} (Metro launcher feed tile)")
+                connection.setRequestProperty("User-Agent", USER_AGENT)
                 connection.setRequestProperty("Accept", accept)
                 val code = connection.responseCode
                 if (code in 300..399) {
@@ -309,7 +497,7 @@ object FeedStore {
                     return@repeat
                 }
                 if (code !in 200..299) throw HttpStatusException(code)
-                val bytes = connection.inputStream.use { readLimited(it, maxBytes) }
+                val bytes = connection.inputStream.use { readLimited(it, maxBytes, deadline) }
                 return Fetched(bytes, target.toString(), connection.contentType)
             } finally {
                 connection.disconnect()
@@ -318,10 +506,11 @@ object FeedStore {
         throw IOException("too many redirects")
     }
 
-    private fun readLimited(input: InputStream, maxBytes: Int): ByteArray {
+    private fun readLimited(input: InputStream, maxBytes: Int, deadline: Long): ByteArray {
         val out = ByteArrayOutputStream()
         val buffer = ByteArray(16 * 1024)
         while (true) {
+            if (System.nanoTime() > deadline) throw java.net.SocketTimeoutException("download took too long")
             val n = input.read(buffer)
             if (n < 0) break
             out.write(buffer, 0, n)
@@ -376,11 +565,12 @@ object FeedStore {
         val array = obj.optJSONArray("items") ?: JSONArray()
         val items = (0 until array.length()).mapNotNull { i ->
             val o = array.optJSONObject(i) ?: return@mapNotNull null
-            val title = o.optString("title").ifEmpty { return@mapNotNull null }
+            // Copies saved by earlier versions may hold longer text than the parser now keeps.
+            val title = o.optString("title").ifEmpty { return@mapNotNull null }.let { FeedParser.cap(it, FeedParser.MAX_TITLE) }
             FeedItem(
                 title,
                 o.optString("link").ifEmpty { null },
-                o.optString("author").ifEmpty { null },
+                o.optString("author").ifEmpty { null }?.let { FeedParser.cap(it, FeedParser.MAX_AUTHOR) },
                 if (o.has("publishedAt")) o.optLong("publishedAt") else null,
                 o.optString("image").ifEmpty { null },
                 if (o.has("points")) o.optInt("points") else null,
@@ -389,7 +579,8 @@ object FeedStore {
                 if (o.has("imageBytes")) o.optLong("imageBytes") else null,
             )
         }
-        CachedFeed(obj.getString("url"), Feed(obj.optString("title").ifEmpty { null }, items), obj.optLong("fetchedAt"))
+        val feedTitle = obj.optString("title").ifEmpty { null }?.let { FeedParser.cap(it, FeedParser.MAX_FEED_TITLE) }
+        CachedFeed(obj.getString("url"), Feed(feedTitle, items), obj.optLong("fetchedAt"))
     }.getOrNull()
 
     private val postLink = Regex("^https://([A-Za-z0-9.-]+)/post/(\\d+)/?$")
@@ -424,7 +615,7 @@ object FeedStore {
             connection.connectTimeout = 5_000
             connection.readTimeout = 5_000
             connection.instanceFollowRedirects = false
-            connection.setRequestProperty("User-Agent", "android:${BuildConfig.APPLICATION_ID}:${BuildConfig.VERSION_NAME} (Metro launcher feed tile)")
+            connection.setRequestProperty("User-Agent", USER_AGENT)
             connection.setRequestProperty("Accept", "application/activity+json")
             val code = connection.responseCode
             when {
