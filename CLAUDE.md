@@ -50,6 +50,17 @@ A launcher is on screen all day: every change is weighed for battery and perform
 - Prefer no background work: refresh when Start is shown, cache results, never repeat the same
   request, keep blocking I/O off the main thread and put a time limit on anything a tap waits for.
 
+## Settings search, hints and previews
+
+- Every setting is in `SettingsIndex` (`ui/settings/SettingsSearch.kt`) with the words people use for
+  it, and marked on its page with `Section(..., anchor = ...)` or `Modifier.settingAnchor(...)`. A new
+  setting gets both; `SettingsSearchTest` renders every page and fails when the two drift apart.
+- The start screen hints (`CoachMark`, `ui/start/CoachMarks.kt`) are stored per install as bits by
+  ordinal in `coach_marks` (never backed up): append new hints, never reorder or remove one. Only a
+  finished first-run setup turns them on, so updating never shows them to existing users.
+- `-Ppreview` builds a side-by-side install (`.preview` package, "Metro preview") for trying a
+  branch on a phone without touching the installed app. Never publish one.
+
 ## Checks
 
 ```

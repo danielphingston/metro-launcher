@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.ui.components.MetroButton
@@ -58,6 +60,9 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun OnboardingScreen(settings: LauncherSettings, onFinish: (withHints: Boolean) -> Unit) {
     val colors = Metro.colors
+    val app = LocalContext.current.applicationContext as MetroApplication
+    // The user's own tiles, for the grid step's preview.
+    val tiles by app.tiles.tiles.collectAsState()
     var stepIndex by rememberSaveable { mutableIntStateOf(0) }
     val step = OnboardingStep.entries[stepIndex.coerceIn(0, OnboardingStep.entries.lastIndex)]
     val scroll = rememberScrollState()
@@ -92,8 +97,8 @@ internal fun OnboardingScreen(settings: LauncherSettings, onFinish: (withHints: 
                 OnboardingStep.WELCOME -> WelcomeStep(onRestored = { onFinish(false) })
                 OnboardingStep.LIVE_TILES -> LiveTilesStep()
                 OnboardingStep.LOOK -> LookStep(settings)
-                OnboardingStep.BACKGROUND -> BackgroundStep(settings)
-                OnboardingStep.GRID -> StartGridStep(settings)
+                OnboardingStep.BACKGROUND -> BackgroundStep(settings, app.settings)
+                OnboardingStep.GRID -> StartGridStep(settings, app.settings, tiles.orEmpty())
                 OnboardingStep.DONE -> DoneStep()
             }
             Spacer(Modifier.height(16.dp))
@@ -197,8 +202,7 @@ private fun LookStep(settings: LauncherSettings) {
 }
 
 @Composable
-private fun BackgroundStep(settings: LauncherSettings) {
-    val repository = (LocalContext.current.applicationContext as MetroApplication).settings
+internal fun BackgroundStep(settings: LauncherSettings, repository: SettingsRepository) {
     MetroText(
         "Plain, one of your photos, or your phone's wallpaper.",
         MetroType.caption,

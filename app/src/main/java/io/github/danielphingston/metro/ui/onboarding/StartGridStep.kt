@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -21,12 +19,11 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.LARGE_SCREEN_DP
 import io.github.danielphingston.metro.ui.components.MetroChoice
@@ -66,13 +63,10 @@ internal fun tilesPerRowChoices(large: Boolean): List<Pair<Int, String>> =
  * own tiles laid out as start will lay them out. Every choice is a setting, saved at once.
  */
 @Composable
-internal fun StartGridStep(settings: LauncherSettings) {
-    val app = LocalContext.current.applicationContext as MetroApplication
-    val repository = app.settings
+internal fun StartGridStep(settings: LauncherSettings, repository: SettingsRepository, tiles: List<TileSpec>) {
     val scope = rememberCoroutineScope()
     val colors = Metro.colors
     val large = LocalConfiguration.current.smallestScreenWidthDp >= LARGE_SCREEN_DP
-    val specs by app.tiles.tiles.collectAsState()
     // On a phone "auto" shows two per row: it reads as that choice.
     val shown = if (!large && settings.columns == LauncherSettings.AUTO_COLUMNS) LauncherSettings.DEFAULT_COLUMNS else settings.columns
 
@@ -93,7 +87,7 @@ internal fun StartGridStep(settings: LauncherSettings) {
         }
     }
     Spacer(Modifier.height(20.dp))
-    GridPreview(specs.orEmpty(), settings, large)
+    GridPreview(tiles, settings, large)
     Spacer(Modifier.height(10.dp))
     MetroText("More options in settings, start.", MetroType.caption, color = colors.subtle)
 }

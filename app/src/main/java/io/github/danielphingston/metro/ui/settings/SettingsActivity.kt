@@ -174,61 +174,63 @@ internal fun SettingsScreen(
     // A sub page goes back to its parent page, any other page to the menu.
     BackHandler(enabled = page != null) { page = SettingsPage.entries.firstOrNull { it.name == page }?.parent?.name }
 
-    CompositionLocalProvider(LocalSettingTarget provides target) { AnimatedContent(
-        targetState = page,
-        modifier = Modifier.fillMaxSize().background(colors.background),
-        transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(100)) },
-        label = "settingsPage",
-    ) { name ->
-        val current = SettingsPage.entries.firstOrNull { it.name == name }
-        if (current == null) {
-            SettingsMenu(
-                menuScroll,
-                settings,
-                onOpen = { page = it.name },
-                onFind = { entry ->
-                    target.anchor = entry.anchor
-                    page = entry.page.name
-                },
-            )
-        } else {
-            SettingsPageFrame(current, pageScrolls.getValue(current)) {
-                when (current) {
-                    SettingsPage.START -> StartPage(settings, repository, onOpenPage = { page = it.name })
-                    SettingsPage.APP_LIST -> AppListPage(settings, repository)
-                    SettingsPage.SEARCH -> SearchSettingsSection(
-                        settings, repository,
-                        onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
-                        onOpenPage = { page = it.name },
-                    )
-                    SettingsPage.SEARCH_IN_APPS -> SearchInAppsPageHost(settings, repository, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
-                    SettingsPage.SEARCH_KEYWORDS -> SearchKeywordsPageHost(settings, repository, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
-                    SettingsPage.SEARCH_HELP -> SearchHelpPageHost(settings, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
-                    SettingsPage.APPEARANCE -> AppearancePage(settings, repository)
-                    SettingsPage.ANIMATIONS -> AnimationsPage(settings, repository)
-                    SettingsPage.TILES -> TilesPage(settings, repository)
-                    SettingsPage.METRO_PLUS -> MetroPlusSettingsSection(
-                        settings, repository,
-                        onOpenSearchSettings = { page = SettingsPage.SEARCH.name },
-                        onOpenGestureSettings = { page = SettingsPage.GESTURES.name },
-                    )
-                    SettingsPage.BACKUP -> BackupSettingsSection()
-                    SettingsPage.ABOUT -> AboutPage()
-                    SettingsPage.GESTURES -> PlusGate(
-                        "Double tap, two-finger swipes and a pinch on the start screen can open search, the app list, an app, " +
-                            "the notification shade or turn the screen off, once Metro Plus is unlocked, a one-time purchase.",
-                        onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
-                    ) { GesturesPage(settings, repository) }
-                    SettingsPage.LAYOUTS -> PlusGate(
-                        "Keep more than one start screen, such as work and weekend, each with its own tiles, wallpaper and " +
-                            "settings, and switch between them with a tile, from search or from a routine, once Metro Plus is " +
-                            "unlocked, a one-time purchase.",
-                        onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
-                    ) { LayoutsPage() }
+    CompositionLocalProvider(LocalSettingTarget provides target) {
+        AnimatedContent(
+            targetState = page,
+            modifier = Modifier.fillMaxSize().background(colors.background),
+            transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(100)) },
+            label = "settingsPage",
+        ) { name ->
+            val current = SettingsPage.entries.firstOrNull { it.name == name }
+            if (current == null) {
+                SettingsMenu(
+                    menuScroll,
+                    settings,
+                    onOpen = { page = it.name },
+                    onFind = { entry ->
+                        target.anchor = entry.anchor
+                        page = entry.page.name
+                    },
+                )
+            } else {
+                SettingsPageFrame(current, pageScrolls.getValue(current)) {
+                    when (current) {
+                        SettingsPage.START -> StartPage(settings, repository, onOpenPage = { page = it.name })
+                        SettingsPage.APP_LIST -> AppListPage(settings, repository)
+                        SettingsPage.SEARCH -> SearchSettingsSection(
+                            settings, repository,
+                            onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
+                            onOpenPage = { page = it.name },
+                        )
+                        SettingsPage.SEARCH_IN_APPS -> SearchInAppsPageHost(settings, repository, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
+                        SettingsPage.SEARCH_KEYWORDS -> SearchKeywordsPageHost(settings, repository, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
+                        SettingsPage.SEARCH_HELP -> SearchHelpPageHost(settings, onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name })
+                        SettingsPage.APPEARANCE -> AppearancePage(settings, repository)
+                        SettingsPage.ANIMATIONS -> AnimationsPage(settings, repository)
+                        SettingsPage.TILES -> TilesPage(settings, repository)
+                        SettingsPage.METRO_PLUS -> MetroPlusSettingsSection(
+                            settings, repository,
+                            onOpenSearchSettings = { page = SettingsPage.SEARCH.name },
+                            onOpenGestureSettings = { page = SettingsPage.GESTURES.name },
+                        )
+                        SettingsPage.BACKUP -> BackupSettingsSection()
+                        SettingsPage.ABOUT -> AboutPage()
+                        SettingsPage.GESTURES -> PlusGate(
+                            "Double tap, two-finger swipes and a pinch on the start screen can open search, the app list, an app, " +
+                                "the notification shade or turn the screen off, once Metro Plus is unlocked, a one-time purchase.",
+                            onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
+                        ) { GesturesPage(settings, repository) }
+                        SettingsPage.LAYOUTS -> PlusGate(
+                            "Keep more than one start screen, such as work and weekend, each with its own tiles, wallpaper and " +
+                                "settings, and switch between them with a tile, from search or from a routine, once Metro Plus is " +
+                                "unlocked, a one-time purchase.",
+                            onOpenMetroPlus = { page = SettingsPage.METRO_PLUS.name },
+                        ) { LayoutsPage() }
+                    }
                 }
             }
         }
-    } }
+    }
 }
 
 @Composable

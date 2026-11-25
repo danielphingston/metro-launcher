@@ -85,6 +85,11 @@ class SettingsSearchTest {
         }
     }
 
+    /** A tablet shows "tiles per row" as choices instead of a switch: the anchor must be there too. */
+    @Test
+    @Config(qualifiers = "w800dp-h1280dp-xhdpi")
+    fun theIndexMatchesThePagesOnATablet() = everyIndexedSettingIsOnItsPageAndEveryAnchorIsIndexed()
+
     @Test
     fun aResultOpensItsPageAndShowsTheSetting() {
         val settings = LauncherSettings()
