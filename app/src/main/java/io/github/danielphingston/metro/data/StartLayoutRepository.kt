@@ -213,13 +213,13 @@ class StartLayoutRepository(
         val live = tiles.encoded() ?: return false
         val target = set.byId(id)?.takeIf { id != set.active } ?: return false
         val from = tiles.tiles.value.orEmpty()
-        // Tiles glide to their new places only when the grid's cells stay the same size.
+        // Whether the grid changes: then start waits for the new settings before tiles move to it.
         val prefs = context.metroDataStore.data.first()
         val before = LayoutStartSettings.read(prefs)
         val loads = target.settings?.let { LayoutStartSettings.toLoad(it, before, LayoutStartSettings.sharesGrid(prefs)) }
-        val glide = !LayoutStartSettings.changesGrid(before, loads, autoColumns)
+        val gridChanges = LayoutStartSettings.changesGrid(before, loads, autoColumns)
         var next: LayoutSet? = null
-        val swapped = tiles.swap(target.tiles, beforePublish = { keys.switched(from, it, glide) }) { prefs ->
+        val swapped = tiles.swap(target.tiles, beforePublish = { keys.switched(from, it, gridChanges) }) { prefs ->
             next = LayoutOps.switchStore(prefs, set, live, id)
         }
         val done = next

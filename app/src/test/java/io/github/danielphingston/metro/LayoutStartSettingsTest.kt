@@ -157,7 +157,7 @@ class LayoutStartSettingsTest {
         // The layout left keeps its own grid values for when the option goes off, and the rest of what was on screen.
         assertEquals(home, switched.byId(1)!!.settings)
         assertEquals(away, switched.byId(2)!!.settings)
-        // So the switch glides although the stored grids differ.
+        // So the switch has no grid change to wait for, although the stored grids differ.
         assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 6), LayoutStartSettings.toLoad(away, mapOf("columns" to 6), true)))
         // A rename or save while on keeps the entry's own grid the same way.
         assertEquals(
@@ -239,7 +239,7 @@ class LayoutStartSettingsTest {
     }
 
     @Test
-    fun aSwitchThatChangesTheGridFadesInsteadOfGliding() {
+    fun aSwitchThatChangesTheGridIsToldApart() {
         assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 4), null))
         assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 4, "start_top_padding" to 3), mapOf("columns" to 4)))
         assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 4), mapOf("columns" to 6)))
@@ -253,13 +253,14 @@ class LayoutStartSettingsTest {
         // Before start has reported its automatic count, "auto" only matches "auto".
         assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 0), mapOf("columns" to 6)))
         assertFalse(LayoutStartSettings.changesGrid(emptyMap(), mapOf("columns" to 0)))
-        // Without a glide no tile keeps its key, so none moves from where the old grid had it.
+        // A switch that changes the grid still matches its tiles (they move to the new grid), and says so.
         val keys = TileKeys()
-        keys.switched(listOf(app(1, "phone")), listOf(app(1, "phone")), glide = false)
-        assertFalse(keys.glides)
-        assertTrue(keys.keyOf(1) < 0)
-        keys.switched(listOf(app(1, "phone")), listOf(app(2, "phone")))
-        assertTrue(keys.glides)
+        keys.switched(listOf(app(1, "phone")), listOf(app(2, "phone")), gridChanges = true)
+        assertTrue(keys.gridChanges)
+        assertEquals(1L, keys.keyOf(2))
+        keys.switched(listOf(app(2, "phone")), listOf(app(3, "phone")))
+        assertFalse(keys.gridChanges)
+        assertEquals(1L, keys.keyOf(3))
     }
 
     @Test

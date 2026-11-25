@@ -606,19 +606,6 @@ fun StartScreen(
             FolderLayout.compute(settled, openIndex, openChildren.map { it.spec.size }, columns, noteRows)
         }
         val placements = layout.tiles
-        // A layout switch: what left, what is new and what changed size, for the extras of its animation.
-        switchMotion.ended
-        val switchGeneration = tileKeys.generation
-        // The settings the screen had before this switch, so the wait for the new ones (see below) can tell
-        // "already arrived" from "not yet": a wait for a change that has already happened never ends.
-        if (switchGeneration != settingsWatch.generation) settingsWatch.beforeSwitch = settingsWatch.latest
-        settingsWatch.generation = switchGeneration
-        settingsWatch.latest = settings
-        switchMotion.update(
-            switchGeneration,
-            tiles.indices.associate { tileKeys.keyOf(tiles[it].spec.id) to (tiles[it] to placements[it]) },
-            glides = tileKeys.glides,
-        ) { Turnstile.animationsEnabled(context.contentResolver) }
         // Where the tile being resized would land, snapped to the grid.
         val resizeSpan = state.resizeSpan
         val resizeId = state.resizeId
@@ -638,6 +625,30 @@ fun StartScreen(
         val topInsetPx = (statusPx + with(density) { padding.top.dp.toPx() }).coerceAtLeast(0f)
         val topInset = with(density) { topInsetPx.toDp() }
         val rows = layout.rows
+        // Where the grid is drawn on the scrolling content, so a layout switch can move tiles between two grids.
+        val gridFrame = GridFrame.centred(
+            contentWidthPx = with(density) { (maxWidth - sides).toPx() },
+            leftPaddingPx = with(density) { leftPadding.toPx() },
+            gridWidthPx = with(density) { gridWidth.toPx() },
+            rightPaddingPx = with(density) { rightPadding.toPx() },
+            topPx = topInsetPx,
+            cellPx = cellPx,
+            gapPx = gapPx,
+        )
+        // A layout switch: what moves, what left and what is new; see SwitchMotion.
+        switchMotion.ended
+        val switchGeneration = tileKeys.generation
+        // The settings the screen had before this switch, so the wait for the new ones (see below) can tell
+        // "already arrived" from "not yet": a wait for a change that has already happened never ends.
+        if (switchGeneration != settingsWatch.generation) settingsWatch.beforeSwitch = settingsWatch.latest
+        settingsWatch.generation = switchGeneration
+        settingsWatch.latest = settings
+        switchMotion.update(
+            switchGeneration,
+            tiles.indices.associate { tileKeys.keyOf(tiles[it].spec.id) to (tiles[it] to placements[it]) },
+            gridFrame,
+            gridChanges = tileKeys.gridChanges,
+        ) { Turnstile.animationsEnabled(context.contentResolver) }
 
         // Tiles unpinned or uninstalled while grouping can't be grouped any more.
         LaunchedEffect(loadedTiles) {
@@ -744,17 +755,16 @@ fun StartScreen(
             state.dismissOverlays()
             if (!Turnstile.animationsEnabled(context.contentResolver)) {
                 state.scroll.scrollTo(0)
-            } else if (switchMotion.fading) {
-                // The new layout's settings (columns, paddings) land just after its tiles: stay
-                // transparent until they have, briefly at most, so the fade shows the final grid.
-                state.scroll.scrollTo(0)
+                return@LaunchedEffect
+            }
+            launch { state.scroll.animateScrollTo(0) }
+            if (switchMotion.waitsForGrid) {
+                // The new layout's settings (columns, paddings) land just after its tiles: tiles stay
+                // drawn where they were until they have, briefly at most, so they move to the final grid.
                 val before = settingsWatch.beforeSwitch
                 withTimeoutOrNull(SWITCH_SETTINGS_WAIT_MILLIS) { snapshotFlow { currentSettings }.first { it != before } }
-                switchMotion.play(motion.duration(SWITCH_MILLIS))
-            } else {
-                launch { state.scroll.animateScrollTo(0) }
-                switchMotion.play(motion.duration(SWITCH_MILLIS))
             }
+            switchMotion.play(motion.duration(SWITCH_MILLIS))
         }
 
         // A top-level tile and a folder child differ only in the drag callbacks and where they appear from.
@@ -843,8 +853,7 @@ fun StartScreen(
             Box(
                 Modifier
                     .absolutePadding(left = leftPadding, right = rightPadding)
-                    .size(width = gridWidth, height = cell * rows)
-                    .then(switchMotion.fadeModifier()),
+                    .size(width = gridWidth, height = cell * rows),
             ) {
                 // With the tiles a layout switch just took away, fading where they were (same call site, so they keep their composition).
                 switchMotion.onScreen(tiles, placements, tileKeys::keyOf).forEach { shown ->
@@ -853,10 +862,9 @@ fun StartScreen(
                         val placement = shown.placement
                         host(
                             tile, placement,
-                            appearFrom = if (switchMotion.isEntering(shown.key)) IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt()) else null,
-                            motionModifier = switchMotion.modifier(shown.key, placement, shown.leaving),
-                            // While a switch fades the grid in, its tiles jump to where the new grid puts them.
-                            snapMoves = switchMotion.fading,
+                            motionModifier = switchMotion.modifier(shown.key, placement, gridFrame, shown.leaving),
+                            // While a switch is drawn its tiles are laid out at their new places at once; the layer moves them.
+                            snapMoves = switchMotion.active,
                             onDrop = { completed ->
                                 val cell = state.dragCell
                                 state.preview = null
