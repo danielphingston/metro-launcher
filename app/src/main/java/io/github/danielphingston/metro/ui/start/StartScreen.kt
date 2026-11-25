@@ -415,8 +415,6 @@ fun StartScreen(
     val notices = rememberStartNotices(viewModel, isCurrentPage, state.editing)
     val undoNext by viewModel.undoNext.collectAsStateWithLifecycle()
     val tileKeys = viewModel.tileKeys
-    val switchMotion = remember { SwitchMotion() }
-    val settingsWatch = remember { SettingsWatch() }
 
     // Live sources run only when a tile needs them and only while the launcher is visible
     // (collectAsStateWithLifecycle stops collecting below STARTED).
@@ -636,21 +634,12 @@ fun StartScreen(
             cellPx = cellPx,
             gapPx = gapPx,
         )
-        // A layout switch: what moves, what left and what is new; see SwitchMotion.
-        switchMotion.ended
-        val switchGeneration = tileKeys.generation
-        // The settings the screen had before this switch, so the wait for the new ones (see below) can tell
-        // "already arrived" from "not yet": a wait for a change that has already happened never ends.
-        if (switchGeneration != settingsWatch.generation) settingsWatch.beforeSwitch = settingsWatch.latest
-        settingsWatch.generation = switchGeneration
-        settingsWatch.latest = settings
-        switchMotion.update(
-            switchGeneration,
-            tiles.indices.associate { tileKeys.keyOf(tiles[it].spec.id) to (tiles[it] to placements[it]) },
-            gridFrame,
-            gridChanges = tileKeys.gridChanges,
-            scrolledPx = { state.scroll.value },
-        ) { Turnstile.animationsEnabled(context.contentResolver) }
+        // A layout switch: tiles move from the old layout to this one; see rememberLayoutSwitch.
+        val switchMotion = rememberLayoutSwitch(tileKeys, tiles, placements, gridFrame, settings, state.scroll) {
+            // The new layout starts with nothing of the old one's edit mode or open folder.
+            state.exitEdit()
+            state.dismissOverlays()
+        }
 
         // Tiles unpinned or uninstalled while grouping can't be grouped any more.
         LaunchedEffect(loadedTiles) {
@@ -748,26 +737,6 @@ fun StartScreen(
         }
 
         DragTracking(state, tiles, cellPx, columns)
-
-        val currentSettings by rememberUpdatedState(settings)
-        LaunchedEffect(switchGeneration) {
-            if (!switchMotion.takeSwitch()) return@LaunchedEffect
-            // The new layout starts from its top, with nothing of the old one's edit mode or open folder.
-            state.exitEdit()
-            state.dismissOverlays()
-            // Whether to animate was decided when the switch was planned (SwitchMotion.update); asking
-            // again could disagree and leave a planned switch never played.
-            // At once: the switch's plan has already allowed for the scroll (see SwitchMotion.update).
-            state.scroll.scrollTo(0)
-            switchMotion.play(motion.duration(SWITCH_MILLIS)) {
-                if (switchMotion.waitsForGrid) {
-                    // The new layout's settings (columns, paddings) land just after its tiles: tiles stay
-                    // drawn where they were until they have, briefly at most, so they move to the final grid.
-                    val before = settingsWatch.beforeSwitch
-                    withTimeoutOrNull(SWITCH_SETTINGS_WAIT_MILLIS) { snapshotFlow { currentSettings }.first { it != before } }
-                }
-            }
-        }
 
         // A top-level tile and a folder child differ only in the drag callbacks and where they appear from.
         @Composable
@@ -1769,9 +1738,3 @@ private fun AllAppsArrow(accent: Boolean, onClick: () -> Unit) = RoundGlyphButto
     drawLine(color, Offset(r, y), Offset(r - head, y + head), stroke, StrokeCap.Round)
 }
 
-/** What the start screen saw of the settings around a layout switch; see [SWITCH_SETTINGS_WAIT_MILLIS]. */
-private class SettingsWatch {
-    var generation = 0
-    var latest: Any? = null
-    var beforeSwitch: Any? = null
-}

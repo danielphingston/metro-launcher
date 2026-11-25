@@ -3,17 +3,27 @@ package io.github.danielphingston.metro.ui.start
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ScrollState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import io.github.danielphingston.metro.ui.ResolvedTile
+import io.github.danielphingston.metro.ui.components.LocalMotion
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** How long a layout switch's moves and fades take, before the animation speed setting. */
 internal const val SWITCH_MILLIS = 260
@@ -164,4 +174,76 @@ internal class SwitchMotion {
             alpha = opacity
         }
     }
+}
+
+/**
+ * A layout switch on start, all of it: call once while composing start, every composition, with the
+ * tiles it shows ([tiles] at [placements] in [frame]); draw them through the returned [SwitchMotion]
+ * ([SwitchMotion.onScreen], [SwitchMotion.modifier], and [SwitchMotion.active] to lay tiles out at
+ * their new places at once).
+ *
+ * A switch happens in this order, and each step relies on the one before:
+ * 1. Composition: the repository has published the new tiles and bumped [TileKeys.generation].
+ *    [SwitchMotion.update] plans the switch from what was on screen (its old [GridFrame], and
+ *    [scroll] read without observing it) and sets [SwitchMotion.active].
+ * 2. Layout: tiles are placed at their new places straight away (TileHost, while active).
+ * 3. Effect, a frame or two later: [onStart] (leave edit mode, close overlays), [scroll] jumps to
+ *    the top, and, when the grid changes, a wait of up to [SWITCH_SETTINGS_WAIT_MILLIS] for the new
+ *    layout's [settings], which land just after its tiles. Then the switch plays.
+ * 4. Drawing, every frame of it: each tile's layer draws it between where it was (moved by however
+ *    far [scroll] has gone since step 1) and where it is now.
+ * Nothing here recomposes per frame: progress and scroll are read only while drawing.
+ */
+@Composable
+internal fun rememberLayoutSwitch(
+    keys: TileKeys,
+    tiles: List<ResolvedTile>,
+    placements: List<Placement>,
+    frame: GridFrame,
+    settings: Any,
+    scroll: ScrollState,
+    onStart: () -> Unit,
+): SwitchMotion {
+    val context = LocalContext.current
+    val duration = LocalMotion.current.duration(SWITCH_MILLIS)
+    val motion = remember { SwitchMotion() }
+    val watch = remember { SettingsWatch() }
+    motion.ended // Recompose when a switch ends, so its leaving tiles go.
+    val generation = keys.generation
+    // The settings start had before this switch, so the wait for the new ones can tell "already
+    // arrived" from "not yet": a wait for a change that has already happened would never end.
+    if (generation != watch.generation) watch.beforeSwitch = watch.latest
+    watch.generation = generation
+    watch.latest = settings
+    motion.update(
+        generation,
+        tiles.indices.associate { keys.keyOf(tiles[it].spec.id) to (tiles[it] to placements[it]) },
+        frame,
+        gridChanges = keys.gridChanges,
+        scrolledPx = { scroll.value },
+    ) { Turnstile.animationsEnabled(context.contentResolver) }
+
+    val currentSettings by rememberUpdatedState(settings)
+    val currentOnStart by rememberUpdatedState(onStart)
+    LaunchedEffect(generation) {
+        if (!motion.takeSwitch()) return@LaunchedEffect
+        currentOnStart()
+        // At once: the plan follows the scroll while drawing, so tiles stay put whenever this lands.
+        scroll.scrollTo(0)
+        // Whether to animate was decided in update; play only clears when it planned nothing.
+        motion.play(duration) {
+            if (motion.waitsForGrid) {
+                val before = watch.beforeSwitch
+                withTimeoutOrNull(SWITCH_SETTINGS_WAIT_MILLIS) { snapshotFlow { currentSettings }.first { it != before } }
+            }
+        }
+    }
+    return motion
+}
+
+/** What start's settings were around a layout switch; see [rememberLayoutSwitch]. */
+private class SettingsWatch {
+    var generation = 0
+    var latest: Any? = null
+    var beforeSwitch: Any? = null
 }
