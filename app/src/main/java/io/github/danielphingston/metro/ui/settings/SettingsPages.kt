@@ -40,6 +40,7 @@ import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.LabeledSlider
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.components.MetroChoiceGroup
 import io.github.danielphingston.metro.ui.components.MetroToggle
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroAccents
@@ -174,16 +175,7 @@ internal fun AppearancePage(settings: LauncherSettings, repository: SettingsRepo
     val scope = rememberCoroutineScope()
     val colors = Metro.colors
     Section("theme", anchor = "theme")
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ThemeMode.entries.forEach { mode ->
-            MetroChoice(
-                mode.name.lowercase(),
-                settings.theme == mode,
-                { scope.launch { repository.setTheme(mode) } },
-                Modifier.weight(1f),
-            )
-        }
-    }
+    MetroChoiceGroup(ThemeMode.entries.map { it to it.name.lowercase() }, settings.theme, { scope.launch { repository.setTheme(it) } })
 
     Section("accent colour", anchor = "accent_colour")
     val accentName = MetroAccents.firstOrNull { it.second.toArgb() == settings.accent }?.first ?: "custom"

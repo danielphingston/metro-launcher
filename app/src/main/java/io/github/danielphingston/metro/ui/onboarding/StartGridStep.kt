@@ -2,9 +2,7 @@ package io.github.danielphingston.metro.ui.onboarding
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,8 +24,8 @@ import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.LARGE_SCREEN_DP
-import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.components.MetroChoiceGroup
 import io.github.danielphingston.metro.ui.start.GridFrame
 import io.github.danielphingston.metro.ui.start.StartColumns
 import io.github.danielphingston.metro.ui.start.TileGap
@@ -71,23 +69,18 @@ internal fun StartGridStep(settings: LauncherSettings, repository: SettingsRepos
     val shown = if (!large && settings.columns == LauncherSettings.AUTO_COLUMNS) LauncherSettings.DEFAULT_COLUMNS else settings.columns
 
     MetroText("tiles per row", MetroType.sectionTitle, modifier = Modifier.padding(bottom = 8.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        tilesPerRowChoices(large).forEach { (columns, label) ->
-            MetroChoice(label, shown == columns, { scope.launch { repository.setColumns(columns) } }, Modifier.weight(1f))
-        }
-    }
+    MetroChoiceGroup(tilesPerRowChoices(large), shown, { scope.launch { repository.setColumns(it) } })
     Spacer(Modifier.height(20.dp))
     MetroText("spacing", MetroType.sectionTitle, modifier = Modifier.padding(bottom = 8.dp))
     val spacing = StartSpacing.of(settings)
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        StartSpacing.entries.forEach { preset ->
-            MetroChoice(preset.label, spacing == preset, {
-                scope.launch { repository.setStartSidePaddings(preset.sideDp, preset.sideDp) }
-            }, Modifier.weight(1f))
-        }
+    MetroChoiceGroup(StartSpacing.entries.map { it to it.label }, spacing, {
+        scope.launch { repository.setStartSidePaddings(it.sideDp, it.sideDp) }
+    })
+    // An empty frame would say nothing; a first run always has the default tiles.
+    if (tiles.isNotEmpty()) {
+        Spacer(Modifier.height(20.dp))
+        GridPreview(tiles, settings, large)
     }
-    Spacer(Modifier.height(20.dp))
-    GridPreview(tiles, settings, large)
     Spacer(Modifier.height(10.dp))
     MetroText("More options in settings, start.", MetroType.caption, color = colors.subtle)
 }

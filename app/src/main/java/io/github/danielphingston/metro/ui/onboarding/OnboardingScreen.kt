@@ -38,8 +38,9 @@ import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.ui.components.MetroButton
-import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.data.StartBackground
+import io.github.danielphingston.metro.ui.components.MetroChoiceGroup
 import io.github.danielphingston.metro.ui.settings.AccentFromBackgroundToggle
 import io.github.danielphingston.metro.ui.settings.BackgroundChoice
 import io.github.danielphingston.metro.ui.settings.TileTransparencySlider
@@ -58,12 +59,17 @@ import kotlinx.coroutines.launch
  * backup. It is not a separate activity, so Home leaves it where it is.
  */
 @Composable
-internal fun OnboardingScreen(settings: LauncherSettings, onFinish: (withHints: Boolean) -> Unit) {
+internal fun OnboardingScreen(
+    settings: LauncherSettings,
+    onFinish: (withHints: Boolean) -> Unit,
+    /** Where the setup opens; the first step, except for screenshots of the others. */
+    initialStep: OnboardingStep = OnboardingStep.WELCOME,
+) {
     val colors = Metro.colors
     val app = LocalContext.current.applicationContext as MetroApplication
     // The user's own tiles, for the grid step's preview.
     val tiles by app.tiles.tiles.collectAsState()
-    var stepIndex by rememberSaveable { mutableIntStateOf(0) }
+    var stepIndex by rememberSaveable { mutableIntStateOf(initialStep.ordinal) }
     val step = OnboardingStep.entries[stepIndex.coerceIn(0, OnboardingStep.entries.lastIndex)]
     val scroll = rememberScrollState()
 
@@ -184,16 +190,7 @@ private fun LookStep(settings: LauncherSettings) {
     val repository = (LocalContext.current.applicationContext as MetroApplication).settings
 
     MetroText("theme", MetroType.sectionTitle, modifier = Modifier.padding(bottom = 8.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ThemeMode.entries.forEach { mode ->
-            MetroChoice(
-                mode.name.lowercase(),
-                settings.theme == mode,
-                { scope.launch { repository.setTheme(mode) } },
-                Modifier.weight(1f),
-            )
-        }
-    }
+    MetroChoiceGroup(ThemeMode.entries.map { it to it.name.lowercase() }, settings.theme, { scope.launch { repository.setTheme(it) } })
     Spacer(Modifier.height(24.dp))
     MetroText("accent colour", MetroType.sectionTitle, modifier = Modifier.padding(bottom = 8.dp))
     AccentGrid(settings.accent) { scope.launch { repository.setAccent(it) } }
@@ -211,8 +208,11 @@ internal fun BackgroundStep(settings: LauncherSettings, repository: SettingsRepo
     Spacer(Modifier.height(16.dp))
     BackgroundChoice(settings, repository)
     AccentFromBackgroundToggle(settings, repository)
-    Spacer(Modifier.height(16.dp))
-    TileTransparencySlider(settings, repository)
+    // Only where something shows through the tiles; a solid page has nothing behind them.
+    if (settings.background != StartBackground.SOLID) {
+        Spacer(Modifier.height(16.dp))
+        TileTransparencySlider(settings, repository)
+    }
 }
 
 @Composable

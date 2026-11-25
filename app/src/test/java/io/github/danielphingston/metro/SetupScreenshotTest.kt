@@ -20,6 +20,8 @@ import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.onboarding.BackgroundStep
+import io.github.danielphingston.metro.ui.onboarding.OnboardingScreen
+import io.github.danielphingston.metro.ui.onboarding.OnboardingStep
 import io.github.danielphingston.metro.ui.onboarding.StartGridStep
 import io.github.danielphingston.metro.ui.start.CoachMark
 import io.github.danielphingston.metro.ui.start.CoachMarkBar
@@ -63,6 +65,17 @@ class SetupScreenshotTest {
     }
 
     private val repository get() = SettingsRepository(RuntimeEnvironment.getApplication())
+
+    /** Each step of the setup as the user sees it, full screen, at the normal and a doubled font size. */
+    @Test
+    fun everyStep() {
+        for (step in OnboardingStep.entries) {
+            for (scale in listOf(1f, 2f)) {
+                val name = "setup_step_${step.ordinal + 1}_${step.name.lowercase()}" + if (scale > 1f) "_font_2x" else ""
+                capture(name, LauncherSettings(columns = 6), scale) { OnboardingScreen(LauncherSettings(columns = 6), {}, step) }
+            }
+        }
+    }
 
     @Test
     fun gridStep() = capture("setup_grid") { Page { StartGridStep(LauncherSettings(columns = 6), repository, tiles) } }
