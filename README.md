@@ -13,7 +13,7 @@ Live tiles, folders, photo backgrounds and turnstile animations, built to cost a
 ## Features
 
 **Start screen**
-- Small, medium, wide and large tiles; small tiles cluster in 2x2 blocks like Windows Phone. Four columns, or six with "Show more tiles".
+- Small, medium, wide and large tiles; small tiles cluster in 2x2 blocks like Windows Phone. Three medium tiles per row on a new install ("Show more tiles", six columns), or two with it off; the grid always reaches both edges of a phone, also at a small display size.
 - Tablets and unfolded foldables: tiles keep about a phone's size and, by default, the number of tiles per row ("auto") follows the width so the grid fills the screen edge to edge, also after rotating or folding; the app list sits in the middle of the screen. Settings also offer four, six or eight tiles per row there.
 - Tiles keep the place you give them and only ever slide straight up into free space, never sideways into gaps; resizing or dropping a tile pushes the ones in its way down. Any tile can rise one row into a row left half empty, such as under a pair of small tiles. New tiles go at the bottom.
 - Press and hold a tile to edit: drag to move (dragging never makes a folder). The selected tile has the same corner badges on every kind of tile: ✕ unpin (top right), resize (bottom right; a widget has its drag handle there), group into a folder (top left, on apps, shortcuts and folders) and ✎ customise (bottom left; on a widget, beside its drag handle). TalkBack offers the same as actions, "Customise…" among them. Back, Home or a tap on empty space leaves edit mode.

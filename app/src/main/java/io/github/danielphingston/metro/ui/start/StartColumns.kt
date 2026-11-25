@@ -25,12 +25,23 @@ object StartColumns {
 
     /**
      * The columns to show for the stored [setting]. Automatic ([LauncherSettings.AUTO_COLUMNS])
-     * fills the width on a [large] screen and is the usual 4 on a phone, where it can only have
-     * come from a backup of a tablet.
+     * fills the width on a [large] screen and is the usual 4 on a phone: a phone install that never
+     * chose (from before 6 became the first-run choice, see LauncherViewModel), or a tablet's backup.
      */
     fun resolve(setting: Int, large: Boolean, widthDp: Float): Int = when {
         setting != LauncherSettings.AUTO_COLUMNS -> setting
         large -> auto(widthDp)
         else -> LauncherSettings.DEFAULT_COLUMNS
+    }
+
+    /**
+     * The width of one cell (a tile plus one gap) in dp when [widthDp] (the grid plus one gap) is split
+     * into [columns]. A [large] screen keeps its cells at most [WidgetTiles.MAX_CELL_DP] so tiles stay a
+     * phone's size. A phone's always fill the width: one set to a small display size is wide in dp, and
+     * a capped grid there stopped short of the right edge.
+     */
+    fun cellDp(widthDp: Float, columns: Int, large: Boolean): Float {
+        val fill = widthDp / columns
+        return if (large) minOf(fill, WidgetTiles.MAX_CELL_DP) else fill
     }
 }

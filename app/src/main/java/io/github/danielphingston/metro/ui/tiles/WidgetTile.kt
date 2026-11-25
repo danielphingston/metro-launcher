@@ -245,9 +245,10 @@ object WidgetTiles {
 
     /**
      * The width of a start screen cell in dp: the screen less its side padding, split into
-     * [columns], and at most [MAX_CELL_DP].
+     * [columns], and at most [MAX_CELL_DP] on a large screen (see [StartColumns.cellDp]).
      */
-    internal fun cellDp(screenWidthDp: Int, columns: Int): Float = min((screenWidthDp - 12f) / columns, MAX_CELL_DP)
+    internal fun cellDp(screenWidthDp: Int, smallestWidthDp: Int, columns: Int): Float =
+        StartColumns.cellDp(screenWidthDp - 12f, columns, smallestWidthDp >= LARGE_SCREEN_DP)
 
     /** The columns the start screen shows on a screen like this, for sizing a widget before the screen has reported them. */
     internal fun columnsFor(setting: Int, smallestWidthDp: Int, screenWidthDp: Int): Int =

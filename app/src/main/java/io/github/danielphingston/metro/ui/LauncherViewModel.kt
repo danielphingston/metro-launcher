@@ -221,6 +221,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             // A load that failed gives an empty list; wait for a real one rather than save an empty first layout.
             val apps = metro.apps.apps.filterNotNull().first { it.isNotEmpty() }
             if (metro.tiles.isFirstRun && specs.isEmpty()) {
+                // A new phone starts with three medium tiles per row. Installs from before keep the
+                // stored "auto" (four on a phone), so their layout isn't widened under them.
+                val large = application.resources.configuration.smallestScreenWidthDp >= LARGE_SCREEN_DP
+                if (!large && metro.settings.settings.first().columns == LauncherSettings.AUTO_COLUMNS) {
+                    metro.tiles.setColumns(LauncherSettings.FIRST_RUN_PHONE_COLUMNS)
+                    metro.settings.setColumns(LauncherSettings.FIRST_RUN_PHONE_COLUMNS)
+                }
                 metro.tiles.replaceAll(DefaultLayout.build(apps, metro.apps.defaults.value, application.packageName))
             }
         }

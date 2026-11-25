@@ -125,7 +125,7 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
         LocalConfiguration.current.smallestScreenWidthDp,
         screenWidthDp,
     )
-    val cell = WidgetTiles.cellDp(screenWidthDp, columns)
+    val cell = WidgetTiles.cellDp(screenWidthDp, LocalConfiguration.current.smallestScreenWidthDp, columns)
     val groups by produceState<List<WidgetGroup>?>(null) {
         value = withContext(Dispatchers.IO) { loadWidgets(context) }
     }
