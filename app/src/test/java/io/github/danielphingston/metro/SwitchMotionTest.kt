@@ -98,6 +98,45 @@ class SwitchMotionTest {
     }
 
     @Test
+    fun aScrolledStartKeepsItsTilesStillBeforeAndAfterTheJumpToTheTop() {
+        var scroll = 500
+        val was = Placement(0, 10, 2, 2)
+        val gone = Placement(2, 10, 2, 2)
+        val now = Placement(0, 0, 2, 2)
+        val motion = SwitchMotion()
+        motion.update(0, mapOf(1L to (tile(1) to was), 2L to (tile(2) to gone)), frame, gridChanges = false, scrolledPx = { scroll }) { true }
+        assertTrue(motion.update(1, mapOf(1L to (tile(1) to now)), frame, gridChanges = false, scrolledPx = { scroll }) { true })
+        // The frames before the switch jumps start to the top: drawn exactly where they were (these flickered).
+        assertEquals(frame.rectOf(was), motion.drawnRect(1L, now, frame).first)
+        assertEquals(frame.rectOf(gone), motion.drawnRect(2L, gone, frame, isLeaving = true).first)
+        // After the jump start is at its top: 500 px higher in the content, which is the same place on screen.
+        scroll = 0
+        assertEquals(frame.rectOf(was).let { it.copy(top = it.top - 500f) }, motion.drawnRect(1L, now, frame).first)
+        assertEquals(frame.rectOf(gone).let { it.copy(top = it.top - 500f) }, motion.drawnRect(2L, gone, frame, isLeaving = true).first)
+    }
+
+    @Test
+    fun aSwitchDuringASwitchStartsFromWhereTheTileIsDrawn() = runBlocking(Frames) {
+        val a = Placement(0, 0, 2, 2)
+        val b = Placement(0, 8, 2, 2)
+        val c = Placement(2, 4, 2, 2)
+        val motion = SwitchMotion()
+        motion.update(0, mapOf(1L to (tile(1) to a)), frame, gridChanges = false, scrolledPx = { 0 }) { true }
+        motion.update(1, mapOf(1L to (tile(1) to b)), frame, gridChanges = false, scrolledPx = { 0 }) { true }
+        assertTrue(motion.takeSwitch())
+        val first = async { motion.play(1_000) }
+        repeat(20) { yield() }
+        val midway = motion.drawnRect(1L, b, frame).first
+        assertTrue("the first switch is under way", midway != frame.rectOf(a) && midway != frame.rectOf(b))
+        // A second switch arrives; its effect cancels the first one's play.
+        motion.update(2, mapOf(1L to (tile(1) to c)), frame, gridChanges = false, scrolledPx = { 0 }) { true }
+        first.cancel()
+        first.join()
+        // It starts from where the tile was drawn, not from the first switch's start (a) or end (b).
+        assertEquals(midway, motion.drawnRect(1L, c, frame).first)
+    }
+
+    @Test
     fun withoutASwitchNothingChanges() {
         val motion = SwitchMotion()
         assertFalse(motion.update(0, shown(1), frame, gridChanges = false, scrolledPx = { 0 }) { true })

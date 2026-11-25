@@ -153,6 +153,18 @@ internal class SwitchMotion {
     }
 
     /**
+     * Where the switch draws the tile with [key] laid out at [placement] in [frame] right now, and
+     * how opaque: what [modifier] draws every frame. It reads the progress and the scroll, so call
+     * it while drawing; tests call it to see what a frame would show.
+     */
+    internal fun drawnRect(key: Long, placement: Placement, frame: GridFrame, isLeaving: Boolean = false): Pair<TileRect, Float> =
+        drawn(plan, key, frame.rectOf(placement), if (isLeaving) plan.leavingByKey[key]?.rect else null)
+
+    // The scroll is read here, while drawing, so tiles stay in place whichever frame the jump to the top lands on.
+    private fun drawn(plan: SwitchPlan<ResolvedTile>, key: Long, laidOut: TileRect, leavingRect: TileRect?): Pair<TileRect, Float> =
+        plan.frameOf(key, laidOut, progress, leavingRect, scrolledSince())
+
+    /**
      * The draw-only part for the tile with [key] laid out at [placement] in [frame] (the frame of
      * this composition, so it follows the new layout's settings when they land): it is drawn where
      * the plan puts it. Nothing for a tile the switch doesn't touch.
@@ -163,8 +175,7 @@ internal class SwitchMotion {
         if (leavingRect == null && key !in plan.entering && key !in plan.from) return Modifier
         val laidOut = frame.rectOf(placement)
         return Modifier.graphicsLayer {
-            // Reading the scroll here, while drawing, keeps tiles in place whichever frame the jump to the top lands on.
-            val (rect, opacity) = plan.frameOf(key, laidOut, progress, leavingRect, scrolledSince())
+            val (rect, opacity) = drawn(plan, key, laidOut, leavingRect)
             val transform = LayerTransform.between(laidOut, rect)
             transformOrigin = TransformOrigin(0f, 0f)
             translationX = transform.translationX
