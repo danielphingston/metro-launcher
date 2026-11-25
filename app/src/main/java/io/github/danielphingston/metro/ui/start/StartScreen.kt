@@ -1075,6 +1075,10 @@ fun StartScreen(
                         state.layoutsMenuOpen = true
                     }
                 },
+                onSettings = {
+                    state.addMenuOpen = false
+                    context.startActivity(SettingsActivity.intent(context))
+                },
             )
         }
         if (state.layoutsMenuOpen) {
@@ -1675,6 +1679,7 @@ private fun AddTileMenu(
     onQuickSettings: () -> Unit,
     onDismiss: () -> Unit,
     onLayouts: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     MetroFlyout(onDismiss) {
         MetroMenu(
@@ -1683,6 +1688,8 @@ private fun AddTileMenu(
                 "metro plus" to onQuickSettings,
                 "widgets" to onWidgets,
                 "layouts" to onLayouts,
+                // Metro's own settings, also reachable from here rather than only the app drawer.
+                "settings" to onSettings,
             ),
             modifier = Modifier
                 .align(Alignment.BottomCenter)

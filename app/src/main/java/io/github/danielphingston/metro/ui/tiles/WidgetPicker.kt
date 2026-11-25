@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -204,6 +207,9 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
             Modifier
                 .align(Alignment.BottomCenter)
                 .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 24.dp)
+                // Above the keyboard, so a search with few results stays in sight (the navigation bar is
+                // already in the content padding below, so not again).
+                .windowInsetsPadding(WindowInsets.ime.exclude(WindowInsets.navigationBars))
                 .fillMaxWidth()
                 .background(Metro.colors.chrome)
                 // Keeps taps on the panel from dismissing it.
