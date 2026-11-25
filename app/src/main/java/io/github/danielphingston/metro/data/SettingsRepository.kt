@@ -184,6 +184,8 @@ data class LauncherSettings(
         const val MIN_COLUMNS = 4
         const val MAX_COLUMNS = 8
         const val DEFAULT_COLUMNS = 4
+        /** What a fresh install on a phone stores: three medium tiles per row ("show more tiles"). */
+        const val FIRST_RUN_PHONE_COLUMNS = 6
 
         /**
          * Stored in place of a column count: as many columns as keep the tiles about a phone's

@@ -28,7 +28,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], application = android.app.Application::class)
 class WidgetTilesTest {
     /** A 411dp wide phone with four columns, as the start screen lays it out. */
-    private val cell = WidgetTiles.cellDp(411, 4)
+    private val cell = WidgetTiles.cellDp(411, 411, 4)
 
     private fun dims(
         w: Float, h: Float, resizeW: Float = 0f, resizeH: Float = 0f, cols: Int = 0, rows: Int = 0,
@@ -36,7 +36,7 @@ class WidgetTilesTest {
     ) = WidgetDims(w, h, resizeW, resizeH, cols, rows, maxW, maxH, mode)
 
     private fun limits(d: WidgetDims, columns: Int = 4, width: Int = 2, height: Int = 2) =
-        WidgetTiles.spanLimits(d, WidgetTiles.cellDp(411, columns), columns, width, height)
+        WidgetTiles.spanLimits(d, WidgetTiles.cellDp(411, 411, columns), columns, width, height)
 
     @Test
     fun sizeOptionsFillEveryKeyAWidgetMayRead() {
@@ -55,7 +55,7 @@ class WidgetTilesTest {
     }
 
     private fun span(d: WidgetDims, columns: Int = 4) =
-        WidgetTiles.suggestedSpan(d, WidgetTiles.cellDp(411, columns), columns)
+        WidgetTiles.suggestedSpan(d, WidgetTiles.cellDp(411, 411, columns), columns)
 
     @Test
     fun withoutTargetCellsTheSmallestSpanThatHoldsTheMinimumIsUsed() {
@@ -163,12 +163,18 @@ class WidgetTilesTest {
     @Test
     fun tabletCellsStayPhoneSized() {
         // A phone's cells are below the cap and unchanged.
-        assertEquals(99.75f, WidgetTiles.cellDp(411, 4), 0.001f)
+        assertEquals(99.75f, WidgetTiles.cellDp(411, 411, 4), 0.001f)
         // A 1280dp wide tablet in landscape would otherwise get 317dp cells in four columns.
-        assertEquals(WidgetTiles.MAX_CELL_DP, WidgetTiles.cellDp(1280, 4), 0.001f)
-        assertEquals(WidgetTiles.MAX_CELL_DP, WidgetTiles.cellDp(1280, 8), 0.001f)
+        assertEquals(WidgetTiles.MAX_CELL_DP, WidgetTiles.cellDp(1280, 800, 4), 0.001f)
+        assertEquals(WidgetTiles.MAX_CELL_DP, WidgetTiles.cellDp(1280, 800, 8), 0.001f)
         // A portrait tablet in eight columns fills its width just under the cap.
-        assertEquals(98.5f, WidgetTiles.cellDp(800, 8), 0.001f)
+        assertEquals(98.5f, WidgetTiles.cellDp(800, 800, 8), 0.001f)
+    }
+
+    @Test
+    fun phoneCellsFillTheWidthAtASmallDisplaySize() {
+        // A 1080px phone at a small display size is 480dp wide: capped, four columns stopped 52dp short.
+        assertEquals(117f, WidgetTiles.cellDp(480, 480, 4), 0.001f)
     }
 
     @Test

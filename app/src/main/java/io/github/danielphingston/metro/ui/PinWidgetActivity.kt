@@ -65,7 +65,7 @@ class PinWidgetActivity : ComponentActivity() {
                 false
             }
             if (accepted) {
-                val cell = WidgetTiles.cellDp(resources.configuration.screenWidthDp, columns)
+                val cell = WidgetTiles.cellDp(resources.configuration.screenWidthDp, resources.configuration.smallestScreenWidthDp, columns)
                 val serial = getSystemService(UserManager::class.java).getSerialNumberForUser(info.profile)
                 val span = WidgetTiles.suggestedSpan(WidgetTiles.dimsOf(this, info), cell, columns)
                 metro.tiles.add(

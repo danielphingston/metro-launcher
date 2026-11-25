@@ -68,6 +68,15 @@ class StartColumnsTest {
     }
 
     @Test
+    fun phoneGridReachesTheRightEdge() {
+        // 480dp less 8dp paddings either side, plus one 4dp gap: four cells of 117dp, not 104dp.
+        val width = 480f - 16f + 4f
+        assertEquals(117f, StartColumns.cellDp(width, 4, large = false), 0.001f)
+        assertEquals(width, StartColumns.cellDp(width, 6, large = false) * 6, 0.001f)
+        assertEquals(WidgetTiles.MAX_CELL_DP, StartColumns.cellDp(width, 4, large = true), 0.001f)
+    }
+
+    @Test
     fun autoSurvivesTheClamp() {
         assertEquals(LauncherSettings.AUTO_COLUMNS, LauncherSettings.clampColumns(LauncherSettings.AUTO_COLUMNS))
         assertEquals(4, LauncherSettings.clampColumns(-3))

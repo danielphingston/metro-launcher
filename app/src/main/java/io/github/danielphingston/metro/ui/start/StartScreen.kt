@@ -594,7 +594,7 @@ fun StartScreen(
         val noteDraft = state.noteDraft
         val noteHeight = remember(openFolder?.spec?.id) { mutableIntStateOf(0) }
         val noteRows = openNotes?.let { notes ->
-            val noteCell = minOf((maxWidth - sides - leftPadding - rightPadding + TileGap) / columns, WidgetTiles.MAX_CELL_DP.dp)
+            val noteCell = StartColumns.cellDp((maxWidth - sides - leftPadding - rightPadding + TileGap).value, columns, isLarge).dp
             val measured = noteHeight.intValue
             if (measured > 0) {
                 val cellPx = with(density) { noteCell.toPx() }
@@ -630,7 +630,7 @@ fun StartScreen(
                 null
             }
         }
-        val cell: Dp = minOf((maxWidth - sides - leftPadding - rightPadding + TileGap) / columns, WidgetTiles.MAX_CELL_DP.dp)
+        val cell: Dp = StartColumns.cellDp((maxWidth - sides - leftPadding - rightPadding + TileGap).value, columns, isLarge).dp
         val gridWidth = cell * columns - TileGap
         val cellPx = with(density) { cell.toPx() }
         val gapPx = with(density) { TileGap.toPx() }
