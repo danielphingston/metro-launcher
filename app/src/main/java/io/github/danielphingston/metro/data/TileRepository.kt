@@ -501,6 +501,23 @@ class TileRepository(
     fun edit(transform: (List<TileSpec>) -> List<TileSpec>) = change(transform = transform)
 
     /** Removes a tile, also from inside a folder, and returns it so callers can release resources (e.g. widget ids). */
+    /**
+     * Gives the widget tile [id] the widget [appWidgetId] in place of one that is gone, keeping its
+     * place, size and look. Returns the id it had, for the caller to free, or null without such a tile.
+     */
+    fun replaceWidget(id: Long, appWidgetId: Int): Int? {
+        var old: Int? = null
+        _tiles.update { list ->
+            list?.map { spec ->
+                val widget = spec.content as? TileContent.Widget
+                if (spec.id != id || widget == null) return@map spec
+                old = widget.appWidgetId
+                spec.copy(content = widget.copy(appWidgetId = appWidgetId))
+            }
+        }
+        return old
+    }
+
     fun unpin(id: Long): TileSpec? {
         var removed: TileSpec? = null
         _tiles.update { list ->

@@ -28,6 +28,7 @@ import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.data.StartEdit
 import io.github.danielphingston.metro.data.LayoutSet
 import io.github.danielphingston.metro.data.StartLayoutRepository
+import io.github.danielphingston.metro.ui.tiles.WidgetTiles
 import io.github.danielphingston.metro.ui.start.TileKeys
 import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles
 import io.github.danielphingston.metro.data.TileContent
@@ -327,6 +328,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun updateTool(id: Long, change: (TileContent.Tool) -> TileContent.Tool) = metro.tiles.update(id) { spec ->
         val tool = spec.content as? TileContent.Tool ?: return@update spec
         spec.copy(content = io.github.danielphingston.metro.data.ToolLimits.clean(change(tool)))
+    }
+
+    /** The widget tile [id] shows the new widget [appWidgetId] in place of its gone one; the old id is freed. */
+    fun replaceWidget(id: Long, appWidgetId: Int) {
+        metro.tiles.replaceWidget(id, appWidgetId)?.takeIf { it != appWidgetId }?.let { WidgetTiles.release(getApplication(), it) }
     }
 
     fun unpin(id: Long) {

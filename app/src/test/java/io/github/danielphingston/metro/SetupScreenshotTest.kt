@@ -1,6 +1,11 @@
 package io.github.danielphingston.metro
 
+import android.content.ComponentName
+import android.graphics.drawable.ColorDrawable
+import android.os.Process
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +17,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
+import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.AppKey
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SettingsRepository
@@ -23,7 +29,9 @@ import io.github.danielphingston.metro.ui.onboarding.BackgroundStep
 import io.github.danielphingston.metro.ui.onboarding.OnboardingScreen
 import io.github.danielphingston.metro.ui.onboarding.OnboardingStep
 import io.github.danielphingston.metro.ui.onboarding.StartGridStep
+import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.ui.start.CoachMark
+import io.github.danielphingston.metro.ui.tiles.UnavailableWidgetTile
 import io.github.danielphingston.metro.ui.start.CoachMarkBar
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroTheme
@@ -97,6 +105,30 @@ class SetupScreenshotTest {
     @Test
     fun backgroundStepLargeFont() = capture("setup_background_font_2x", fontScale = 2f) {
         Page { BackgroundStep(LauncherSettings(), repository) }
+    }
+
+    /** A widget tile whose widget is gone (a backup from another phone): with its app installed, and without. */
+    @Test
+    fun unavailableWidgetTiles() = listOf(1f, 2f).forEach { scale ->
+        capture("widget_unavailable" + if (scale > 1f) "_font_2x" else "", fontScale = scale) {
+            val maps = AppInfo(
+                key = AppKey("com.google.android.apps.maps", "Main", 0),
+                label = "Maps",
+                user = Process.myUserHandle(),
+                component = ComponentName("com.google.android.apps.maps", "Main"),
+                isUninstallable = true,
+                loadIcon = { _, _ -> ColorDrawable(0) },
+            )
+            val widget = TileContent.Widget(41, "com.google.android.apps.maps/.Traffic", 0L)
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(width = 260.dp, height = 128.dp)) {
+                    UnavailableWidgetTile(ResolvedTile(TileSpec(1, TileSize.WIDE, widget), maps, "Maps"), 64.dp)
+                }
+                Box(Modifier.size(width = 260.dp, height = 128.dp)) {
+                    UnavailableWidgetTile(ResolvedTile(TileSpec(2, TileSize.WIDE, widget), null, "widget"), 64.dp)
+                }
+            }
+        }
     }
 
     @Test

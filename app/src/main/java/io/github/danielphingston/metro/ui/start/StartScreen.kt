@@ -147,6 +147,7 @@ import io.github.danielphingston.metro.ui.tiles.WeatherTile
 import io.github.danielphingston.metro.ui.tiles.WeatherTiles
 import io.github.danielphingston.metro.ui.tiles.WidgetEditBadges
 import io.github.danielphingston.metro.ui.tiles.WidgetPicker
+import io.github.danielphingston.metro.ui.tiles.WidgetRestoreFlow
 import io.github.danielphingston.metro.ui.tiles.WidgetTile
 import io.github.danielphingston.metro.ui.tiles.WidgetTiles
 import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTile
@@ -280,6 +281,9 @@ class StartState(val scroll: ScrollState) {
     /** The tile whose icon picker is open, or null. */
     var iconPickerId by mutableStateOf<Long?>(null)
     var widgetPickerOpen by mutableStateOf(false)
+
+    /** The widget tile whose gone widget is being set up again or removed; see WidgetRestoreFlow. */
+    var restoringWidgetId by mutableStateOf<Long?>(null)
     var quickPickerOpen by mutableStateOf(false)
 
     /** The "layouts" submenu of the add menu: switch tiles to pin. */
@@ -338,7 +342,7 @@ class StartState(val scroll: ScrollState) {
     }
 
     /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || feedAddressId != null || grouping || layoutsMenuOpen || noteDraft != null
+    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || restoringWidgetId != null || quickPickerOpen || renamingFolderId != null || feedAddressId != null || grouping || layoutsMenuOpen || noteDraft != null
 
     /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
@@ -348,6 +352,7 @@ class StartState(val scroll: ScrollState) {
         stylingId = null
         iconPickerId = null
         widgetPickerOpen = false
+        restoringWidgetId = null
         quickPickerOpen = false
         renamingFolderId = null
         feedAddressId = null
@@ -1116,6 +1121,19 @@ fun StartScreen(
         if (state.widgetPickerOpen) {
             WidgetPicker(viewModel, onDismiss = { state.widgetPickerOpen = false })
         }
+        state.restoringWidgetId?.let { id ->
+            val widget = tiles.firstOrNull { it.spec.id == id }?.spec?.content as? TileContent.Widget
+            // The tile went (unpinned, a layout switch): nothing to set up, and nothing may keep start blocked.
+            LaunchedEffect(widget == null) { if (widget == null) state.restoringWidgetId = null }
+            if (widget != null) {
+                WidgetRestoreFlow(
+                    widget,
+                    onRecreated = { viewModel.replaceWidget(id, it) },
+                    onRemove = { viewModel.unpin(id) },
+                    onDismiss = { state.restoringWidgetId = null },
+                )
+            }
+        }
         if (state.quickPickerOpen) {
             QuickSettingPicker(viewModel, onDismiss = { state.quickPickerOpen = false })
         }
@@ -1634,7 +1652,8 @@ private fun activateTile(
                 ShortcutTiles.launch(context, content, screenBounds, options)
             }
         }
-        is TileContent.Widget -> Unit // The hosted widget handles its own taps.
+        // A hosted widget handles its own taps; a tile whose widget is gone offers to set it up again.
+        is TileContent.Widget -> if (WidgetTiles.providerInfo(context, content.appWidgetId) == null) state.restoringWidgetId = tile.spec.id
         TileContent.Weather -> WeatherTiles.intent(context)?.let { launcher.start(it, bounds) }
         TileContent.Photos -> PhotosTiles.intent(context, defaults)?.let { launcher.start(it, bounds) }
         TileContent.People -> PeopleTiles.intent(context)?.let { launcher.start(it, bounds) }
