@@ -124,9 +124,6 @@ internal object SettingsIndex {
         e("about", "about", SettingsPage.ABOUT, "version"),
     )
 
-    /** The anchors the index knows. */
-    val anchors: Set<String> = entries.mapNotNullTo(LinkedHashSet()) { it.anchor }
-
     /**
      * The entries matching [query], best first: every word typed must start a word of the
      * title, a keyword or the page's title. A title that starts with the query ranks first, then
