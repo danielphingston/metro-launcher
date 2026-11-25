@@ -71,20 +71,40 @@ class SwitchGeometryTest {
         // And the layer draws it there from its new place.
         assertRect(twoPerRow.rectOf(mail), drawn(laidOut, LayerTransform.between(laidOut, start.first)))
 
-        // The tile that left is drawn where it was, fading and shrinking about its centre.
+        // The tile that left is drawn where it was, fading and shrinking about its centre, gone before half way.
         val departure = plan.leavingByKey.getValue(2L)
         assertEquals("gone", departure.item)
-        val leaving = plan.frameOf(2L, threePerRow.rectOf(gone), 0.5f, departure.rect)
+        val half = SwitchPlan.LEAVING_END / 2
+        val leaving = plan.frameOf(2L, threePerRow.rectOf(gone), half, departure.rect)
         assertRect(twoPerRow.rectOf(gone).scaledAboutCentre(0.9f), leaving.first)
         assertEquals(0.5f, leaving.second, eps)
-        assertEquals(0f, plan.frameOf(2L, threePerRow.rectOf(gone), 1f, departure.rect).second, eps)
+        assertEquals(0f, plan.frameOf(2L, threePerRow.rectOf(gone), SwitchPlan.LEAVING_END, departure.rect).second, eps)
 
-        // The new tile fades in where it belongs.
+        // The new tile appears late, growing into where it belongs.
         val newRect = threePerRow.rectOf(Placement(0, 0, 2, 2))
         assertEquals(setOf(3L), plan.entering)
-        assertRect(newRect, plan.frameOf(3L, newRect, 0.25f).first)
-        assertEquals(0.25f, plan.frameOf(3L, newRect, 0.25f).second, eps)
+        assertEquals(0f, plan.frameOf(3L, newRect, SwitchPlan.ENTERING_START).second, eps)
+        assertRect(newRect.scaledAboutCentre(SwitchPlan.ENTERING_SCALE), plan.frameOf(3L, newRect, SwitchPlan.ENTERING_START).first)
+        assertRect(newRect, plan.frameOf(3L, newRect, 1f).first)
+        assertEquals(1f, plan.frameOf(3L, newRect, 1f).second, eps)
         assertEquals(0f, plan.frameOf(3L, newRect, -1f).second, eps)
+    }
+
+    @Test
+    fun leavingAndNewTilesBarelyOverlap() {
+        // When the new tiles start to show, the leaving ones are nearly gone, and they are gone soon after.
+        assertTrue(SwitchPlan.ENTERING_START < SwitchPlan.LEAVING_END)
+        assertTrue(SwitchPlan.LEAVING_END - SwitchPlan.ENTERING_START <= 0.15f)
+    }
+
+    @Test
+    fun aScrolledStartKeepsItsTilesWhereTheyWereOnScreen() {
+        // Scrolled 500 px down, then jumped to the top as the switch begins: the old rectangles move up by as much.
+        val placement = Placement(0, 6, 2, 2)
+        val plan = SwitchPlan.of(mapOf(1L to ("mail" to placement), 2L to ("gone" to placement)), twoPerRow, setOf(1L), scrolledPx = 500f)
+        val onScreen = twoPerRow.rectOf(placement).let { it.copy(top = it.top - 500f) }
+        assertRect(onScreen, plan.frameOf(1L, threePerRow.rectOf(Placement(0, 0, 2, 2)), 0f).first)
+        assertRect(onScreen, plan.leavingByKey.getValue(2L).rect)
     }
 
     @Test

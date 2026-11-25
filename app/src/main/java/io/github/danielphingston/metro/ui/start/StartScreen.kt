@@ -649,6 +649,7 @@ fun StartScreen(
             tiles.indices.associate { tileKeys.keyOf(tiles[it].spec.id) to (tiles[it] to placements[it]) },
             gridFrame,
             gridChanges = tileKeys.gridChanges,
+            scrolledPx = { state.scroll.value },
         ) { Turnstile.animationsEnabled(context.contentResolver) }
 
         // Tiles unpinned or uninstalled while grouping can't be grouped any more.
@@ -756,7 +757,8 @@ fun StartScreen(
             state.dismissOverlays()
             // Whether to animate was decided when the switch was planned (SwitchMotion.update); asking
             // again could disagree and leave a planned switch never played.
-            if (switchMotion.active) launch { state.scroll.animateScrollTo(0) } else state.scroll.scrollTo(0)
+            // At once: the switch's plan has already allowed for the scroll (see SwitchMotion.update).
+            state.scroll.scrollTo(0)
             switchMotion.play(motion.duration(SWITCH_MILLIS)) {
                 if (switchMotion.waitsForGrid) {
                     // The new layout's settings (columns, paddings) land just after its tiles: tiles stay
@@ -1328,10 +1330,12 @@ internal fun TileHost(
     Box(
         Modifier
             .offset {
-                if (dragging) {
-                    IntOffset(state.dragTopLeft.x.roundToInt(), state.dragTopLeft.y.roundToInt())
-                } else {
-                    position.value
+                when {
+                    dragging -> IntOffset(state.dragTopLeft.x.roundToInt(), state.dragTopLeft.y.roundToInt())
+                    // A layout switch draws the move itself: the tile must be at its new place from the first frame,
+                    // not one frame later when the effect below snaps it there.
+                    snap -> target
+                    else -> position.value
                 }
             }
             .size(widthDp, heightDp)

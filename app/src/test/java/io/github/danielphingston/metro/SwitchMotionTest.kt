@@ -38,8 +38,8 @@ class SwitchMotionTest {
 
     /** A motion that has shown tiles 1 and 2 and then switched to tiles 2 and 3. */
     private fun switched(animate: Boolean): SwitchMotion = SwitchMotion().apply {
-        update(0, shown(1, 2), frame, gridChanges = false) { true }
-        assertTrue(update(1, shown(2, 3), frame, gridChanges = true) { animate })
+        update(0, shown(1, 2), frame, gridChanges = false, scrolledPx = { 0 }) { true }
+        assertTrue(update(1, shown(2, 3), frame, gridChanges = true, scrolledPx = { 0 }) { animate })
         assertTrue(takeSwitch())
     }
 
@@ -88,7 +88,7 @@ class SwitchMotionTest {
         val first = async { motion.play(10_000) }
         repeat(3) { yield() }
         // A second switch arrives mid-way; the first play is cancelled as its effect restarts.
-        motion.update(2, shown(3, 4), frame, gridChanges = false) { true }
+        motion.update(2, shown(3, 4), frame, gridChanges = false, scrolledPx = { 0 }) { true }
         first.cancel()
         first.join()
         assertTrue("the newer switch is still to be played", motion.active)
@@ -100,8 +100,8 @@ class SwitchMotionTest {
     @Test
     fun withoutASwitchNothingChanges() {
         val motion = SwitchMotion()
-        assertFalse(motion.update(0, shown(1), frame, gridChanges = false) { true })
-        assertFalse(motion.update(0, shown(1, 2), frame, gridChanges = false) { error("only asked on a switch") })
+        assertFalse(motion.update(0, shown(1), frame, gridChanges = false, scrolledPx = { 0 }) { true })
+        assertFalse(motion.update(0, shown(1, 2), frame, gridChanges = false, scrolledPx = { 0 }) { error("only asked on a switch") })
         assertFalse(motion.takeSwitch())
         assertFalse(motion.active)
     }

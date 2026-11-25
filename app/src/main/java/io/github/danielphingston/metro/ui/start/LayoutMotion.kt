@@ -26,8 +26,9 @@ internal const val SWITCH_SETTINGS_WAIT_MILLIS = 250L
  * drawn to where the new grid puts them (other columns or paddings included), tiles that left fade
  * and shrink where they were, and new ones fade in. The geometry is [SwitchPlan]'s; this holds the
  * switch in progress. Tiles are laid out at their new places at once ([active]: their own placement
- * animation snaps) and only drawn elsewhere, through a layer, so nothing is measured or recomposed
- * per frame. Main thread.
+ * animation is skipped) and only drawn elsewhere, through a layer, so nothing is measured or
+ * recomposed per frame. Start jumps to its top as the switch begins, and the plan allows for how far
+ * it was scrolled, so tiles start exactly where they were on screen. Main thread.
  */
 @Stable
 internal class SwitchMotion {
@@ -64,6 +65,7 @@ internal class SwitchMotion {
         now: Map<Long, Pair<ResolvedTile, Placement>>,
         frame: GridFrame,
         gridChanges: Boolean,
+        scrolledPx: () -> Int,
         animate: () -> Boolean,
     ): Boolean {
         val switched = seenGeneration >= 0 && generation != seenGeneration
@@ -83,7 +85,9 @@ internal class SwitchMotion {
         // reset, and without observing, so composition never follows the per-frame progress.
         val previous = plan
         val at = Snapshot.withoutReadObservation { progress }
-        plan = SwitchPlan.of(before, beforeFrame, now.keys) { key, laidOut -> previous.frameOf(key, laidOut, at).first }
+        // The scroll too is read without observing: composition must not follow scrolling.
+        val scrolled = Snapshot.withoutReadObservation(scrolledPx).toFloat()
+        plan = SwitchPlan.of(before, beforeFrame, now.keys, scrolled) { key, laidOut -> previous.frameOf(key, laidOut, at).first }
         // Set here, so the frame that first shows the new layout already draws its start.
         progress = 0f
         active = true
