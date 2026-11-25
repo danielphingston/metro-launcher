@@ -80,7 +80,7 @@ fun MetroPlusSettingsSection(
         else -> MetroText("Not available yet", MetroType.body, color = Metro.colors.subtle)
     }
 
-    Section("assistant")
+    Section("assistant", anchor = "assistant")
     MetroText(
         "The assistant tile shows the latest reply of the app you pick (read from its notifications, " +
             "on this phone only) and flips to the last question you asked from search. It follows the " +
@@ -134,7 +134,7 @@ fun MetroPlusSettingsSection(
 /** The "feed tiles" section: which app Lemmy tiles open their posts in. */
 @Composable
 internal fun FeedTileSettings(settings: LauncherSettings, repository: SettingsRepository) {
-    Section("feed tiles")
+    Section("feed tiles", anchor = "feed_tiles")
     MetroText(
         "Lemmy feed tiles open their posts in this app. Lemmy apps only open the instances they list; " +
             "posts on other instances, and RSS feeds, open in your browser.",

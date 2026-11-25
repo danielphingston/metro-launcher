@@ -57,7 +57,7 @@ private val Choices = listOf(
  */
 @Composable
 fun BackgroundSettingsSection(settings: LauncherSettings, repository: SettingsRepository) {
-    Section("start background")
+    Section("start background", anchor = "start_background")
     BackgroundChoice(settings, repository)
 
     Spacer(Modifier.height(16.dp))
@@ -72,6 +72,7 @@ fun TileTransparencySlider(settings: LauncherSettings, repository: SettingsRepos
         (settings.transparencyFraction * 100).roundToInt(),
         0..100,
         { "$it%" },
+        modifier = Modifier.settingAnchor("tile_transparency"),
     ) { repository.setTileTransparency(it) }
 }
 
@@ -144,6 +145,7 @@ fun BackgroundChoice(settings: LauncherSettings, repository: SettingsRepository)
             } else {
                 "The photo stays put while the tiles slide over it"
             },
+            modifier = Modifier.settingAnchor("photo_moves"),
         )
     }
 }
@@ -159,6 +161,7 @@ fun AccentFromBackgroundToggle(settings: LauncherSettings, repository: SettingsR
             settings.accentFromBackground,
             { scope.launch { repository.setAccentFromBackground(it) } },
             description = if (settings.accentFromBackground) "Using a colour from your photo" else "Using the accent colour above",
+            modifier = Modifier.settingAnchor("accent_from_background"),
         )
     }
 }

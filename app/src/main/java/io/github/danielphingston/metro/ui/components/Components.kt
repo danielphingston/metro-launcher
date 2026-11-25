@@ -99,10 +99,11 @@ fun MetroToggle(
     description: String? = null,
     /** False: shown faded and can't be switched; [description] should say why. */
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     val colors = Metro.colors
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .then(
                 if (enabled) {

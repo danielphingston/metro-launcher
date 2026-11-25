@@ -70,7 +70,7 @@ internal fun SmartSearchSection(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
-    Section("smart search")
+    Section("smart search", anchor = "smart_search")
     if (!unlocked) {
         MetroText(
             "Smart search is part of Metro Plus, a one-time purchase that also unlocks the quick settings " +

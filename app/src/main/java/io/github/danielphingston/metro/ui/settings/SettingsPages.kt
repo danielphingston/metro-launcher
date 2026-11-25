@@ -65,7 +65,7 @@ internal fun StartPage(settings: LauncherSettings, repository: SettingsRepositor
     Section("start screen")
     if (LocalConfiguration.current.smallestScreenWidthDp >= LARGE_SCREEN_DP) {
         // Tiles keep about a phone's size on a tablet, so more columns fill the wider screen; auto picks the count.
-        MetroText("tiles per row", MetroType.caption, color = colors.subtle)
+        MetroText("tiles per row", MetroType.caption, color = colors.subtle, modifier = Modifier.settingAnchor("tiles_per_row"))
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(LauncherSettings.AUTO_COLUMNS, 4, 6, 8).forEach { count ->
@@ -82,9 +82,10 @@ internal fun StartPage(settings: LauncherSettings, repository: SettingsRepositor
             "Show more tiles",
             settings.columns > 4,
             { scope.launch { repository.setColumns(if (it) 6 else 4) } },
+            modifier = Modifier.settingAnchor("tiles_per_row"),
         )
     }
-    MetroText("Start screen padding", MetroType.caption, color = colors.subtle)
+    MetroText("Start screen padding", MetroType.caption, color = colors.subtle, modifier = Modifier.settingAnchor("start_padding"))
     PaddingSlider("Top", settings.startTopPadding, LauncherSettings.MIN_START_TOP_PADDING..LauncherSettings.MAX_START_TOP_PADDING) {
         repository.setStartTopPadding(it)
     }
@@ -109,6 +110,7 @@ internal fun StartPage(settings: LauncherSettings, repository: SettingsRepositor
         settings.accentArrows,
         { scope.launch { repository.setAccentArrows(it) } },
         description = "Draw the buttons under the tiles in the accent colour",
+        modifier = Modifier.settingAnchor("accent_arrows"),
     )
 
     BackgroundSettingsSection(settings, repository)
@@ -131,9 +133,10 @@ internal fun AppListPage(settings: LauncherSettings, repository: SettingsReposit
         settings.appListPlainIcons,
         { scope.launch { repository.setAppListPlainIcons(it) } },
         description = "Show app icons without the coloured square",
+        modifier = Modifier.settingAnchor("plain_icons"),
     )
     Spacer(Modifier.height(10.dp))
-    MetroText("Scrubber highlight", MetroType.body)
+    MetroText("Scrubber highlight", MetroType.body, modifier = Modifier.settingAnchor("scrubber_highlight"))
     Spacer(Modifier.height(8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ScrubberHighlight.entries.forEach { highlight ->
@@ -145,7 +148,7 @@ internal fun AppListPage(settings: LauncherSettings, repository: SettingsReposit
         }
     }
     Spacer(Modifier.height(10.dp))
-    MetroText("Highlight position", MetroType.body)
+    MetroText("Highlight position", MetroType.body, modifier = Modifier.settingAnchor("highlight_position"))
     Spacer(Modifier.height(8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ScrubberHighlightPosition.entries.forEach { position ->
@@ -162,6 +165,7 @@ internal fun AppListPage(settings: LauncherSettings, repository: SettingsReposit
         settings.scrubberPosition,
         LauncherSettings.MIN_SCRUBBER_POSITION..LauncherSettings.MAX_SCRUBBER_POSITION,
         { "$it%" },
+        modifier = Modifier.settingAnchor("scrubber_position"),
     ) { repository.setScrubberPosition(it) }
 }
 
@@ -169,7 +173,7 @@ internal fun AppListPage(settings: LauncherSettings, repository: SettingsReposit
 internal fun AppearancePage(settings: LauncherSettings, repository: SettingsRepository) {
     val scope = rememberCoroutineScope()
     val colors = Metro.colors
-    Section("theme")
+    Section("theme", anchor = "theme")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         ThemeMode.entries.forEach { mode ->
             MetroChoice(
@@ -181,7 +185,7 @@ internal fun AppearancePage(settings: LauncherSettings, repository: SettingsRepo
         }
     }
 
-    Section("accent colour")
+    Section("accent colour", anchor = "accent_colour")
     val accentName = MetroAccents.firstOrNull { it.second.toArgb() == settings.accent }?.first ?: "custom"
     MetroText(accentName, MetroType.caption, color = colors.accent)
     Spacer(Modifier.height(10.dp))
@@ -194,6 +198,7 @@ internal fun AppearancePage(settings: LauncherSettings, repository: SettingsRepo
         settings.monochromeIcons,
         { scope.launch { repository.setMonochromeIcons(it) } },
         description = "White icons on tiles for apps that provide them",
+        modifier = Modifier.settingAnchor("themed_icons"),
     )
     IconPackSettingsSection(settings, repository)
 }
@@ -214,7 +219,7 @@ internal fun TilesPage(settings: LauncherSettings, repository: SettingsRepositor
         calendarDeclined = !it
     }
 
-    Section("live tiles")
+    Section("live tiles", anchor = "live_tiles")
     MetroText(
         NOTIFICATION_DISCLOSURE,
         MetroType.caption,
@@ -233,6 +238,7 @@ internal fun TilesPage(settings: LauncherSettings, repository: SettingsRepositor
         settings.showNotificationContent,
         { scope.launch { repository.setShowNotificationContent(it) } },
         description = if (settings.showNotificationContent) "Tiles flip to show the latest message" else "Counts only",
+        modifier = Modifier.settingAnchor("message_text"),
     )
     Spacer(Modifier.height(8.dp))
     if (calendarAccess) {
@@ -272,7 +278,7 @@ internal fun AboutPage() {
     val homeRequest = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {}
 
     if (!isDefaultHome) {
-        Section("default home app")
+        Section("default home app", anchor = "default_home")
         MetroText(
             "Make Metro your home screen so the home button opens your start screen.",
             MetroType.caption,
@@ -284,7 +290,7 @@ internal fun AboutPage() {
         })
     }
 
-    Section("battery")
+    Section("battery", anchor = "battery")
     MetroText(
         "Metro does no background work: live tiles update from notifications as they arrive " +
             "and animate only while you look at them. If tiles stop updating, some phones have " +
@@ -299,7 +305,7 @@ internal fun AboutPage() {
         )
     })
 
-    Section("setup")
+    Section("setup", anchor = "run_setup")
     MetroText(
         "Go through the first-run setup again: default home app, live tiles and the look.",
         MetroType.caption,
@@ -315,7 +321,7 @@ internal fun AboutPage() {
 
     CrashLogSettingsSection()
 
-    Section("about")
+    Section("about", anchor = "about")
     MetroText(
         "Metro Launcher ${BuildConfig.VERSION_NAME}",
         MetroType.caption,

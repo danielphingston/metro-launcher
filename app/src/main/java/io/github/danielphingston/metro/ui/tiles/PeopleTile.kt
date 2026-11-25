@@ -183,7 +183,7 @@ fun PeopleSettingsSection() {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { granted = PeopleSource.hasPermission(context) }
     }
 
-    Section("people")
+    Section("people", anchor = "people")
     MetroText(
         "The people tile shows photos of your contacts. They are read on this phone only and " +
             "nothing leaves your device.",

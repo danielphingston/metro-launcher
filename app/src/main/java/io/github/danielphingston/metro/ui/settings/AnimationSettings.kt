@@ -27,7 +27,7 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
     val scope = rememberCoroutineScope()
     val colors = Metro.colors
 
-    Section("launch animation")
+    Section("launch animation", anchor = "launch_animation")
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         LaunchStyle.entries.chunked(2).forEach { line ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -52,6 +52,7 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         settings.animationSpeed,
         LauncherSettings.MIN_ANIMATION_SPEED..LauncherSettings.MAX_ANIMATION_SPEED,
         Motion::speedLabel,
+        modifier = Modifier.settingAnchor("animation_speed"),
     ) { repository.setAnimationSpeed(it) }
     MetroText(
         "Also follows the animation scale in Android's developer options.",
@@ -72,7 +73,7 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         description = "Start the app while the launcher is still animating, so it opens sooner",
     )
 
-    Section("tilt")
+    Section("tilt", anchor = "tilt")
     MetroToggle(
         "Tilt when pressed",
         settings.tiltEnabled,
@@ -88,7 +89,7 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         ) { repository.setTiltDegrees(it) }
     }
 
-    Section("live tile flips")
+    Section("live tile flips", anchor = "live_tile_flips")
     MetroToggle(
         "Live tile flips",
         settings.liveTileFlips,
@@ -104,7 +105,7 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         ) { repository.setFlipInterval(it) }
     }
 
-    Section("pages")
+    Section("pages", anchor = "swing_pages")
     MetroToggle(
         "Swing pages",
         settings.swingPages,

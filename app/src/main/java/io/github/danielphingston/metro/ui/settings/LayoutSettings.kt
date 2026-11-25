@@ -95,7 +95,7 @@ internal fun StartLayoutsSectionContent(
         MetroButton("unlock with Metro Plus", onClick = onUnlock)
         return
     }
-    Section("layouts")
+    Section("layouts", anchor = "layouts")
     if (set == null) {
         MetroText(
             "Keep more than one start screen, such as work and weekend, each with its own tiles, wallpaper and the settings below.",

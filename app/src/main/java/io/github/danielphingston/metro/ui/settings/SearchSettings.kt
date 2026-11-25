@@ -45,7 +45,7 @@ internal fun SearchSettingsSection(
 ) {
     val scope = rememberCoroutineScope()
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.settingAnchor("search_engine"), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         SearchEngine.entries.forEach { engine ->
             MetroChoice(
                 engine.label,
@@ -61,6 +61,7 @@ internal fun SearchSettingsSection(
         settings.pullDistance,
         LauncherSettings.MIN_PULL_DISTANCE..LauncherSettings.MAX_PULL_DISTANCE,
         { "$it dp" },
+        modifier = Modifier.settingAnchor("pull_distance"),
     ) { repository.setPullDistance(it) }
     Spacer(Modifier.height(10.dp))
     MetroText(
