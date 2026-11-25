@@ -57,6 +57,24 @@ private val Choices = listOf(
  */
 @Composable
 fun BackgroundSettingsSection(settings: LauncherSettings, repository: SettingsRepository) {
+    Section("start background")
+    BackgroundChoice(settings, repository)
+
+    Spacer(Modifier.height(16.dp))
+    LabeledSlider(
+        "Tile transparency",
+        (settings.transparencyFraction * 100).roundToInt(),
+        0..100,
+        { "$it%" },
+    ) { repository.setTileTransparency(it) }
+}
+
+/**
+ * What is behind the tiles and the photo for the photo modes: the settings page's section and the
+ * first-run setup's background step. Choosing a photo mode without a photo asks for one.
+ */
+@Composable
+fun BackgroundChoice(settings: LauncherSettings, repository: SettingsRepository) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val colors = Metro.colors
@@ -83,7 +101,6 @@ fun BackgroundSettingsSection(settings: LauncherSettings, repository: SettingsRe
     }
     fun pickPhoto() = picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
 
-    Section("start background")
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Choices.chunked(2).forEach { line ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -123,14 +140,6 @@ fun BackgroundSettingsSection(settings: LauncherSettings, repository: SettingsRe
             },
         )
     }
-
-    Spacer(Modifier.height(16.dp))
-    LabeledSlider(
-        "Tile transparency",
-        (settings.transparencyFraction * 100).roundToInt(),
-        0..100,
-        { "$it%" },
-    ) { repository.setTileTransparency(it) }
 }
 
 /** The accent-from-photo toggle; shown on the appearance page, only while a background photo is in use. */

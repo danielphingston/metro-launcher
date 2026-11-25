@@ -87,6 +87,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** The first-run setup; created before the default layout is saved, which it tells apart. */
     internal val onboarding = OnboardingState(application, metro.settings, viewModelScope)
 
+    /** The start screen hints still to show after setup, as CoachMark bits; read only while start is visible. */
+    val coachMarks: StateFlow<Int> = metro.settings.coachMarks
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** The hint [mark] has been seen (its gesture done, or tapped away). */
+    internal fun coachMarkSeen(mark: io.github.danielphingston.metro.ui.start.CoachMark) {
+        viewModelScope.launch { metro.settings.clearCoachMarks(mark.bit) }
+    }
+
     /** The Metro Plus pack: whether it is unlocked, its Play price, and how to buy it. */
     val quickTilesUnlocked: StateFlow<Boolean> = metro.purchases.quickTilesUnlocked
     val quickTilesPrice: StateFlow<String?> = metro.purchases.quickTilesPrice

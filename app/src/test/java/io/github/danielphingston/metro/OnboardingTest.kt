@@ -33,7 +33,11 @@ class OnboardingTest {
         assertEquals(OnboardingStep.LIVE_TILES, OnboardingStep.WELCOME.next)
         assertEquals(OnboardingStep.LOOK, OnboardingStep.LIVE_TILES.next)
         assertEquals(OnboardingStep.LIVE_TILES, OnboardingStep.LOOK.previous)
-        assertEquals(OnboardingStep.DONE, OnboardingStep.LOOK.next)
+        // The start screen itself comes last: its background, then its grid.
+        assertEquals(OnboardingStep.BACKGROUND, OnboardingStep.LOOK.next)
+        assertEquals(OnboardingStep.GRID, OnboardingStep.BACKGROUND.next)
+        assertEquals(OnboardingStep.DONE, OnboardingStep.GRID.next)
+        assertEquals(OnboardingStep.BACKGROUND, OnboardingStep.GRID.previous)
         assertTrue(OnboardingStep.DONE.isLast)
         assertNull(OnboardingStep.DONE.next)
         assertFalse(OnboardingStep.WELCOME.isLast)

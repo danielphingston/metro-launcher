@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 enum class ThemeMode { DARK, LIGHT, SYSTEM }
@@ -319,6 +320,8 @@ class SettingsRepository(private val context: Context) {
 
         /** Unset until the first-run setup was finished or skipped; false asks for it to run again. */
         val onboardingDone = booleanPreferencesKey("onboarding_done")
+        /** The start screen hints still to show after setup, as CoachMark bits; per install, never backed up. */
+        val coachMarks = intPreferencesKey("coach_marks")
         val tileColourMode = stringPreferencesKey("tile_colour_mode")
         val tileIconVividness = intPreferencesKey("tile_icon_colour_vividness")
     }
@@ -329,6 +332,26 @@ class SettingsRepository(private val context: Context) {
     val onboardingDone: Flow<Boolean?> = context.metroDataStore.data.map { it[Keys.onboardingDone] }
 
     suspend fun setOnboardingDone(done: Boolean) = context.metroDataStore.edit { it[Keys.onboardingDone] = done }
+
+    /**
+     * Ends the first-run setup for good, in one write; with [hints] (the hints' bits, see
+     * CoachMark) those start screen hints show next, else none do.
+     */
+    suspend fun finishOnboarding(hints: Int) = context.metroDataStore.edit {
+        it[Keys.onboardingDone] = true
+        if (hints != 0) it[Keys.coachMarks] = hints else it.remove(Keys.coachMarks)
+    }
+
+    /** The start screen hints still to show, as bits; 0 for none (every install that didn't just finish setup). */
+    val coachMarks: Flow<Int> = context.metroDataStore.data
+        .map { prefs -> prefs.asMap().entries.firstOrNull { it.key.name == Keys.coachMarks.name }?.value as? Int ?: 0 }
+        .distinctUntilChanged()
+
+    /** Marks the hints in [bits] as seen; the key goes once none is left. */
+    suspend fun clearCoachMarks(bits: Int) = context.metroDataStore.edit {
+        val left = (it.asMap().entries.firstOrNull { e -> e.key.name == Keys.coachMarks.name }?.value as? Int ?: 0) and bits.inv()
+        if (left != 0) it[Keys.coachMarks] = left else it.remove(Keys.coachMarks)
+    }
 
     /** The settings stored in [prefs]; also used to check a backup before it is restored. */
     internal fun settingsOf(prefs: Preferences): LauncherSettings = prefs.toSettings()
@@ -463,6 +486,12 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setStartRightPadding(dp: Int) = context.metroDataStore.edit {
         it[Keys.startRightPadding] = LauncherSettings.clampStartSidePadding(dp)
+    }
+
+    /** Both side paddings in one write, so start re-lays its grid once. */
+    suspend fun setStartSidePaddings(left: Int, right: Int) = context.metroDataStore.edit {
+        it[Keys.startLeftPadding] = LauncherSettings.clampStartSidePadding(left)
+        it[Keys.startRightPadding] = LauncherSettings.clampStartSidePadding(right)
     }
 
     suspend fun setAccentArrows(enabled: Boolean) = context.metroDataStore.edit { it[Keys.accentArrows] = enabled }

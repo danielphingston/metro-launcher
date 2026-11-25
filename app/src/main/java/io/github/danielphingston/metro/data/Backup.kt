@@ -67,6 +67,8 @@ object Backup {
         "assistant_last_asked_at",
         // Whether this install has been through the first-run setup says nothing about another one.
         "onboarding_done",
+        // Nor which of the start screen hints after it this install has seen.
+        "coach_marks",
     )
 
     /** What a backup restores: the settings store, and the handwriting files by id. */

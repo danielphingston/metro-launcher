@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.stringPreferencesKey
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.metroDataStore
+import io.github.danielphingston.metro.ui.start.CoachMark
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -16,7 +17,7 @@ import kotlinx.coroutines.launch
 
 /** The steps of the first-run setup, in order. */
 internal enum class OnboardingStep {
-    WELCOME, LIVE_TILES, LOOK, DONE;
+    WELCOME, LIVE_TILES, LOOK, BACKGROUND, GRID, DONE;
 
     val next: OnboardingStep? get() = entries.getOrNull(ordinal + 1)
     val previous: OnboardingStep? get() = entries.getOrNull(ordinal - 1)
@@ -55,8 +56,11 @@ internal class OnboardingState(
         emitAll(settings.onboardingDone.map { Onboarding.shouldShow(layoutSaved, it) })
     }.stateIn(scope, SharingStarted.Eagerly, false)
 
-    /** Skipping and finishing both end the setup for good. */
-    fun finish() {
-        scope.launch { settings.setOnboardingDone(true) }
+    /**
+     * Ends the setup for good. [withHints] (only "done" at the end of the steps) shows the start
+     * screen hints next; skipping, or restoring a backup, means the user knows their way around.
+     */
+    fun finish(withHints: Boolean = false) {
+        scope.launch { settings.finishOnboarding(if (withHints) CoachMark.ALL else 0) }
     }
 }

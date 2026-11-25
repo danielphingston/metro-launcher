@@ -18,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -49,6 +50,8 @@ import io.github.danielphingston.metro.ui.search.SearchOverlay
 import io.github.danielphingston.metro.ui.search.SearchState
 import io.github.danielphingston.metro.ui.search.pullToSearch
 import io.github.danielphingston.metro.ui.start.AppWindow
+import io.github.danielphingston.metro.ui.start.CoachMark
+import io.github.danielphingston.metro.ui.start.CoachMarkBar
 import io.github.danielphingston.metro.ui.start.LaunchGuard
 import io.github.danielphingston.metro.ui.start.LocalTurnstile
 import io.github.danielphingston.metro.ui.start.StartScreen
@@ -62,6 +65,7 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.StartBackdrop
 import io.github.danielphingston.metro.ui.theme.startBackdrop
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -333,6 +337,25 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
             SearchOverlay(viewModel, searchState, launcher, commands)
             // First-run setup, above everything; see Onboarding.
             val onboarding by viewModel.onboarding.visible.collectAsStateWithLifecycle()
+            // The hints after it, one at a time. Nothing is composed or watched once none is left.
+            val coachMarks by viewModel.coachMarks.collectAsStateWithLifecycle()
+            val hint = if (onboarding) null else CoachMark.next(coachMarks)
+            if (hint != null) {
+                // Doing the gesture counts as seeing the hint: wait (no polling) for the state it changes.
+                LaunchedEffect(hint) {
+                    snapshotFlow {
+                        when (hint) {
+                            CoachMark.HOLD_TILE -> startState.editing
+                            CoachMark.SWIPE_FOR_APPS -> pager.currentPage == 1
+                            CoachMark.PULL_TO_SEARCH -> searchState.isOpen
+                        }
+                    }.first { it }
+                    viewModel.coachMarkSeen(hint)
+                }
+                if (pager.currentPage == 0 && !startState.editing && !searchState.isOpen && !startState.flyoutOpen) {
+                    CoachMarkBar(hint) { viewModel.coachMarkSeen(hint) }
+                }
+            }
             if (onboarding) OnboardingScreen(settings, viewModel.onboarding::finish)
         }
     }

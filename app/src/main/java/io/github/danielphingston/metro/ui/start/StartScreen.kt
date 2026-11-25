@@ -372,7 +372,8 @@ fun rememberStartState(): StartState {
     return remember(scroll) { StartState(scroll) }
 }
 
-private val TileGap = 4.dp
+/** The gap between tiles on start; also what the setup's grid preview draws. */
+internal val TileGap = 4.dp
 
 /** How long a dragged tile must stay over a cell before the other tiles move out of its way, so they don't scatter while it passes over them. */
 private const val PREVIEW_HOLD_MILLIS = 120L
