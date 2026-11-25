@@ -9,7 +9,15 @@ import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.metroDataStore
 import io.github.danielphingston.metro.ui.onboarding.StartSpacing
 import io.github.danielphingston.metro.ui.onboarding.tilesPerRowChoices
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import io.github.danielphingston.metro.ui.start.CoachMark
+import io.github.danielphingston.metro.ui.start.HintPlace
+import io.github.danielphingston.metro.ui.start.HintSignals
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -27,15 +35,60 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], application = android.app.Application::class)
 class StartSetupTest {
     @Test
-    fun hintsComeOneAtATimeInOrder() {
-        assertEquals(CoachMark.HOLD_TILE, CoachMark.next(CoachMark.ALL))
-        assertEquals(CoachMark.SWIPE_FOR_APPS, CoachMark.next(CoachMark.ALL and CoachMark.HOLD_TILE.bit.inv()))
-        assertEquals(CoachMark.PULL_TO_SEARCH, CoachMark.next(CoachMark.PULL_TO_SEARCH.bit))
-        assertNull(CoachMark.next(0))
+    fun hintsComeOneAtATimeInOrderAndOnlyWhereTheyBelong() {
+        assertEquals(CoachMark.HOLD_TILE, CoachMark.next(CoachMark.ALL, HintPlace.START))
+        assertEquals(CoachMark.SWIPE_FOR_APPS, CoachMark.next(CoachMark.ALL and CoachMark.HOLD_TILE.bit.inv(), HintPlace.START))
+        assertEquals(CoachMark.APP_LIST, CoachMark.next(CoachMark.ALL, HintPlace.APP_LIST))
+        assertEquals(CoachMark.EDITING, CoachMark.next(CoachMark.ALL, HintPlace.EDITING))
+        // Nothing over search or a menu, and nothing left to show.
+        assertNull(CoachMark.next(CoachMark.ALL, null))
+        assertNull(CoachMark.next(0, HintPlace.START))
+        assertNull(CoachMark.next(CoachMark.EDITING.bit, HintPlace.START))
         // A hint a newer version stored is ignored, not shown or crashed on.
-        assertNull(CoachMark.next(1 shl 20))
+        assertNull(CoachMark.next(1 shl 20, HintPlace.START))
+        assertTrue(CoachMark.pending(1 shl 20).isEmpty())
         // The bits are stored: they must never move.
-        assertEquals(listOf(1, 2, 4), CoachMark.entries.map { it.bit })
+        assertEquals(listOf(1, 2, 4, 8, 16), CoachMark.entries.map { it.bit })
+        // Short enough for one or two lines in the bar.
+        CoachMark.entries.forEach { assertTrue("${it.name} is too long", it.text.length <= 70) }
+    }
+
+    /** Signals backed by snapshot state, as the launcher screen's are. */
+    private class FakeSignals : HintSignals {
+        override var onAppList by mutableStateOf(false)
+        override var editing by mutableStateOf(false)
+        override var searching by mutableStateOf(false)
+        override val place: HintPlace? get() = null
+    }
+
+    private fun seenAfter(mark: CoachMark, vararg steps: FakeSignals.() -> Unit): Boolean = runBlocking {
+        val signals = FakeSignals()
+        val waiting = launch { mark.awaitSeen(signals) }
+        steps.forEach { step ->
+            yield()
+            Snapshot.withMutableSnapshot { signals.step() }
+            Snapshot.sendApplyNotifications()
+            repeat(3) { yield() }
+        }
+        val seen = waiting.isCompleted
+        waiting.cancel()
+        seen
+    }
+
+    @Test
+    fun startHintsGoOnceTheirGestureIsDone() {
+        assertTrue(seenAfter(CoachMark.HOLD_TILE, { editing = true }))
+        assertTrue(seenAfter(CoachMark.SWIPE_FOR_APPS, { onAppList = true }))
+        assertTrue(seenAfter(CoachMark.PULL_TO_SEARCH, { searching = true }))
+        assertFalse(seenAfter(CoachMark.PULL_TO_SEARCH, { editing = true }))
+    }
+
+    @Test
+    fun firstVisitHintsGoOnceTheirPlaceIsLeft() {
+        assertFalse(seenAfter(CoachMark.APP_LIST, { onAppList = true }))
+        assertTrue(seenAfter(CoachMark.APP_LIST, { onAppList = true }, { onAppList = false }))
+        assertFalse(seenAfter(CoachMark.EDITING, { editing = true }))
+        assertTrue(seenAfter(CoachMark.EDITING, { editing = true }, { editing = false }))
     }
 
     @Test
@@ -68,8 +121,8 @@ class StartSetupTest {
         // "done": all of them, then each goes as it is seen, and the key with the last.
         settings.finishOnboarding(CoachMark.ALL)
         settings.clearCoachMarks(CoachMark.HOLD_TILE.bit)
-        assertEquals(CoachMark.SWIPE_FOR_APPS, CoachMark.next(settings.coachMarks.first()))
-        settings.clearCoachMarks(CoachMark.SWIPE_FOR_APPS.bit or CoachMark.PULL_TO_SEARCH.bit)
+        assertEquals(CoachMark.SWIPE_FOR_APPS, CoachMark.next(settings.coachMarks.first(), HintPlace.START))
+        settings.clearCoachMarks(CoachMark.ALL)
         assertEquals(0, settings.coachMarks.first())
         assertFalse(context.metroDataStore.data.first().asMap().keys.any { it.name == "coach_marks" })
         // A wrongly typed value reads as none instead of crashing start.

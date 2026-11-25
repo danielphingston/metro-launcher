@@ -10,15 +10,16 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -52,6 +53,9 @@ import io.github.danielphingston.metro.ui.search.pullToSearch
 import io.github.danielphingston.metro.ui.start.AppWindow
 import io.github.danielphingston.metro.ui.start.CoachMark
 import io.github.danielphingston.metro.ui.start.CoachMarkBar
+import io.github.danielphingston.metro.ui.start.HintPlace
+import io.github.danielphingston.metro.ui.start.HintSignals
+import io.github.danielphingston.metro.ui.start.StartState
 import io.github.danielphingston.metro.ui.start.LaunchGuard
 import io.github.danielphingston.metro.ui.start.LocalTurnstile
 import io.github.danielphingston.metro.ui.start.StartScreen
@@ -65,7 +69,6 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.StartBackdrop
 import io.github.danielphingston.metro.ui.theme.startBackdrop
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -337,26 +340,35 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
             SearchOverlay(viewModel, searchState, launcher, commands)
             // First-run setup, above everything; see Onboarding.
             val onboarding by viewModel.onboarding.visible.collectAsStateWithLifecycle()
-            // The hints after it, one at a time. Nothing is composed or watched once none is left.
+            // The hints after it. Nothing is composed or watched once none is left.
             val coachMarks by viewModel.coachMarks.collectAsStateWithLifecycle()
-            val hint = if (onboarding) null else CoachMark.next(coachMarks)
-            if (hint != null) {
-                // Doing the gesture counts as seeing the hint: wait (no polling) for the state it changes.
-                LaunchedEffect(hint) {
-                    snapshotFlow {
-                        when (hint) {
-                            CoachMark.HOLD_TILE -> startState.editing
-                            CoachMark.SWIPE_FOR_APPS -> pager.currentPage == 1
-                            CoachMark.PULL_TO_SEARCH -> searchState.isOpen
-                        }
-                    }.first { it }
-                    viewModel.coachMarkSeen(hint)
+            if (coachMarks != 0 && !onboarding) {
+                val signals = remember(pager, startState, searchState) { LauncherHintSignals(pager, startState, searchState) }
+                // Each pending hint waits (no polling) for what it is about, shown yet or not: doing it first is fine too.
+                CoachMark.pending(coachMarks).forEach { mark ->
+                    key(mark) { LaunchedEffect(mark) { mark.awaitSeen(signals); viewModel.coachMarkSeen(mark) } }
                 }
-                if (pager.currentPage == 0 && !startState.editing && !searchState.isOpen && !startState.flyoutOpen) {
-                    CoachMarkBar(hint) { viewModel.coachMarkSeen(hint) }
-                }
+                CoachMark.next(coachMarks, signals.place)?.let { hint -> CoachMarkBar(hint) { viewModel.coachMarkSeen(hint) } }
             }
             if (onboarding) OnboardingScreen(settings, viewModel.onboarding::finish)
         }
     }
+}
+
+/** What the hints watch, read from the launcher's own state; see [HintSignals]. */
+private class LauncherHintSignals(
+    private val pager: PagerState,
+    private val start: StartState,
+    private val search: SearchState,
+) : HintSignals {
+    override val onAppList: Boolean get() = pager.currentPage == 1
+    override val editing: Boolean get() = start.editing
+    override val searching: Boolean get() = search.isOpen
+    override val place: HintPlace?
+        get() = when {
+            search.isOpen || start.flyoutOpen -> null
+            pager.currentPage == 1 -> HintPlace.APP_LIST
+            start.editing -> HintPlace.EDITING
+            else -> HintPlace.START
+        }
 }

@@ -200,7 +200,7 @@ private fun LookStep(settings: LauncherSettings) {
 private fun BackgroundStep(settings: LauncherSettings) {
     val repository = (LocalContext.current.applicationContext as MetroApplication).settings
     MetroText(
-        "What sits behind your tiles: plain, one of your photos, or your phone's wallpaper.",
+        "Plain, one of your photos, or your phone's wallpaper.",
         MetroType.caption,
         color = Metro.colors.subtle,
     )
@@ -214,12 +214,7 @@ private fun BackgroundStep(settings: LauncherSettings) {
 @Composable
 private fun DoneStep() {
     val colors = Metro.colors
-    MetroText(
-        "Your start screen is ready. A few short tips will show on it as you go: do what one says, or tap it, " +
-            "and the next one follows.",
-        MetroType.body,
-        color = colors.foreground,
-    )
+    MetroText("Your start screen is ready. Short tips will show on it as you go.", MetroType.body, color = colors.foreground)
     Spacer(Modifier.height(12.dp))
     MetroText("You can run this setup again from settings, about.", MetroType.caption, color = colors.subtle)
 }

@@ -191,7 +191,7 @@ internal fun Modifier.settingAnchor(key: String): Modifier = composed {
             delay(HIGHLIGHT_HOLD_MILLIS)
             glow.animateTo(0f, tween(520))
         } finally {
-            if (target?.anchor == key) target.anchor = null
+            if (target.anchor == key) target.anchor = null
         }
     }
     tagged

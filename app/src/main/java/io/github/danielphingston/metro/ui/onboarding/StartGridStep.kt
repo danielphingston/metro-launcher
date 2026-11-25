@@ -95,7 +95,7 @@ internal fun StartGridStep(settings: LauncherSettings) {
     Spacer(Modifier.height(20.dp))
     GridPreview(specs.orEmpty(), settings, large)
     Spacer(Modifier.height(10.dp))
-    MetroText("Press and hold a tile on start to move or resize it. More in settings, start.", MetroType.caption, color = colors.subtle)
+    MetroText("More options in settings, start.", MetroType.caption, color = colors.subtle)
 }
 
 /**
