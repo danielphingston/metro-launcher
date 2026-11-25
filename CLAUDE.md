@@ -62,6 +62,14 @@ A launcher is on screen all day: every change is weighed for battery and perform
   three tiles per row on a phone and one grid shared by all layouts. A missing key keeps its old
   meaning (auto columns, separate grids), so updates and old backups never change under the user.
 
+## Preview builds
+
+`./gradlew assemblePreview` builds a release (same R8 rules) that installs beside the real app for trying a
+branch on a phone: package suffix `.preview`, "Metro preview" names and its own settings task
+(`app/src/preview`), Metro Plus unlocked through `BuildConfig.PREVIEW`, debug-signed. CI never builds it and
+it is never published. `BuildConfig.PREVIEW` is a constant false in every other build, so R8 removes what it
+guards: the release APK is unchanged by it.
+
 ## Checks
 
 ```

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Preview builds only: settings get a task of their own, so they never bring up the installed app's. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <activity
+            android:name="io.github.danielphingston.metro.ui.settings.SettingsActivity"
+            android:taskAffinity="io.github.danielphingston.metro.preview.settings"
+            tools:replace="android:taskAffinity" />
+    </application>
+</manifest>

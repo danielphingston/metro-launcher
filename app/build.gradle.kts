@@ -19,6 +19,8 @@ android {
         // Instrumented tests (src/androidTest): code that needs a real Android, such as the image
         // decoder, which Robolectric can't run. CI runs them on the smoke test's emulator.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // True only in preview builds (see the preview build type); a constant false everywhere else.
+        buildConfigField("boolean", "PREVIEW", "false")
     }
 
     signingConfigs {
@@ -40,6 +42,16 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        // A release build to try a branch on a phone beside the installed app: its own package, names
+        // and settings task (app/src/preview), Metro Plus unlocked, debug-signed. CI never builds it
+        // and it is never published: `./gradlew assemblePreview`.
+        create("preview") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("boolean", "PREVIEW", "true")
         }
     }
 

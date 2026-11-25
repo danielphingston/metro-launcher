@@ -109,7 +109,8 @@ class Purchases(
     /** Everything that touches the mutable state below runs on the main thread, where Play also calls back. */
     private fun launchMain(block: suspend () -> Unit): Job = scope.launch(Dispatchers.Main.immediate) { block() }
 
-    private fun computeUnlocked() = owned || BuildConfig.DEBUG
+    /** Bought, or a debug or preview build ([BuildConfig.PREVIEW] is a constant false in releases). */
+    private fun computeUnlocked() = owned || BuildConfig.DEBUG || BuildConfig.PREVIEW
 
     private fun connect() {
         // A pending reconnect or an attempt in flight will deliver the refresh; don't stack another.
