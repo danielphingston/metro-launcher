@@ -31,6 +31,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -99,10 +104,11 @@ fun MetroToggle(
     description: String? = null,
     /** False: shown faded and can't be switched; [description] should say why. */
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     val colors = Metro.colors
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .then(
                 if (enabled) {
@@ -289,6 +295,27 @@ fun LabeledSlider(
                 }
             },
         )
+    }
+}
+
+/**
+ * A set of [MetroChoice]s, one of them [selected]: each as wide as its label (at least
+ * [minChipWidth]), wrapping onto more lines rather than squeezing a label so it breaks mid-word,
+ * as equal-width chips do at a large font size.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun <T> MetroChoiceGroup(
+    options: List<Pair<T, String>>,
+    selected: T?,
+    onPick: (T) -> Unit,
+    modifier: Modifier = Modifier,
+    minChipWidth: Dp = 72.dp,
+) {
+    FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { (value, label) ->
+            MetroChoice(label, value == selected, { onPick(value) }, Modifier.widthIn(min = minChipWidth))
+        }
     }
 }
 

@@ -111,7 +111,7 @@ fun WeatherSettingsSection() {
         if (granted) locate() else status = "Location permission was denied."
     }
 
-    Section("weather")
+    Section("weather", anchor = "weather")
     val place = stored.place
     MetroText(place?.name ?: "No location set", MetroType.body)
     if (place != null && place.detail.isNotEmpty()) MetroText(place.detail, MetroType.caption, color = colors.subtle)

@@ -28,6 +28,7 @@ import io.github.danielphingston.metro.data.SmartFeature
 import io.github.danielphingston.metro.data.StartEdit
 import io.github.danielphingston.metro.data.LayoutSet
 import io.github.danielphingston.metro.data.StartLayoutRepository
+import io.github.danielphingston.metro.ui.tiles.WidgetTiles
 import io.github.danielphingston.metro.ui.start.TileKeys
 import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTiles
 import io.github.danielphingston.metro.data.TileContent
@@ -86,6 +87,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** The first-run setup; created before the default layout is saved, which it tells apart. */
     internal val onboarding = OnboardingState(application, metro.settings, viewModelScope)
+
+    /** The start screen hints still to show after setup, as CoachMark bits; read only while start is visible. */
+    val coachMarks: StateFlow<Int> = metro.settings.coachMarks
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** The hint [mark] has been seen (its gesture done, or tapped away). */
+    internal fun coachMarkSeen(mark: io.github.danielphingston.metro.ui.start.CoachMark) {
+        viewModelScope.launch { metro.settings.clearCoachMarks(mark.bit) }
+    }
 
     /** The Metro Plus pack: whether it is unlocked, its Play price, and how to buy it. */
     val quickTilesUnlocked: StateFlow<Boolean> = metro.purchases.quickTilesUnlocked
@@ -221,13 +231,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             // A load that failed gives an empty list; wait for a real one rather than save an empty first layout.
             val apps = metro.apps.apps.filterNotNull().first { it.isNotEmpty() }
             if (metro.tiles.isFirstRun && specs.isEmpty()) {
-                // A new phone starts with three medium tiles per row. Installs from before keep the
-                // stored "auto" (four on a phone), so their layout isn't widened under them.
+                // Only a fresh install gets these; existing installs and restored backups keep what they stored.
                 val large = application.resources.configuration.smallestScreenWidthDp >= LARGE_SCREEN_DP
-                if (!large && metro.settings.settings.first().columns == LauncherSettings.AUTO_COLUMNS) {
-                    metro.tiles.setColumns(LauncherSettings.FIRST_RUN_PHONE_COLUMNS)
-                    metro.settings.setColumns(LauncherSettings.FIRST_RUN_PHONE_COLUMNS)
-                }
+                metro.settings.applyFirstRunDefaults(large)?.let(metro.tiles::setColumns)
                 metro.tiles.replaceAll(DefaultLayout.build(apps, metro.apps.defaults.value, application.packageName))
             }
         }
@@ -324,6 +330,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         spec.copy(content = io.github.danielphingston.metro.data.ToolLimits.clean(change(tool)))
     }
 
+    /** The widget tile [id] shows the new widget [appWidgetId] in place of its gone one; the old id is freed. */
+    fun replaceWidget(id: Long, appWidgetId: Int) {
+        metro.tiles.replaceWidget(id, appWidgetId)?.takeIf { it != appWidgetId }?.let { WidgetTiles.release(getApplication(), it) }
+    }
+
     fun unpin(id: Long) {
         var removed: TileSpec? = null
         metro.undo.record(StartEdit.UNPIN.label(labelOf(id)), destructive = true) { removed = metro.tiles.unpin(id) }
@@ -365,8 +376,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Drops tile [id] with its top-left corner on the grid cell [x], [y]. */
     fun moveTo(id: Long, x: Int, y: Int) = undoable(StartEdit.MOVE) { metro.tiles.moveTo(id, x, y) }
 
-    /** The start screen now shows [count] columns; see [io.github.danielphingston.metro.data.TileRepository.setColumns]. */
-    fun setColumns(count: Int) = metro.tiles.setColumns(count)
+    /**
+     * The start screen now shows [count] columns, and would show [autoCount] with the automatic
+     * setting; see [io.github.danielphingston.metro.data.TileRepository.setColumns] and
+     * [io.github.danielphingston.metro.data.StartLayoutRepository.autoColumns].
+     */
+    fun setColumns(count: Int, autoCount: Int) {
+        metro.tiles.setColumns(count)
+        metro.layouts.autoColumns = autoCount
+    }
 
     /** Groups tiles [ids] with [anchorId] into a new folder or the anchor folder; returns the folder's id, or null if nothing was grouped. */
     fun groupIntoFolder(anchorId: Long, ids: List<Long>): Long? {

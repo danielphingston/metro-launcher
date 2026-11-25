@@ -73,6 +73,14 @@ class StartLayoutRepository(
     private val _switches = MutableSharedFlow<Switched>(extraBufferCapacity = 1)
     val switches: SharedFlow<Switched> = _switches.asSharedFlow()
 
+    /**
+     * The columns start shows for the automatic setting at its current width and paddings, as the
+     * start screen last reported it; null before it has. Lets a switch tell "auto" from a chosen
+     * count that looks the same (see [LayoutStartSettings.changesGrid]).
+     */
+    @Volatile
+    var autoColumns: Int? = null
+
     @Volatile
     private var held: Pair<LayoutSet, List<List<TileSpec>>>? = null
 
@@ -122,7 +130,7 @@ class StartLayoutRepository(
         var written: LayoutSet? = null
         try {
             context.metroDataStore.edit { prefs ->
-                val next = change(current, live, LayoutStartSettings.read(prefs)) ?: return@edit
+                val next = change(current, live, LayoutStartSettings.forActiveEntry(prefs, current)) ?: return@edit
                 prefs[key] = LayoutsJson.encode(next)
                 written = next
             }
@@ -205,11 +213,13 @@ class StartLayoutRepository(
         val live = tiles.encoded() ?: return false
         val target = set.byId(id)?.takeIf { id != set.active } ?: return false
         val from = tiles.tiles.value.orEmpty()
-        // Tiles glide to their new places only when the grid's cells stay the same size.
-        val before = LayoutStartSettings.read(context.metroDataStore.data.first())
-        val glide = !LayoutStartSettings.changesGrid(before, target.settings)
+        // Whether the grid changes: then start waits for the new settings before tiles move to it.
+        val prefs = context.metroDataStore.data.first()
+        val before = LayoutStartSettings.read(prefs)
+        val loads = target.settings?.let { LayoutStartSettings.toLoad(it, before, LayoutStartSettings.sharesGrid(prefs)) }
+        val gridChanges = LayoutStartSettings.changesGrid(before, loads, autoColumns)
         var next: LayoutSet? = null
-        val swapped = tiles.swap(target.tiles, beforePublish = { keys.switched(from, it, glide) }) { prefs ->
+        val swapped = tiles.swap(target.tiles, beforePublish = { keys.switched(from, it, gridChanges) }) { prefs ->
             next = LayoutOps.switchStore(prefs, set, live, id)
         }
         val done = next

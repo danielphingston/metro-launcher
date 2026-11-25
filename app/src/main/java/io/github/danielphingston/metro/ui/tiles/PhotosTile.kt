@@ -227,7 +227,7 @@ fun PhotosSettingsSection() {
         }
     }
 
-    Section("photos")
+    Section("photos", anchor = "photos")
     MetroText(
         "The photos tile shows pictures you choose here. Metro only sees the photos you pick: " +
             "it never browses your gallery, and nothing leaves your device.",

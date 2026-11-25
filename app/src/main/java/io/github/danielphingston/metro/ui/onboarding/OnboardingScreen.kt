@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -33,11 +34,16 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.live.NotificationAccess
 import io.github.danielphingston.metro.ui.components.MetroButton
-import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.data.StartBackground
+import io.github.danielphingston.metro.ui.components.MetroChoiceGroup
+import io.github.danielphingston.metro.ui.settings.AccentFromBackgroundToggle
+import io.github.danielphingston.metro.ui.settings.BackgroundChoice
+import io.github.danielphingston.metro.ui.settings.TileTransparencySlider
 import io.github.danielphingston.metro.ui.settings.AccentGrid
 import io.github.danielphingston.metro.ui.settings.NOTIFICATION_DISCLOSURE
 import io.github.danielphingston.metro.ui.settings.RestoreFromBackupButton
@@ -49,12 +55,21 @@ import kotlinx.coroutines.launch
 /**
  * The first-run setup: a full-screen overlay above the launcher, one step per page. Back goes to
  * the previous step and never leaves it; every step can be skipped and the last is "done", and both
- * end through [onFinish]. It is not a separate activity, so Home leaves it where it is.
+ * end through [onFinish]: with hints on start after "done", without after skipping or restoring a
+ * backup. It is not a separate activity, so Home leaves it where it is.
  */
 @Composable
-internal fun OnboardingScreen(settings: LauncherSettings, onFinish: () -> Unit) {
+internal fun OnboardingScreen(
+    settings: LauncherSettings,
+    onFinish: (withHints: Boolean) -> Unit,
+    /** Where the setup opens; the first step, except for screenshots of the others. */
+    initialStep: OnboardingStep = OnboardingStep.WELCOME,
+) {
     val colors = Metro.colors
-    var stepIndex by rememberSaveable { mutableIntStateOf(0) }
+    val app = LocalContext.current.applicationContext as MetroApplication
+    // The user's own tiles, for the grid step's preview.
+    val tiles by app.tiles.tiles.collectAsState()
+    var stepIndex by rememberSaveable { mutableIntStateOf(initialStep.ordinal) }
     val step = OnboardingStep.entries[stepIndex.coerceIn(0, OnboardingStep.entries.lastIndex)]
     val scroll = rememberScrollState()
 
@@ -85,18 +100,20 @@ internal fun OnboardingScreen(settings: LauncherSettings, onFinish: () -> Unit) 
             )
             Spacer(Modifier.height(20.dp))
             when (step) {
-                OnboardingStep.WELCOME -> WelcomeStep(onRestored = onFinish)
+                OnboardingStep.WELCOME -> WelcomeStep(onRestored = { onFinish(false) })
                 OnboardingStep.LIVE_TILES -> LiveTilesStep()
                 OnboardingStep.LOOK -> LookStep(settings)
+                OnboardingStep.BACKGROUND -> BackgroundStep(settings, app.settings)
+                OnboardingStep.GRID -> StartGridStep(settings, app.settings, tiles.orEmpty())
                 OnboardingStep.DONE -> DoneStep()
             }
             Spacer(Modifier.height(16.dp))
         }
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             if (step.isLast) {
-                MetroButton("done", onClick = onFinish, modifier = Modifier.weight(1f))
+                MetroButton("done", onClick = { onFinish(true) }, modifier = Modifier.weight(1f))
             } else {
-                MetroButton("skip", onClick = onFinish, modifier = Modifier.weight(1f))
+                MetroButton("skip", onClick = { onFinish(false) }, modifier = Modifier.weight(1f))
                 MetroButton("next", onClick = { go(step.next) }, modifier = Modifier.weight(1f))
             }
         }
@@ -107,6 +124,8 @@ private fun titleOf(step: OnboardingStep) = when (step) {
     OnboardingStep.WELCOME -> "welcome"
     OnboardingStep.LIVE_TILES -> "live tiles"
     OnboardingStep.LOOK -> "your look"
+    OnboardingStep.BACKGROUND -> "background"
+    OnboardingStep.GRID -> "your start"
     OnboardingStep.DONE -> "all set"
 }
 
@@ -171,16 +190,7 @@ private fun LookStep(settings: LauncherSettings) {
     val repository = (LocalContext.current.applicationContext as MetroApplication).settings
 
     MetroText("theme", MetroType.sectionTitle, modifier = Modifier.padding(bottom = 8.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ThemeMode.entries.forEach { mode ->
-            MetroChoice(
-                mode.name.lowercase(),
-                settings.theme == mode,
-                { scope.launch { repository.setTheme(mode) } },
-                Modifier.weight(1f),
-            )
-        }
-    }
+    MetroChoiceGroup(ThemeMode.entries.map { it to it.name.lowercase() }, settings.theme, { scope.launch { repository.setTheme(it) } })
     Spacer(Modifier.height(24.dp))
     MetroText("accent colour", MetroType.sectionTitle, modifier = Modifier.padding(bottom = 8.dp))
     AccentGrid(settings.accent) { scope.launch { repository.setAccent(it) } }
@@ -189,17 +199,26 @@ private fun LookStep(settings: LauncherSettings) {
 }
 
 @Composable
+internal fun BackgroundStep(settings: LauncherSettings, repository: SettingsRepository) {
+    MetroText(
+        "Plain, one of your photos, or your phone's wallpaper.",
+        MetroType.caption,
+        color = Metro.colors.subtle,
+    )
+    Spacer(Modifier.height(16.dp))
+    BackgroundChoice(settings, repository)
+    AccentFromBackgroundToggle(settings, repository)
+    // Only where something shows through the tiles; a solid page has nothing behind them.
+    if (settings.background != StartBackground.SOLID) {
+        Spacer(Modifier.height(16.dp))
+        TileTransparencySlider(settings, repository)
+    }
+}
+
+@Composable
 private fun DoneStep() {
     val colors = Metro.colors
-    MetroText("A few things to know", MetroType.sectionTitle)
+    MetroText("Your start screen is ready. Short tips will show on it as you go.", MetroType.body, color = colors.foreground)
     Spacer(Modifier.height(12.dp))
-    listOf(
-        "Press and hold a tile to move, resize or remove it.",
-        "Swipe left on the start screen for all your apps.",
-        "Pull the start screen down to search.",
-    ).forEach {
-        MetroText(it, MetroType.body, color = colors.foreground)
-        Spacer(Modifier.height(12.dp))
-    }
     MetroText("You can run this setup again from settings, about.", MetroType.caption, color = colors.subtle)
 }

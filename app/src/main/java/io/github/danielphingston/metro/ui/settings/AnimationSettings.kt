@@ -27,7 +27,7 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
     val scope = rememberCoroutineScope()
     val colors = Metro.colors
 
-    Section("launch animation")
+    Section("launch animation", anchor = "launch_animation")
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         LaunchStyle.entries.chunked(2).forEach { line ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -52,6 +52,7 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         settings.animationSpeed,
         LauncherSettings.MIN_ANIMATION_SPEED..LauncherSettings.MAX_ANIMATION_SPEED,
         Motion::speedLabel,
+        modifier = Modifier.settingAnchor("animation_speed"),
     ) { repository.setAnimationSpeed(it) }
     MetroText(
         "Also follows the animation scale in Android's developer options.",
@@ -78,6 +79,7 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         settings.tiltEnabled,
         { scope.launch { repository.setTiltEnabled(it) } },
         description = "Tiles and list items tip toward your finger",
+        modifier = Modifier.settingAnchor("tilt"),
     )
     if (settings.tiltEnabled) {
         LabeledSlider(
@@ -88,7 +90,7 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         ) { repository.setTiltDegrees(it) }
     }
 
-    Section("live tile flips")
+    Section("live tile flips", anchor = "live_tile_flips")
     MetroToggle(
         "Live tile flips",
         settings.liveTileFlips,
@@ -110,5 +112,6 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         settings.swingPages,
         { scope.launch { repository.setSwingPages(it) } },
         description = "Start and the app list lean as you swipe between them",
+        modifier = Modifier.settingAnchor("swing_pages"),
     )
 }

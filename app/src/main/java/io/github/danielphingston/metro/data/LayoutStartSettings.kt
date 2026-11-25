@@ -69,6 +69,33 @@ internal object LayoutStartSettings {
     /** The key names, e.g. for a test or a backup check. */
     val NAMES: List<String> = SPECS.map { it.name }
 
+    /**
+     * The per-layout keys that "same grid for all layouts" shares: tiles per row and the four
+     * paddings. The option itself is global, not one of [SPECS].
+     */
+    val GRID: Set<String> = listOf(
+        keys.columns, keys.startTopPadding, keys.startBottomPadding, keys.startLeftPadding, keys.startRightPadding,
+    ).mapTo(LinkedHashSet()) { it.name }
+
+    /** Whether [prefs] has "same grid for all layouts" on; off when missing (every backup from before it). */
+    fun sharesGrid(prefs: Preferences): Boolean = prefs.asMap().entries.firstOrNull { it.key.name == keys.sameGridAllLayouts.name }?.value == true
+
+    /**
+     * What the active layout's entry keeps of the [live] values: all of them, except that with the
+     * grid [shared] the entry keeps its own [GRID] values (from [entry]), so turning the option off
+     * gives each layout back its own. An entry without settings takes the live ones.
+     */
+    fun toStore(live: Map<String, Any>, entry: Map<String, Any>?, shared: Boolean): Map<String, Any> =
+        if (!shared || entry == null) live else live.filterKeys { it !in GRID } + entry.filterKeys { it in GRID }
+
+    /** The live values after a switch to a layout with [target] settings: with the grid [shared] the [live] [GRID] values stay. */
+    fun toLoad(target: Map<String, Any>, live: Map<String, Any>, shared: Boolean): Map<String, Any> =
+        if (!shared) target else target.filterKeys { it !in GRID } + live.filterKeys { it in GRID }
+
+    /** The live values in [prefs] as the active entry of [set] keeps them; see [toStore]. */
+    fun forActiveEntry(prefs: Preferences, set: LayoutSet?): Map<String, Any> =
+        toStore(read(prefs), set?.activeLayout?.settings, sharesGrid(prefs))
+
     /** The key that holds the background photo's URI. */
     val PHOTO: String = keys.backgroundPhoto.name
 
@@ -115,13 +142,32 @@ internal object LayoutStartSettings {
     }
 
     /**
-     * Whether a switch from [from] to [to] changes the tile grid's cells (the columns or the side
-     * paddings), so tiles can't glide from where they were. Null [to] keeps the live settings.
+     * Whether a switch from [from] to [to] changes where the tile grid is drawn (the columns, the
+     * side paddings or the top one), so start waits for the new settings before tiles move to it.
+     * Null [to] keeps the live settings.
+     *
+     * Compares the grid each would show, not the stored values: a missing key is its default, and
+     * the automatic column count is [autoColumns] (what start shows for it now, see
+     * [StartLayoutRepository.autoColumns]). "Auto" showing six columns and a chosen six are the
+     * same grid; comparing the stored values made every switch between them fade instead of glide.
      */
-    fun changesGrid(from: Map<String, Any>, to: Map<String, Any>?): Boolean {
+    fun changesGrid(from: Map<String, Any>, to: Map<String, Any>?, autoColumns: Int? = null): Boolean {
         to ?: return false
-        val grid = listOf(keys.columns, keys.startLeftPadding, keys.startRightPadding).map { it.name }
-        return grid.any { from[it] != to[it] }
+        return grid(from, autoColumns) != grid(to, autoColumns)
+    }
+
+    /** The columns, side paddings and top padding [values] give the grid; see [changesGrid]. */
+    private fun grid(values: Map<String, Any>, autoColumns: Int?): List<Int> {
+        val stored = (values[keys.columns.name] as? Int)?.let(LauncherSettings::clampColumns) ?: LauncherSettings.AUTO_COLUMNS
+        val columns = if (stored == LauncherSettings.AUTO_COLUMNS) autoColumns ?: stored else stored
+        fun side(key: Preferences.Key<Int>, default: Int) = (values[key.name] as? Int)?.let(LauncherSettings::clampStartSidePadding) ?: default
+        return listOf(
+            columns,
+            side(keys.startLeftPadding, LauncherSettings.DEFAULT_START_LEFT_PADDING),
+            side(keys.startRightPadding, LauncherSettings.DEFAULT_START_RIGHT_PADDING),
+            (values[keys.startTopPadding.name] as? Int)?.let(LauncherSettings::clampStartTopPadding)
+                ?: LauncherSettings.DEFAULT_START_TOP_PADDING,
+        )
     }
 
     /**

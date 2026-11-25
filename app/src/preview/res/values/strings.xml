@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Preview builds only: names that never read like the installed app's. -->
+<resources>
+    <string name="app_name">Metro preview</string>
+    <string name="settings_label">Metro preview settings</string>
+    <string name="notification_listener_label">Metro preview live tiles</string>
+    <string name="accessibility_service_label">Metro preview gestures</string>
+</resources>

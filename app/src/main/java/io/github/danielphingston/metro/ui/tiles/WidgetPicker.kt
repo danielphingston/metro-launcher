@@ -1,17 +1,13 @@
 package io.github.danielphingston.metro.ui.tiles
 
-import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
-import android.content.Intent
 import android.content.pm.LauncherApps
 import android.os.UserHandle
 import android.os.UserManager
 import android.util.SizeF
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +17,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.exclude
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,12 +30,11 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -48,7 +46,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSpan
 import io.github.danielphingston.metro.ui.LauncherViewModel
-import io.github.danielphingston.metro.ui.WidgetConfigActivity
 import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.components.SearchField
@@ -68,9 +65,6 @@ private class WidgetEntry(
 )
 
 private class WidgetGroup(val appLabel: String, val widgets: List<WidgetEntry>)
-
-/** A widget id that is allocated but not yet bound, configured and pinned. */
-private class PendingWidget(val id: Int, val entry: WidgetEntry)
 
 private fun loadWidgets(context: Context): List<WidgetGroup> {
     val manager = AppWidgetManager.getInstance(context)
@@ -118,7 +112,6 @@ private fun List<WidgetGroup>.matching(query: String): List<WidgetGroup> =
 @Composable
 fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val host = remember { WidgetTiles.host(context) }
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val columns = WidgetTiles.columnsFor(
         viewModel.settings.collectAsStateWithLifecycle().value.columns,
@@ -129,73 +122,20 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
     val groups by produceState<List<WidgetGroup>?>(null) {
         value = withContext(Dispatchers.IO) { loadWidgets(context) }
     }
-    var pending by remember { mutableStateOf<PendingWidget?>(null) }
     var query by remember { mutableStateOf("") }
+    // Binding, the system's permission dialog and the widget's own settings; see WidgetCreator.
+    val creator = rememberWidgetCreator()
 
-    fun cancel() {
-        pending?.let { WidgetTiles.release(context, it.id) }
-        pending = null
-    }
-
-    // Home or Back while the system's bind or configure screen is up drops the picker and its
-    // result callback with it; free the id that would otherwise stay allocated.
-    DisposableEffect(Unit) { onDispose(::cancel) }
-
-    fun pin(widget: PendingWidget) {
-        val provider = widget.entry.info.provider.flattenToString()
-        val span = WidgetTiles.suggestedSpan(widget.entry.dims, cell, columns)
-        viewModel.addTile(TileContent.Widget(widget.id, provider, widget.entry.userSerial), WidgetTiles.nearestSize(span), span)
-        pending = null
+    fun pin(id: Int, entry: WidgetEntry) {
+        val provider = entry.info.provider.flattenToString()
+        val span = WidgetTiles.suggestedSpan(entry.dims, cell, columns)
+        viewModel.addTile(TileContent.Widget(id, provider, entry.userSerial), WidgetTiles.nearestSize(span), span)
         onDismiss()
     }
 
-    val configure = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val widget = pending ?: return@rememberLauncherForActivityResult
-        if (result.resultCode == Activity.RESULT_OK) pin(widget) else cancel()
-    }
-
-    fun configureOrPin(widget: PendingWidget) {
-        val info = widget.entry.info
-        val optional = info.widgetFeatures and AppWidgetProviderInfo.WIDGET_FEATURE_CONFIGURATION_OPTIONAL != 0
-        val activity = info.configure
-        if (activity == null || optional) return pin(widget)
-        // The trampoline starts it through the host, which handles unexported activities and work profiles.
-        val intent = Intent(context, WidgetConfigActivity::class.java)
-            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widget.id)
-        runCatching { configure.launch(intent) }.onFailure { cancel() }
-    }
-
-    val bind = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val widget = pending ?: return@rememberLauncherForActivityResult
-        if (result.resultCode == Activity.RESULT_OK) configureOrPin(widget) else cancel()
-    }
-
-    fun choose(entry: WidgetEntry) {
-        val id = try {
-            host.allocateAppWidgetId()
-        } catch (_: RuntimeException) {
-            return // The widget service is gone (rethrown as a RuntimeException).
-        }
-        val widget = PendingWidget(id, entry)
-        pending = widget
-        val provider = entry.info.provider
-        // The widget's own default size until its tile reports the real one.
-        val options = WidgetTiles.sizeOptions(SizeF(entry.dims.minWidth, entry.dims.minHeight))
-        val bound = try {
-            AppWidgetManager.getInstance(context).bindAppWidgetIdIfAllowed(id, entry.user, provider, options)
-        } catch (_: RuntimeException) {
-            return cancel() // Releases the id just allocated and clears pending.
-        }
-        if (bound) {
-            configureOrPin(widget)
-        } else {
-            val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, provider)
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE, entry.user)
-            runCatching { bind.launch(intent) }.onFailure { cancel() }
-        }
-    }
+    // The widget's own default size until its tile reports the real one.
+    fun choose(entry: WidgetEntry) =
+        creator.create(entry.info, entry.user, SizeF(entry.dims.minWidth, entry.dims.minHeight), onCreated = { pin(it, entry) })
 
     BackHandler(onBack = onDismiss)
     MetroFlyout(onDismiss) {
@@ -204,6 +144,9 @@ fun WidgetPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
             Modifier
                 .align(Alignment.BottomCenter)
                 .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 24.dp)
+                // Above the keyboard, so a search with few results stays in sight (the navigation bar is
+                // already in the content padding below, so not again).
+                .windowInsetsPadding(WindowInsets.ime.exclude(WindowInsets.navigationBars))
                 .fillMaxWidth()
                 .background(Metro.colors.chrome)
                 // Keeps taps on the panel from dismissing it.

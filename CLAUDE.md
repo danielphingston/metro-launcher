@@ -50,6 +50,26 @@ A launcher is on screen all day: every change is weighed for battery and perform
 - Prefer no background work: refresh when Start is shown, cache results, never repeat the same
   request, keep blocking I/O off the main thread and put a time limit on anything a tap waits for.
 
+## Settings search, hints and first-run defaults
+
+- Every setting is in `SettingsIndex` (`ui/settings/SettingsSearch.kt`) with the words people use for
+  it, and marked on its page with `Section(..., anchor = ...)` or `Modifier.settingAnchor(...)`. A new
+  setting gets both; `SettingsSearchTest` renders every page and fails when the two drift apart.
+- The start screen hints (`CoachMark`, `ui/start/CoachMarks.kt`) are stored per install as bits by
+  ordinal in `coach_marks` (never backed up): append new hints, never reorder or remove one. Only a
+  finished first-run setup turns them on, so updating never shows them to existing users.
+- First-run defaults (`SettingsRepository.applyFirstRunDefaults`) are written only on a fresh install:
+  three tiles per row on a phone and one grid shared by all layouts. A missing key keeps its old
+  meaning (auto columns, separate grids), so updates and old backups never change under the user.
+
+## Preview builds
+
+`./gradlew assemblePreview` builds a release (same R8 rules) that installs beside the real app for trying a
+branch on a phone: package suffix `.preview`, "Metro preview" names and its own settings task
+(`app/src/preview`), Metro Plus unlocked through `BuildConfig.PREVIEW`, debug-signed. CI never builds it and
+it is never published. `BuildConfig.PREVIEW` is a constant false in every other build, so R8 removes what it
+guards: the release APK is unchanged by it.
+
 ## Checks
 
 ```

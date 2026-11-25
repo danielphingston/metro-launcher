@@ -41,7 +41,7 @@ fun IconPackSettingsSection(settings: LauncherSettings, repository: SettingsRepo
         value = withContext(Dispatchers.IO) { IconPacks(context).installed() }
     }
 
-    Section("icon pack")
+    Section("icon pack", anchor = "icon_pack")
     packs?.let { installed ->
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             MetroChoice("none (app icons)", settings.iconPack == null, {

@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 enum class ThemeMode { DARK, LIGHT, SYSTEM }
@@ -101,6 +102,13 @@ data class LauncherSettings(
     val accentFromBackground: Boolean = false,
     /** In PHOTO_TILES mode the photo slides sideways with the tiles when paging to the app list, instead of staying fixed to the screen. */
     val photoMovesWithTiles: Boolean = false,
+    /**
+     * Every start layout uses the live tiles per row and paddings instead of its own: a switch keeps
+     * them, and each layout's own values wait in its entry (see [LayoutStartSettings.GRID]). Off when
+     * not stored (installs and backups from before it); a fresh install stores it on (see
+     * [SettingsRepository.applyFirstRunDefaults]).
+     */
+    val sameGridAllLayouts: Boolean = false,
     /** Where the search overlay's "web" row searches. */
     val searchEngine: SearchEngine = SearchEngine.GOOGLE,
     /** How far (dp) the start screen must be pulled down, then released, to open search. */
@@ -276,6 +284,7 @@ class SettingsRepository(private val context: Context) {
         val tileTransparency = intPreferencesKey("tile_transparency")
         val accentFromBackground = booleanPreferencesKey("accent_from_background")
         val photoMovesWithTiles = booleanPreferencesKey("photo_moves_with_tiles")
+        val sameGridAllLayouts = booleanPreferencesKey("same_grid_all_layouts")
         val searchEngine = stringPreferencesKey("search_engine")
         val pullDistance = intPreferencesKey("pull_distance")
         val startTopPadding = intPreferencesKey("start_top_padding")
@@ -313,6 +322,8 @@ class SettingsRepository(private val context: Context) {
 
         /** Unset until the first-run setup was finished or skipped; false asks for it to run again. */
         val onboardingDone = booleanPreferencesKey("onboarding_done")
+        /** The start screen hints still to show after setup, as CoachMark bits; per install, never backed up. */
+        val coachMarks = intPreferencesKey("coach_marks")
         val tileColourMode = stringPreferencesKey("tile_colour_mode")
         val tileIconVividness = intPreferencesKey("tile_icon_colour_vividness")
     }
@@ -323,6 +334,26 @@ class SettingsRepository(private val context: Context) {
     val onboardingDone: Flow<Boolean?> = context.metroDataStore.data.map { it[Keys.onboardingDone] }
 
     suspend fun setOnboardingDone(done: Boolean) = context.metroDataStore.edit { it[Keys.onboardingDone] = done }
+
+    /**
+     * Ends the first-run setup for good, in one write; with [hints] (the hints' bits, see
+     * CoachMark) those start screen hints show next, else none do.
+     */
+    suspend fun finishOnboarding(hints: Int) = context.metroDataStore.edit {
+        it[Keys.onboardingDone] = true
+        if (hints != 0) it[Keys.coachMarks] = hints else it.remove(Keys.coachMarks)
+    }
+
+    /** The start screen hints still to show, as bits; 0 for none (every install that didn't just finish setup). */
+    val coachMarks: Flow<Int> = context.metroDataStore.data
+        .map { prefs -> prefs.asMap().entries.firstOrNull { it.key.name == Keys.coachMarks.name }?.value as? Int ?: 0 }
+        .distinctUntilChanged()
+
+    /** Marks the hints in [bits] as seen; the key goes once none is left. */
+    suspend fun clearCoachMarks(bits: Int) = context.metroDataStore.edit {
+        val left = (it.asMap().entries.firstOrNull { e -> e.key.name == Keys.coachMarks.name }?.value as? Int ?: 0) and bits.inv()
+        if (left != 0) it[Keys.coachMarks] = left else it.remove(Keys.coachMarks)
+    }
 
     /** The settings stored in [prefs]; also used to check a backup before it is restored. */
     internal fun settingsOf(prefs: Preferences): LauncherSettings = prefs.toSettings()
@@ -351,6 +382,7 @@ class SettingsRepository(private val context: Context) {
             tileTransparency = this[Keys.tileTransparency]?.let(LauncherSettings::clampTransparency),
             accentFromBackground = this[Keys.accentFromBackground] ?: defaults.accentFromBackground,
             photoMovesWithTiles = this[Keys.photoMovesWithTiles] ?: defaults.photoMovesWithTiles,
+            sameGridAllLayouts = this[Keys.sameGridAllLayouts] ?: defaults.sameGridAllLayouts,
             searchEngine = this[Keys.searchEngine]?.let { runCatching { SearchEngine.valueOf(it) }.getOrNull() }
                 ?: defaults.searchEngine,
             pullDistance = this[Keys.pullDistance]?.let(LauncherSettings::clampPullDistance) ?: defaults.pullDistance,
@@ -395,6 +427,25 @@ class SettingsRepository(private val context: Context) {
     suspend fun setTheme(mode: ThemeMode) = context.metroDataStore.edit { it[Keys.theme] = mode.name }
     suspend fun setAccent(color: Int) = context.metroDataStore.edit { it[Keys.accent] = LauncherSettings.opaque(color) }
     suspend fun setColumns(columns: Int) = context.metroDataStore.edit { it[Keys.columns] = LauncherSettings.clampColumns(columns) }
+
+    /**
+     * What a fresh install starts with, in one write; LauncherViewModel calls it on a first run only.
+     * A phone gets three medium tiles per row ([LauncherSettings.FIRST_RUN_PHONE_COLUMNS]) unless a
+     * count is stored already, and every start layout shares one grid ([LauncherSettings.sameGridAllLayouts])
+     * unless that is stored already. A missing key still reads as before (auto columns, separate
+     * grids), so existing installs and restored backups are unchanged. Returns the columns it set, or null.
+     */
+    suspend fun applyFirstRunDefaults(large: Boolean): Int? {
+        var columnsSet: Int? = null
+        context.metroDataStore.edit {
+            if (!large && (it[Keys.columns] ?: LauncherSettings.AUTO_COLUMNS) == LauncherSettings.AUTO_COLUMNS) {
+                it[Keys.columns] = LauncherSettings.FIRST_RUN_PHONE_COLUMNS
+                columnsSet = LauncherSettings.FIRST_RUN_PHONE_COLUMNS
+            }
+            if (it[Keys.sameGridAllLayouts] == null) it[Keys.sameGridAllLayouts] = true
+        }
+        return columnsSet
+    }
     suspend fun setMonochromeIcons(enabled: Boolean) = context.metroDataStore.edit { it[Keys.monochrome] = enabled }
     suspend fun setAppListPlainIcons(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.appListPlainIcons] = enabled }
@@ -432,6 +483,9 @@ class SettingsRepository(private val context: Context) {
     suspend fun setPhotoMovesWithTiles(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.photoMovesWithTiles] = enabled }
 
+    suspend fun setSameGridAllLayouts(enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.sameGridAllLayouts] = enabled }
+
     suspend fun setSearchEngine(engine: SearchEngine) =
         context.metroDataStore.edit { it[Keys.searchEngine] = engine.name }
 
@@ -453,6 +507,12 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setStartRightPadding(dp: Int) = context.metroDataStore.edit {
         it[Keys.startRightPadding] = LauncherSettings.clampStartSidePadding(dp)
+    }
+
+    /** Both side paddings in one write, so start re-lays its grid once. */
+    suspend fun setStartSidePaddings(left: Int, right: Int) = context.metroDataStore.edit {
+        it[Keys.startLeftPadding] = LauncherSettings.clampStartSidePadding(left)
+        it[Keys.startRightPadding] = LauncherSettings.clampStartSidePadding(right)
     }
 
     suspend fun setAccentArrows(enabled: Boolean) = context.metroDataStore.edit { it[Keys.accentArrows] = enabled }

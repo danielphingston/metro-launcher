@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun TileColourSettingsSection(settings: LauncherSettings, repository: SettingsRepository) {
     val scope = rememberCoroutineScope()
-    Section("tile colour")
+    Section("tile colour", anchor = "tile_colour")
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         TileColourMode.entries.forEach { mode ->
             MetroChoice(mode.label, settings.tileColourMode == mode, { scope.launch { repository.setTileColourMode(mode) } })

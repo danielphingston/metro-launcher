@@ -233,12 +233,15 @@ internal object LayoutOps {
     /**
      * The store's side of a switch to [target], inside the one edit that also writes the target's
      * tiles: the live settings in [prefs] go into the active entry, the layouts are written, and
-     * the target's settings become the live ones. Returns the new set, or null when it doesn't apply.
+     * the target's settings become the live ones; with "same grid for all layouts" on, the grid
+     * values stay as they are (see [LayoutStartSettings.toStore], [LayoutStartSettings.toLoad]). Returns the new set, or null when it doesn't apply.
      */
     fun switchStore(prefs: MutablePreferences, set: LayoutSet, live: String, target: Long): LayoutSet? {
-        val switched = switch(set, live, target, LayoutStartSettings.read(prefs)) ?: return null
+        val current = LayoutStartSettings.read(prefs)
+        val shared = LayoutStartSettings.sharesGrid(prefs)
+        val switched = switch(set, live, target, LayoutStartSettings.toStore(current, set.activeLayout.settings, shared)) ?: return null
         prefs[stringPreferencesKey(LayoutsJson.KEY)] = LayoutsJson.encode(switched)
-        settingsToLoad(switched)?.let { LayoutStartSettings.apply(prefs, it) }
+        settingsToLoad(switched)?.let { LayoutStartSettings.apply(prefs, LayoutStartSettings.toLoad(it, current, shared)) }
         return switched
     }
 }

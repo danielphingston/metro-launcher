@@ -60,9 +60,9 @@ internal fun BackupSettingsSection() {
         color = colors.subtle,
     )
     Spacer(Modifier.height(10.dp))
-    MetroButton("export backup", onClick = { exporter.launch("metro-backup-${LocalDate.now()}.json") })
+    MetroButton("export backup", modifier = Modifier.settingAnchor("backup_export"), onClick = { exporter.launch("metro-backup-${LocalDate.now()}.json") })
     Spacer(Modifier.height(10.dp))
-    RestoreFromBackupButton()
+    RestoreFromBackupButton(Modifier.settingAnchor("backup_restore"))
     Spacer(Modifier.height(6.dp))
     MetroText(
         "Photos chosen for tiles or the background may need to be picked again on a new phone.",

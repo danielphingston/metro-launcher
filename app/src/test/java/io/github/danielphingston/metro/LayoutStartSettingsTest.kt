@@ -139,6 +139,52 @@ class LayoutStartSettingsTest {
     }
 
     @Test
+    fun sameGridForAllLayoutsKeepsTheGridAndGivesEachLayoutItsOwnBackWhenOff() {
+        val shared = booleanPreferencesKey("same_grid_all_layouts")
+        val left = intPreferencesKey("start_left_padding")
+        val home = mapOf("columns" to 4, "start_left_padding" to 20, "accent_arrows" to true)
+        val away = mapOf("columns" to 8, "start_top_padding" to 10, "background_photo" to "content://work")
+        val set = LayoutSet(1, listOf(SavedLayout(1, "start", "[]", home), SavedLayout(2, "work", "[]", away)))
+        // On: the grid on screen (6 columns, top padding 40) stays through the switch.
+        val prefs = mutablePreferencesOf(columns to 6, topPadding to 40, arrows to true, shared to true)
+        val switched = LayoutOps.switchStore(prefs, set, "[]", 2)!!
+        assertEquals(6, prefs[columns])
+        assertEquals(40, prefs[topPadding])
+        assertNull(prefs[left])
+        // Everything else is the target's own.
+        assertEquals("content://work", prefs[photo])
+        assertNull(prefs[arrows])
+        // The layout left keeps its own grid values for when the option goes off, and the rest of what was on screen.
+        assertEquals(home, switched.byId(1)!!.settings)
+        assertEquals(away, switched.byId(2)!!.settings)
+        // So the switch has no grid change to wait for, although the stored grids differ.
+        assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 6), LayoutStartSettings.toLoad(away, mapOf("columns" to 6), true)))
+        // A rename or save while on keeps the entry's own grid the same way.
+        assertEquals(
+            away.filterKeys { it in LayoutStartSettings.GRID },
+            LayoutStartSettings.forActiveEntry(prefs, switched).filterKeys { it in LayoutStartSettings.GRID },
+        )
+        // Off: switching back loads start's own grid again.
+        prefs[shared] = false
+        LayoutOps.switchStore(prefs, switched, "[]", 1)!!
+        assertEquals(4, prefs[columns])
+        assertEquals(20, prefs[left])
+        assertNull(prefs[topPadding])
+        assertEquals(true, prefs[arrows])
+    }
+
+    @Test
+    fun sameGridIsOffUnlessStored() {
+        assertFalse(LayoutStartSettings.sharesGrid(mutablePreferencesOf(columns to 6)))
+        assertFalse(SettingsRepository(RuntimeEnvironment.getApplication()).settingsOf(mutablePreferencesOf()).sameGridAllLayouts)
+        // A wrong type from a damaged backup reads as off instead of throwing.
+        assertFalse(LayoutStartSettings.sharesGrid(mutablePreferencesOf(stringPreferencesKey("same_grid_all_layouts") to "yes")))
+        assertTrue(LayoutStartSettings.sharesGrid(mutablePreferencesOf(booleanPreferencesKey("same_grid_all_layouts") to true)))
+        // It is one setting for the app, never one layout's.
+        assertFalse("same_grid_all_layouts" in LayoutStartSettings.NAMES)
+    }
+
+    @Test
     fun aLayoutWithoutSettingsLeavesTheLiveOnesAndGetsThemWrittenBack() {
         val set = LayoutSet(1, listOf(SavedLayout(1, "start", "[]"), SavedLayout(2, "old", "[]")))
         val prefs = mutablePreferencesOf(columns to 6, arrows to true)
@@ -193,18 +239,31 @@ class LayoutStartSettingsTest {
     }
 
     @Test
-    fun aSwitchThatChangesTheGridFadesInsteadOfGliding() {
+    fun aSwitchThatChangesTheGridIsToldApart() {
         assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 4), null))
-        assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 4, "start_top_padding" to 3), mapOf("columns" to 4)))
+        // The top padding moves the grid too; the bottom one and the rest don't.
+        assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 4, "start_top_padding" to 3), mapOf("columns" to 4)))
+        assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 4, "start_bottom_padding" to 3, "accent_arrows" to true), mapOf("columns" to 4)))
+        assertFalse(LayoutStartSettings.changesGrid(mapOf("start_top_padding" to 28), emptyMap()))
         assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 4), mapOf("columns" to 6)))
         assertTrue(LayoutStartSettings.changesGrid(emptyMap(), mapOf("start_left_padding" to 20)))
-        // Without a glide no tile keeps its key, so none moves from where the old grid had it.
+        // The grid as shown counts, not the stored values: a missing padding is its default, and
+        // "auto" is the count start shows for it.
+        assertFalse(LayoutStartSettings.changesGrid(emptyMap(), mapOf("start_left_padding" to 8, "start_right_padding" to 8)))
+        assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 0), mapOf("columns" to 6), autoColumns = 6))
+        assertFalse(LayoutStartSettings.changesGrid(emptyMap(), mapOf("columns" to 4), autoColumns = 4))
+        assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 0), mapOf("columns" to 4), autoColumns = 6))
+        // Before start has reported its automatic count, "auto" only matches "auto".
+        assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 0), mapOf("columns" to 6)))
+        assertFalse(LayoutStartSettings.changesGrid(emptyMap(), mapOf("columns" to 0)))
+        // A switch that changes the grid still matches its tiles (they move to the new grid), and says so.
         val keys = TileKeys()
-        keys.switched(listOf(app(1, "phone")), listOf(app(1, "phone")), glide = false)
-        assertFalse(keys.glides)
-        assertTrue(keys.keyOf(1) < 0)
-        keys.switched(listOf(app(1, "phone")), listOf(app(2, "phone")))
-        assertTrue(keys.glides)
+        keys.switched(listOf(app(1, "phone")), listOf(app(2, "phone")), gridChanges = true)
+        assertTrue(keys.gridChanges)
+        assertEquals(1L, keys.keyOf(2))
+        keys.switched(listOf(app(2, "phone")), listOf(app(3, "phone")))
+        assertFalse(keys.gridChanges)
+        assertEquals(1L, keys.keyOf(3))
     }
 
     @Test

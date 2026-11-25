@@ -399,8 +399,13 @@ fun WidgetTile(
     val info = remember(widget?.appWidgetId, tile.app) {
         widget?.let { WidgetTiles.providerInfo(context, it.appWidgetId) }
     }
-    if (widget == null || info == null) {
+    if (widget == null) {
         PlaceholderTile(tile, cellSize)
+        return
+    }
+    if (info == null) {
+        // The widget is gone (a backup from another phone or app, or its app was removed): a tap sets it up again.
+        UnavailableWidgetTile(tile, cellSize)
         return
     }
 

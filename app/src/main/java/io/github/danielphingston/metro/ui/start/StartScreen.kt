@@ -147,6 +147,7 @@ import io.github.danielphingston.metro.ui.tiles.WeatherTile
 import io.github.danielphingston.metro.ui.tiles.WeatherTiles
 import io.github.danielphingston.metro.ui.tiles.WidgetEditBadges
 import io.github.danielphingston.metro.ui.tiles.WidgetPicker
+import io.github.danielphingston.metro.ui.tiles.WidgetRestoreFlow
 import io.github.danielphingston.metro.ui.tiles.WidgetTile
 import io.github.danielphingston.metro.ui.tiles.WidgetTiles
 import io.github.danielphingston.metro.ui.tiles.LayoutSwitchTile
@@ -280,6 +281,9 @@ class StartState(val scroll: ScrollState) {
     /** The tile whose icon picker is open, or null. */
     var iconPickerId by mutableStateOf<Long?>(null)
     var widgetPickerOpen by mutableStateOf(false)
+
+    /** The widget tile whose gone widget is being set up again or removed; see WidgetRestoreFlow. */
+    var restoringWidgetId by mutableStateOf<Long?>(null)
     var quickPickerOpen by mutableStateOf(false)
 
     /** The "layouts" submenu of the add menu: switch tiles to pin. */
@@ -338,7 +342,7 @@ class StartState(val scroll: ScrollState) {
     }
 
     /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || quickPickerOpen || renamingFolderId != null || feedAddressId != null || grouping || layoutsMenuOpen || noteDraft != null
+    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || restoringWidgetId != null || quickPickerOpen || renamingFolderId != null || feedAddressId != null || grouping || layoutsMenuOpen || noteDraft != null
 
     /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
@@ -348,6 +352,7 @@ class StartState(val scroll: ScrollState) {
         stylingId = null
         iconPickerId = null
         widgetPickerOpen = false
+        restoringWidgetId = null
         quickPickerOpen = false
         renamingFolderId = null
         feedAddressId = null
@@ -372,7 +377,8 @@ fun rememberStartState(): StartState {
     return remember(scroll) { StartState(scroll) }
 }
 
-private val TileGap = 4.dp
+/** The gap between tiles on start; also what the setup's grid preview draws. */
+internal val TileGap = 4.dp
 
 /** How long a dragged tile must stay over a cell before the other tiles move out of its way, so they don't scatter while it passes over them. */
 private const val PREVIEW_HOLD_MILLIS = 120L
@@ -414,8 +420,6 @@ fun StartScreen(
     val notices = rememberStartNotices(viewModel, isCurrentPage, state.editing)
     val undoNext by viewModel.undoNext.collectAsStateWithLifecycle()
     val tileKeys = viewModel.tileKeys
-    val switchMotion = remember { SwitchMotion() }
-    val settingsWatch = remember { SettingsWatch() }
 
     // Live sources run only when a tile needs them and only while the launcher is visible
     // (collectAsStateWithLifecycle stops collecting below STARTED).
@@ -571,14 +575,13 @@ fun StartScreen(
         // With the automatic setting the width decides the columns, so measure it with the paddings
         // for the fewest, then fit them again for the count that results.
         val narrowPadding = fitPadding(LauncherSettings.MIN_COLUMNS)
-        val columns = StartColumns.resolve(
-            settings.columns,
-            large = isLarge,
-            widthDp = (maxWidth - sides).value - narrowPadding.left - narrowPadding.right + TileGap.value,
-        )
+        val gridWidthDp = (maxWidth - sides).value - narrowPadding.left - narrowPadding.right + TileGap.value
+        val columns = StartColumns.resolve(settings.columns, large = isLarge, widthDp = gridWidthDp)
+        // What "auto" would show here, so a layout switch can tell it from the same count chosen.
+        val autoColumns = StartColumns.resolve(LauncherSettings.AUTO_COLUMNS, large = isLarge, widthDp = gridWidthDp)
         val padding = fitPadding(columns)
         // Edits settle the stored layout for the columns being shown.
-        LaunchedEffect(columns) { viewModel.setColumns(columns) }
+        LaunchedEffect(columns, autoColumns) { viewModel.setColumns(columns, autoColumns) }
         val leftPadding = padding.left.dp
         val rightPadding = padding.right.dp
         // Stored positions settled for this column count; with a drag in progress, as if it were dropped now.
@@ -607,19 +610,6 @@ fun StartScreen(
             FolderLayout.compute(settled, openIndex, openChildren.map { it.spec.size }, columns, noteRows)
         }
         val placements = layout.tiles
-        // A layout switch: what left, what is new and what changed size, for the extras of its animation.
-        switchMotion.ended
-        val switchGeneration = tileKeys.generation
-        // The settings the screen had before this switch, so the wait for the new ones (see below) can tell
-        // "already arrived" from "not yet": a wait for a change that has already happened never ends.
-        if (switchGeneration != settingsWatch.generation) settingsWatch.beforeSwitch = settingsWatch.latest
-        settingsWatch.generation = switchGeneration
-        settingsWatch.latest = settings
-        switchMotion.update(
-            switchGeneration,
-            tiles.indices.associate { tileKeys.keyOf(tiles[it].spec.id) to (tiles[it] to placements[it]) },
-            glides = tileKeys.glides,
-        ) { Turnstile.animationsEnabled(context.contentResolver) }
         // Where the tile being resized would land, snapped to the grid.
         val resizeSpan = state.resizeSpan
         val resizeId = state.resizeId
@@ -639,6 +629,22 @@ fun StartScreen(
         val topInsetPx = (statusPx + with(density) { padding.top.dp.toPx() }).coerceAtLeast(0f)
         val topInset = with(density) { topInsetPx.toDp() }
         val rows = layout.rows
+        // Where the grid is drawn on the scrolling content, so a layout switch can move tiles between two grids.
+        val gridFrame = GridFrame.centred(
+            contentWidthPx = with(density) { (maxWidth - sides).toPx() },
+            leftPaddingPx = with(density) { leftPadding.toPx() },
+            gridWidthPx = with(density) { gridWidth.toPx() },
+            rightPaddingPx = with(density) { rightPadding.toPx() },
+            topPx = topInsetPx,
+            cellPx = cellPx,
+            gapPx = gapPx,
+        )
+        // A layout switch: tiles move from the old layout to this one; see rememberLayoutSwitch.
+        val switchMotion = rememberLayoutSwitch(tileKeys, tiles, placements, gridFrame, settings, state.scroll) {
+            // The new layout starts with nothing of the old one's edit mode or open folder.
+            state.exitEdit()
+            state.dismissOverlays()
+        }
 
         // Tiles unpinned or uninstalled while grouping can't be grouped any more.
         LaunchedEffect(loadedTiles) {
@@ -737,27 +743,6 @@ fun StartScreen(
 
         DragTracking(state, tiles, cellPx, columns)
 
-        val currentSettings by rememberUpdatedState(settings)
-        LaunchedEffect(switchGeneration) {
-            if (!switchMotion.takeSwitch()) return@LaunchedEffect
-            // The new layout starts from its top, with nothing of the old one's edit mode or open folder.
-            state.exitEdit()
-            state.dismissOverlays()
-            if (!Turnstile.animationsEnabled(context.contentResolver)) {
-                state.scroll.scrollTo(0)
-            } else if (switchMotion.fading) {
-                // The new layout's settings (columns, paddings) land just after its tiles: stay
-                // transparent until they have, briefly at most, so the fade shows the final grid.
-                state.scroll.scrollTo(0)
-                val before = settingsWatch.beforeSwitch
-                withTimeoutOrNull(SWITCH_SETTINGS_WAIT_MILLIS) { snapshotFlow { currentSettings }.first { it != before } }
-                switchMotion.play(motion.duration(SWITCH_MILLIS))
-            } else {
-                launch { state.scroll.animateScrollTo(0) }
-                switchMotion.play(motion.duration(SWITCH_MILLIS))
-            }
-        }
-
         // A top-level tile and a folder child differ only in the drag callbacks and where they appear from.
         @Composable
         fun host(
@@ -832,7 +817,8 @@ fun StartScreen(
         ) {
             Spacer(Modifier.height(topInset))
 
-            if (loadedTiles != null && tiles.isEmpty()) {
+            // Not while a switch is drawn: it would push the grid down under the tiles fading out where they were.
+            if (loadedTiles != null && tiles.isEmpty() && !switchMotion.active) {
                 MetroText(
                     "your start screen is empty.\nswipe left and press and hold an app to pin it.",
                     MetroType.body,
@@ -844,8 +830,7 @@ fun StartScreen(
             Box(
                 Modifier
                     .absolutePadding(left = leftPadding, right = rightPadding)
-                    .size(width = gridWidth, height = cell * rows)
-                    .then(switchMotion.fadeModifier()),
+                    .size(width = gridWidth, height = cell * rows),
             ) {
                 // With the tiles a layout switch just took away, fading where they were (same call site, so they keep their composition).
                 switchMotion.onScreen(tiles, placements, tileKeys::keyOf).forEach { shown ->
@@ -854,10 +839,9 @@ fun StartScreen(
                         val placement = shown.placement
                         host(
                             tile, placement,
-                            appearFrom = if (switchMotion.isEntering(shown.key)) IntOffset((placement.x * cellPx).roundToInt(), (placement.y * cellPx).roundToInt()) else null,
-                            motionModifier = switchMotion.modifier(shown.key, placement, shown.leaving),
-                            // While a switch fades the grid in, its tiles jump to where the new grid puts them.
-                            snapMoves = switchMotion.fading,
+                            motionModifier = switchMotion.modifier(shown.key, placement, gridFrame, shown.leaving),
+                            // While a switch is drawn its tiles are laid out at their new places at once; the layer moves them.
+                            snapMoves = switchMotion.active,
                             onDrop = { completed ->
                                 val cell = state.dragCell
                                 state.preview = null
@@ -1096,6 +1080,10 @@ fun StartScreen(
                         state.layoutsMenuOpen = true
                     }
                 },
+                onSettings = {
+                    state.addMenuOpen = false
+                    context.startActivity(SettingsActivity.intent(context))
+                },
             )
         }
         if (state.layoutsMenuOpen) {
@@ -1132,6 +1120,19 @@ fun StartScreen(
         }
         if (state.widgetPickerOpen) {
             WidgetPicker(viewModel, onDismiss = { state.widgetPickerOpen = false })
+        }
+        state.restoringWidgetId?.let { id ->
+            val widget = tiles.firstOrNull { it.spec.id == id }?.spec?.content as? TileContent.Widget
+            // The tile went (unpinned, a layout switch): nothing to set up, and nothing may keep start blocked.
+            LaunchedEffect(widget == null) { if (widget == null) state.restoringWidgetId = null }
+            if (widget != null) {
+                WidgetRestoreFlow(
+                    widget,
+                    onRecreated = { viewModel.replaceWidget(id, it) },
+                    onRemove = { viewModel.unpin(id) },
+                    onDismiss = { state.restoringWidgetId = null },
+                )
+            }
         }
         if (state.quickPickerOpen) {
             QuickSettingPicker(viewModel, onDismiss = { state.quickPickerOpen = false })
@@ -1320,10 +1321,12 @@ internal fun TileHost(
     Box(
         Modifier
             .offset {
-                if (dragging) {
-                    IntOffset(state.dragTopLeft.x.roundToInt(), state.dragTopLeft.y.roundToInt())
-                } else {
-                    position.value
+                when {
+                    dragging -> IntOffset(state.dragTopLeft.x.roundToInt(), state.dragTopLeft.y.roundToInt())
+                    // A layout switch draws the move itself: the tile must be at its new place from the first frame,
+                    // not one frame later when the effect below snaps it there.
+                    snap -> target
+                    else -> position.value
                 }
             }
             .size(widthDp, heightDp)
@@ -1649,7 +1652,8 @@ private fun activateTile(
                 ShortcutTiles.launch(context, content, screenBounds, options)
             }
         }
-        is TileContent.Widget -> Unit // The hosted widget handles its own taps.
+        // A hosted widget handles its own taps; a tile whose widget is gone offers to set it up again.
+        is TileContent.Widget -> if (WidgetTiles.providerInfo(context, content.appWidgetId) == null) state.restoringWidgetId = tile.spec.id
         TileContent.Weather -> WeatherTiles.intent(context)?.let { launcher.start(it, bounds) }
         TileContent.Photos -> PhotosTiles.intent(context, defaults)?.let { launcher.start(it, bounds) }
         TileContent.People -> PeopleTiles.intent(context)?.let { launcher.start(it, bounds) }
@@ -1694,6 +1698,7 @@ private fun AddTileMenu(
     onQuickSettings: () -> Unit,
     onDismiss: () -> Unit,
     onLayouts: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     MetroFlyout(onDismiss) {
         MetroMenu(
@@ -1702,6 +1707,8 @@ private fun AddTileMenu(
                 "metro plus" to onQuickSettings,
                 "widgets" to onWidgets,
                 "layouts" to onLayouts,
+                // Metro's own settings, also reachable from here rather than only the app drawer.
+                "settings" to onSettings,
             ),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -1757,9 +1764,3 @@ private fun AllAppsArrow(accent: Boolean, onClick: () -> Unit) = RoundGlyphButto
     drawLine(color, Offset(r, y), Offset(r - head, y + head), stroke, StrokeCap.Round)
 }
 
-/** What the start screen saw of the settings around a layout switch; see [SWITCH_SETTINGS_WAIT_MILLIS]. */
-private class SettingsWatch {
-    var generation = 0
-    var latest: Any? = null
-    var beforeSwitch: Any? = null
-}

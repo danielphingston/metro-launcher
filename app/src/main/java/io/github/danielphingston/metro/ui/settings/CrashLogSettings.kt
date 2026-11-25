@@ -41,7 +41,7 @@ fun CrashLogSettingsSection() {
     LaunchedEffect(Unit) { reports = withContext(Dispatchers.IO) { CrashLog.read(context) } }
     val latest = reports.firstOrNull() ?: return
 
-    Section("last crash")
+    Section("last crash", anchor = "crash_log")
     MetroText(
         "Metro stopped unexpectedly. The details below are saved on this phone only and are never " +
             "sent anywhere. Sharing is up to you.",
