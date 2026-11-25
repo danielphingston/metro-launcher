@@ -7,7 +7,6 @@ import io.github.danielphingston.metro.data.Backup
 import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.metroDataStore
-import io.github.danielphingston.metro.ui.onboarding.StartSpacing
 import io.github.danielphingston.metro.ui.onboarding.tilesPerRowChoices
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -89,15 +88,6 @@ class StartSetupTest {
         assertTrue(seenAfter(CoachMark.APP_LIST, { onAppList = true }, { onAppList = false }))
         assertFalse(seenAfter(CoachMark.EDITING, { editing = true }))
         assertTrue(seenAfter(CoachMark.EDITING, { editing = true }, { editing = false }))
-    }
-
-    @Test
-    fun spacingPresetsAreReadBackOnlyWhenBothSidesMatch() {
-        assertEquals(StartSpacing.NORMAL, StartSpacing.of(LauncherSettings()))
-        assertEquals(StartSpacing.ROOMY, StartSpacing.of(LauncherSettings(startLeftPadding = 20, startRightPadding = 20)))
-        assertNull(StartSpacing.of(LauncherSettings(startLeftPadding = 20, startRightPadding = 8)))
-        // Every preset is a padding settings accepts as it is.
-        StartSpacing.entries.forEach { assertEquals(it.sideDp, LauncherSettings.clampStartSidePadding(it.sideDp)) }
     }
 
     @Test

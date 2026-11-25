@@ -25,6 +25,7 @@ import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.ui.LARGE_SCREEN_DP
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.components.LabeledSlider
 import io.github.danielphingston.metro.ui.components.MetroChoiceGroup
 import io.github.danielphingston.metro.ui.start.GridFrame
 import io.github.danielphingston.metro.ui.start.StartColumns
@@ -33,20 +34,6 @@ import io.github.danielphingston.metro.ui.start.TilePlacement
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
 import kotlinx.coroutines.launch
-
-/** The spacing presets of the setup's grid step: both side paddings of start, in dp. Pure. */
-internal enum class StartSpacing(val label: String, val sideDp: Int) {
-    TIGHT("tight", 2),
-    NORMAL("normal", LauncherSettings.DEFAULT_START_LEFT_PADDING),
-    ROOMY("roomy", 20),
-    ;
-
-    companion object {
-        /** The preset [settings] match, or null for paddings set by hand in settings. */
-        fun of(settings: LauncherSettings): StartSpacing? =
-            entries.firstOrNull { settings.startLeftPadding == it.sideDp && settings.startRightPadding == it.sideDp }
-    }
-}
 
 /** The tiles-per-row choices, as (stored column count, label): medium tiles per row on a phone, columns on a tablet as in settings. Pure. */
 internal fun tilesPerRowChoices(large: Boolean): List<Pair<Int, String>> =
@@ -57,8 +44,8 @@ internal fun tilesPerRowChoices(large: Boolean): List<Pair<Int, String>> =
     }
 
 /**
- * The setup's "your start screen" step: tiles per row and spacing, with a preview of the user's
- * own tiles laid out as start will lay them out. Every choice is a setting, saved at once.
+ * The setup's "your start screen" step: tiles per row and the side padding, with a preview of the
+ * user's own tiles laid out as start will lay them out. Every choice is a setting, saved at once.
  */
 @Composable
 internal fun StartGridStep(settings: LauncherSettings, repository: SettingsRepository, tiles: List<TileSpec>) {
@@ -71,11 +58,13 @@ internal fun StartGridStep(settings: LauncherSettings, repository: SettingsRepos
     MetroText("tiles per row", MetroType.sectionTitle, modifier = Modifier.padding(bottom = 8.dp))
     MetroChoiceGroup(tilesPerRowChoices(large), shown, { scope.launch { repository.setColumns(it) } })
     Spacer(Modifier.height(20.dp))
-    MetroText("spacing", MetroType.sectionTitle, modifier = Modifier.padding(bottom = 8.dp))
-    val spacing = StartSpacing.of(settings)
-    MetroChoiceGroup(StartSpacing.entries.map { it to it.label }, spacing, {
-        scope.launch { repository.setStartSidePaddings(it.sideDp, it.sideDp) }
-    })
+    // Both sides at once; settings, start has a slider for each side, the top and the bottom.
+    LabeledSlider(
+        "Side padding",
+        settings.startLeftPadding,
+        LauncherSettings.MIN_START_SIDE_PADDING..LauncherSettings.MAX_START_SIDE_PADDING,
+        { "$it dp" },
+    ) { repository.setStartSidePaddings(it, it) }
     // An empty frame would say nothing; a first run always has the default tiles.
     if (tiles.isNotEmpty()) {
         Spacer(Modifier.height(20.dp))
