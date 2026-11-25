@@ -130,7 +130,7 @@ class StartLayoutRepository(
         var written: LayoutSet? = null
         try {
             context.metroDataStore.edit { prefs ->
-                val next = change(current, live, LayoutStartSettings.read(prefs)) ?: return@edit
+                val next = change(current, live, LayoutStartSettings.forActiveEntry(prefs, current)) ?: return@edit
                 prefs[key] = LayoutsJson.encode(next)
                 written = next
             }
@@ -214,8 +214,10 @@ class StartLayoutRepository(
         val target = set.byId(id)?.takeIf { id != set.active } ?: return false
         val from = tiles.tiles.value.orEmpty()
         // Tiles glide to their new places only when the grid's cells stay the same size.
-        val before = LayoutStartSettings.read(context.metroDataStore.data.first())
-        val glide = !LayoutStartSettings.changesGrid(before, target.settings, autoColumns)
+        val prefs = context.metroDataStore.data.first()
+        val before = LayoutStartSettings.read(prefs)
+        val loads = target.settings?.let { LayoutStartSettings.toLoad(it, before, LayoutStartSettings.sharesGrid(prefs)) }
+        val glide = !LayoutStartSettings.changesGrid(before, loads, autoColumns)
         var next: LayoutSet? = null
         val swapped = tiles.swap(target.tiles, beforePublish = { keys.switched(from, it, glide) }) { prefs ->
             next = LayoutOps.switchStore(prefs, set, live, id)

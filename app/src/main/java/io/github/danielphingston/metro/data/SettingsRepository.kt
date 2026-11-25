@@ -101,6 +101,11 @@ data class LauncherSettings(
     val accentFromBackground: Boolean = false,
     /** In PHOTO_TILES mode the photo slides sideways with the tiles when paging to the app list, instead of staying fixed to the screen. */
     val photoMovesWithTiles: Boolean = false,
+    /**
+     * Every start layout uses the live tiles per row and paddings instead of its own: a switch keeps
+     * them, and each layout's own values wait in its entry (see [LayoutStartSettings.GRID]).
+     */
+    val sameGridAllLayouts: Boolean = false,
     /** Where the search overlay's "web" row searches. */
     val searchEngine: SearchEngine = SearchEngine.GOOGLE,
     /** How far (dp) the start screen must be pulled down, then released, to open search. */
@@ -276,6 +281,7 @@ class SettingsRepository(private val context: Context) {
         val tileTransparency = intPreferencesKey("tile_transparency")
         val accentFromBackground = booleanPreferencesKey("accent_from_background")
         val photoMovesWithTiles = booleanPreferencesKey("photo_moves_with_tiles")
+        val sameGridAllLayouts = booleanPreferencesKey("same_grid_all_layouts")
         val searchEngine = stringPreferencesKey("search_engine")
         val pullDistance = intPreferencesKey("pull_distance")
         val startTopPadding = intPreferencesKey("start_top_padding")
@@ -351,6 +357,7 @@ class SettingsRepository(private val context: Context) {
             tileTransparency = this[Keys.tileTransparency]?.let(LauncherSettings::clampTransparency),
             accentFromBackground = this[Keys.accentFromBackground] ?: defaults.accentFromBackground,
             photoMovesWithTiles = this[Keys.photoMovesWithTiles] ?: defaults.photoMovesWithTiles,
+            sameGridAllLayouts = this[Keys.sameGridAllLayouts] ?: defaults.sameGridAllLayouts,
             searchEngine = this[Keys.searchEngine]?.let { runCatching { SearchEngine.valueOf(it) }.getOrNull() }
                 ?: defaults.searchEngine,
             pullDistance = this[Keys.pullDistance]?.let(LauncherSettings::clampPullDistance) ?: defaults.pullDistance,
@@ -431,6 +438,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setPhotoMovesWithTiles(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.photoMovesWithTiles] = enabled }
+
+    suspend fun setSameGridAllLayouts(enabled: Boolean) =
+        context.metroDataStore.edit { it[Keys.sameGridAllLayouts] = enabled }
 
     suspend fun setSearchEngine(engine: SearchEngine) =
         context.metroDataStore.edit { it[Keys.searchEngine] = engine.name }

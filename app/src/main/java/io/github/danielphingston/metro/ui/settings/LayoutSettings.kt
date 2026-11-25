@@ -33,6 +33,7 @@ import io.github.danielphingston.metro.data.SavedLayout
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.components.MetroToggle
 import io.github.danielphingston.metro.ui.components.SearchField
 import io.github.danielphingston.metro.ui.components.SearchFieldStyle
 import io.github.danielphingston.metro.ui.components.metroTilt
@@ -47,7 +48,11 @@ import kotlinx.coroutines.launch
  * preview) there is no purchase to check, so it reads as locked.
  */
 @Composable
-internal fun StartLayoutsSection(onOpenPage: (SettingsPage) -> Unit) {
+internal fun StartLayoutsSection(
+    onOpenPage: (SettingsPage) -> Unit,
+    sameGrid: Boolean = false,
+    onSameGrid: (Boolean) -> Unit = {},
+) {
     val app = LocalContext.current.applicationContext as? MetroApplication
     val unlocked = app?.purchases?.quickTilesUnlocked?.collectAsState()?.value ?: false
     val set = app?.layouts?.layouts?.collectAsState()?.value
@@ -58,6 +63,8 @@ internal fun StartLayoutsSection(onOpenPage: (SettingsPage) -> Unit) {
         onSwitch = { id -> app?.let { scope.launch { it.layouts.switchTo(id) } } },
         onManage = { onOpenPage(SettingsPage.LAYOUTS) },
         onUnlock = { onOpenPage(SettingsPage.METRO_PLUS) },
+        sameGrid = sameGrid,
+        onSameGrid = onSameGrid,
     )
 }
 
@@ -70,6 +77,8 @@ internal fun StartLayoutsSectionContent(
     onSwitch: (Long) -> Unit,
     onManage: () -> Unit,
     onUnlock: () -> Unit,
+    sameGrid: Boolean = false,
+    onSameGrid: (Boolean) -> Unit = {},
 ) {
     val colors = Metro.colors
     if (!unlocked) {
@@ -98,7 +107,11 @@ internal fun StartLayoutsSectionContent(
         return
     }
     MetroText(
-        "These settings belong to the layout “${set.activeLayout.name}”. Each layout keeps its own.",
+        if (sameGrid) {
+            "These settings belong to the layout “${set.activeLayout.name}”, except tiles per row and the paddings, which all layouts share."
+        } else {
+            "These settings belong to the layout “${set.activeLayout.name}”. Each layout keeps its own."
+        },
         MetroType.caption,
         color = colors.subtle,
     )
@@ -108,6 +121,15 @@ internal fun StartLayoutsSectionContent(
             val active = layout.id == set.activeLayout.id
             MetroChoice(layout.name, active, { if (!active) onSwitch(layout.id) })
         }
+    }
+    if (set.layouts.size > 1) {
+        Spacer(Modifier.height(10.dp))
+        MetroToggle(
+            "Same grid for all layouts",
+            sameGrid,
+            onSameGrid,
+            description = "Tiles per row and the paddings below apply to every layout",
+        )
     }
     Spacer(Modifier.height(12.dp))
     MetroButton("manage layouts", onClick = onManage)

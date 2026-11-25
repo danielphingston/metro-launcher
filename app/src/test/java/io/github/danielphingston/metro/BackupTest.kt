@@ -9,6 +9,11 @@ import androidx.datastore.preferences.core.mutablePreferencesOf
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import io.github.danielphingston.metro.data.Backup
+import io.github.danielphingston.metro.data.LayoutStartSettings
+import io.github.danielphingston.metro.data.SavedLayout
+import io.github.danielphingston.metro.data.LayoutsJson
+import io.github.danielphingston.metro.data.LayoutSet
+import io.github.danielphingston.metro.data.LayoutOps
 import io.github.danielphingston.metro.data.BackupException
 import io.github.danielphingston.metro.data.SettingsRepository
 import io.github.danielphingston.metro.data.ThemeMode
@@ -138,6 +143,33 @@ class BackupTest {
             // And a re-export of what was read must itself import to the same thing.
             assertEquals(prefs.asMap(), Backup.decode(Backup.encode(prefs, "x", 0)).asMap())
         }
+    }
+
+    @Test
+    fun layoutsFromBeforeSameGridKeepTheirOwnGrid() {
+        // A format-2 backup as releases before "same grid for all layouts" wrote it: two layouts with their own columns.
+        val layouts = LayoutsJson.encode(
+            LayoutSet(1, listOf(SavedLayout(1, "start", "[]", mapOf("columns" to 6)), SavedLayout(2, "work", "[]", mapOf("columns" to 4)))),
+        )
+        val json = org.json.JSONObject()
+            .put("app", "metro-launcher").put("format", 2)
+            .put(
+                "prefs",
+                org.json.JSONObject()
+                    .put("columns", org.json.JSONObject().put("type", "int").put("value", 6))
+                    .put("layouts", org.json.JSONObject().put("type", "string").put("value", layouts)),
+            ).toString()
+        val prefs = Backup.decode(json).toMutablePreferences()
+        assertFalse(SettingsRepository(RuntimeEnvironment.getApplication()).settingsOf(prefs).sameGridAllLayouts)
+        assertFalse(LayoutStartSettings.sharesGrid(prefs))
+        val set = LayoutsJson.decode(prefs[stringPreferencesKey(LayoutsJson.KEY)])!!
+        LayoutOps.switchStore(prefs, set, "[]", 2)
+        assertEquals(4, prefs[intPreferencesKey("columns")])
+        // And a backup with the option on keeps it.
+        prefs[booleanPreferencesKey("same_grid_all_layouts")] = true
+        val again = Backup.decode(Backup.encode(prefs, "x", 0))
+        assertTrue(LayoutStartSettings.sharesGrid(again))
+        assertEquals(prefs.asMap(), again.asMap())
     }
 
     @Test

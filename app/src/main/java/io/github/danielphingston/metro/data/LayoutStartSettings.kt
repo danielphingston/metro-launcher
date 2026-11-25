@@ -69,6 +69,33 @@ internal object LayoutStartSettings {
     /** The key names, e.g. for a test or a backup check. */
     val NAMES: List<String> = SPECS.map { it.name }
 
+    /**
+     * The per-layout keys that "same grid for all layouts" shares: tiles per row and the four
+     * paddings. The option itself is global, not one of [SPECS].
+     */
+    val GRID: Set<String> = listOf(
+        keys.columns, keys.startTopPadding, keys.startBottomPadding, keys.startLeftPadding, keys.startRightPadding,
+    ).mapTo(LinkedHashSet()) { it.name }
+
+    /** Whether [prefs] has "same grid for all layouts" on; off when missing (every backup from before it). */
+    fun sharesGrid(prefs: Preferences): Boolean = prefs.asMap().entries.firstOrNull { it.key.name == keys.sameGridAllLayouts.name }?.value == true
+
+    /**
+     * What the active layout's entry keeps of the [live] values: all of them, except that with the
+     * grid [shared] the entry keeps its own [GRID] values (from [entry]), so turning the option off
+     * gives each layout back its own. An entry without settings takes the live ones.
+     */
+    fun toStore(live: Map<String, Any>, entry: Map<String, Any>?, shared: Boolean): Map<String, Any> =
+        if (!shared || entry == null) live else live.filterKeys { it !in GRID } + entry.filterKeys { it in GRID }
+
+    /** The live values after a switch to a layout with [target] settings: with the grid [shared] the [live] [GRID] values stay. */
+    fun toLoad(target: Map<String, Any>, live: Map<String, Any>, shared: Boolean): Map<String, Any> =
+        if (!shared) target else target.filterKeys { it !in GRID } + live.filterKeys { it in GRID }
+
+    /** The live values in [prefs] as the active entry of [set] keeps them; see [toStore]. */
+    fun forActiveEntry(prefs: Preferences, set: LayoutSet?): Map<String, Any> =
+        toStore(read(prefs), set?.activeLayout?.settings, sharesGrid(prefs))
+
     /** The key that holds the background photo's URI. */
     val PHOTO: String = keys.backgroundPhoto.name
 

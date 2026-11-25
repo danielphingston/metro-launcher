@@ -61,7 +61,7 @@ internal fun StartPage(settings: LauncherSettings, repository: SettingsRepositor
     val scope = rememberCoroutineScope()
     val colors = Metro.colors
     // Everything below belongs to the layout on screen, so the layouts come first.
-    StartLayoutsSection(onOpenPage)
+    StartLayoutsSection(onOpenPage, settings.sameGridAllLayouts) { scope.launch { repository.setSameGridAllLayouts(it) } }
     Section("start screen")
     if (LocalConfiguration.current.smallestScreenWidthDp >= LARGE_SCREEN_DP) {
         // Tiles keep about a phone's size on a tablet, so more columns fill the wider screen; auto picks the count.
