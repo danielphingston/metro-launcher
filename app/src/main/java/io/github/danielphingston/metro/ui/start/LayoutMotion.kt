@@ -41,6 +41,13 @@ internal class SwitchMotion {
     private var plan: SwitchPlan<ResolvedTile> = SwitchPlan.none()
     private var pending = false
 
+    /** Where start was scrolled when the switch began, and how to read it now (only while drawing). */
+    private var scrollAtSwitch = 0
+    private var scroll: () -> Int = { 0 }
+
+    /** How far start has scrolled since the switch began: 0 until it jumps to the top, then minus the old scroll. */
+    private fun scrolledSince(): Float = (scroll() - scrollAtSwitch).toFloat()
+
     /** 0 when a switch has just happened, 1 once it is done. Only read while drawing. */
     private var progress by mutableFloatStateOf(1f)
 
@@ -85,9 +92,12 @@ internal class SwitchMotion {
         // reset, and without observing, so composition never follows the per-frame progress.
         val previous = plan
         val at = Snapshot.withoutReadObservation { progress }
-        // The scroll too is read without observing: composition must not follow scrolling.
-        val scrolled = Snapshot.withoutReadObservation(scrolledPx).toFloat()
-        plan = SwitchPlan.of(before, beforeFrame, now.keys, scrolled) { key, laidOut -> previous.frameOf(key, laidOut, at).first }
+        // Where start is scrolled now; the layer follows scrolling from here (see modifier). Read
+        // without observing too: composition must not follow scrolling.
+        val previousScrolledSince = Snapshot.withoutReadObservation { scrolledSince() }
+        scrollAtSwitch = Snapshot.withoutReadObservation(scrolledPx)
+        scroll = scrolledPx
+        plan = SwitchPlan.of(before, beforeFrame, now.keys) { key, laidOut -> previous.frameOf(key, laidOut, at, scrolledSince = previousScrolledSince).first }
         // Set here, so the frame that first shows the new layout already draws its start.
         progress = 0f
         active = true
@@ -124,6 +134,8 @@ internal class SwitchMotion {
     }
 
     private fun clear() {
+        scrollAtSwitch = 0
+        scroll = { 0 }
         progress = 1f
         active = false
         waitsForGrid = false
@@ -141,7 +153,8 @@ internal class SwitchMotion {
         if (leavingRect == null && key !in plan.entering && key !in plan.from) return Modifier
         val laidOut = frame.rectOf(placement)
         return Modifier.graphicsLayer {
-            val (rect, opacity) = plan.frameOf(key, laidOut, progress, leavingRect)
+            // Reading the scroll here, while drawing, keeps tiles in place whichever frame the jump to the top lands on.
+            val (rect, opacity) = plan.frameOf(key, laidOut, progress, leavingRect, scrolledSince())
             val transform = LayerTransform.between(laidOut, rect)
             transformOrigin = TransformOrigin(0f, 0f)
             translationX = transform.translationX

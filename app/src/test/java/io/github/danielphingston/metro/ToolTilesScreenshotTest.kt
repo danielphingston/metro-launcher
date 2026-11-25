@@ -333,7 +333,11 @@ class ToolTilesScreenshotTest {
         rule.setContent {
             MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
-                    MetroTilesPanel(live, icons, onAddLive = {}, onAddTool = {}, onDismiss = {})
+                    // The tool previews follow the clock (a routine dims when it isn't due): pinned, or the golden
+                    // only matched at some hours of the day.
+                    CompositionLocalProvider(LocalToolClock provides { now }) {
+                        MetroTilesPanel(live, icons, onAddLive = {}, onAddTool = {}, onDismiss = {})
+                    }
                 }
             }
         }

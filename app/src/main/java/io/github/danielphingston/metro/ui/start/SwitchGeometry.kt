@@ -103,15 +103,24 @@ internal class SwitchPlan<T>(
 
     /**
      * How the tile with [key] laid out at [laidOut] is drawn [progress] (0 to 1) into the switch:
-     * where it is shown and how opaque.
+     * where it is shown and how opaque. [scrolledSince] is how far start has scrolled since the
+     * switch began (it jumps to its top): where tiles were moves by as much, so they stay where
+     * they were on screen whenever the jump lands.
      */
-    fun frameOf(key: Long, laidOut: TileRect, progress: Float, leavingRect: TileRect? = null): Pair<TileRect, Float> {
+    fun frameOf(
+        key: Long,
+        laidOut: TileRect,
+        progress: Float,
+        leavingRect: TileRect? = null,
+        scrolledSince: Float = 0f,
+    ): Pair<TileRect, Float> {
         val p = progress.coerceIn(0f, 1f)
+        fun TileRect.onScreen() = if (scrolledSince == 0f) this else copy(top = top + scrolledSince)
         return when {
             // Leaving tiles are gone early and new ones come in late, so the two barely overlap.
-            leavingRect != null -> phase(p, 0f, LEAVING_END).let { q -> leavingRect.scaledAboutCentre(lerp(1f, LEAVING_SCALE, q)) to 1f - q }
+            leavingRect != null -> phase(p, 0f, LEAVING_END).let { q -> leavingRect.onScreen().scaledAboutCentre(lerp(1f, LEAVING_SCALE, q)) to 1f - q }
             key in entering -> phase(p, ENTERING_START, 1f).let { q -> laidOut.scaledAboutCentre(lerp(ENTERING_SCALE, 1f, q)) to q }
-            else -> (from[key]?.lerpTo(laidOut, p) ?: laidOut) to 1f
+            else -> (from[key]?.onScreen()?.lerpTo(laidOut, p) ?: laidOut) to 1f
         }
     }
 
@@ -136,20 +145,17 @@ internal class SwitchPlan<T>(
          * The plan for a switch from [before] (laid out in [beforeFrame]) to [now]: keys of both move,
          * keys only in [before] leave, keys only in [now] enter. [drawnAt] gives where a tile laid out
          * at a rectangle is drawn right now, for a switch that starts while another is still moving.
-         * [scrolledPx] is how far start was scrolled: the switch scrolls it to the top at once, so the
-         * old rectangles move up by as much and tiles stay where they were on screen.
          */
         fun <T> of(
             before: Map<Long, Pair<T, Placement>>,
             beforeFrame: GridFrame,
             now: Set<Long>,
-            scrolledPx: Float = 0f,
             drawnAt: (key: Long, laidOut: TileRect) -> TileRect = { _, laidOut -> laidOut },
         ): SwitchPlan<T> {
             val from = HashMap<Long, TileRect>()
             val leaving = ArrayList<Departure<T>>()
             before.forEach { (key, value) ->
-                val rect = drawnAt(key, beforeFrame.rectOf(value.second)).let { it.copy(top = it.top - scrolledPx) }
+                val rect = drawnAt(key, beforeFrame.rectOf(value.second))
                 if (key in now) from[key] = rect else leaving += Departure(key, value.first, value.second, rect)
             }
             return SwitchPlan(from, leaving, now - before.keys)

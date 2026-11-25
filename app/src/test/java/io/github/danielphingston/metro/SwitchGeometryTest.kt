@@ -99,12 +99,21 @@ class SwitchGeometryTest {
 
     @Test
     fun aScrolledStartKeepsItsTilesWhereTheyWereOnScreen() {
-        // Scrolled 500 px down, then jumped to the top as the switch begins: the old rectangles move up by as much.
+        // Start was scrolled 500 px down; the switch jumps it to the top, a frame or two after it begins.
         val placement = Placement(0, 6, 2, 2)
-        val plan = SwitchPlan.of(mapOf(1L to ("mail" to placement), 2L to ("gone" to placement)), twoPerRow, setOf(1L), scrolledPx = 500f)
-        val onScreen = twoPerRow.rectOf(placement).let { it.copy(top = it.top - 500f) }
-        assertRect(onScreen, plan.frameOf(1L, threePerRow.rectOf(Placement(0, 0, 2, 2)), 0f).first)
-        assertRect(onScreen, plan.leavingByKey.getValue(2L).rect)
+        val plan = SwitchPlan.of(mapOf(1L to ("mail" to placement), 2L to ("gone" to placement)), twoPerRow, setOf(1L))
+        val was = twoPerRow.rectOf(placement)
+        val newPlace = threePerRow.rectOf(Placement(0, 0, 2, 2))
+        val departure = plan.leavingByKey.getValue(2L).rect
+        // Before the jump nothing has scrolled: tiles are drawn where they were (this frame flickered when it was shifted).
+        assertRect(was, plan.frameOf(1L, newPlace, 0f, scrolledSince = 0f).first)
+        assertRect(was, plan.frameOf(2L, newPlace, 0f, departure, scrolledSince = 0f).first)
+        // After it start has scrolled -500 px: where they were moves up by as much, so the screen shows no jump.
+        val up = was.copy(top = was.top - 500f)
+        assertRect(up, plan.frameOf(1L, newPlace, 0f, scrolledSince = -500f).first)
+        assertRect(up, plan.frameOf(2L, newPlace, 0f, departure, scrolledSince = -500f).first)
+        // The new places are in the new layout, which starts at the top: the scroll never moves them.
+        assertRect(newPlace, plan.frameOf(1L, newPlace, 1f, scrolledSince = -500f).first)
     }
 
     @Test
