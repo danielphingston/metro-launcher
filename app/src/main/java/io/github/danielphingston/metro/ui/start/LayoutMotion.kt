@@ -79,15 +79,15 @@ internal class SwitchMotion {
             clear()
             return true
         }
+        // A switch during a switch starts each tile from where it is drawn now: read before it is
+        // reset, and without observing, so composition never follows the per-frame progress.
+        val previous = plan
+        val at = Snapshot.withoutReadObservation { progress }
+        plan = SwitchPlan.of(before, beforeFrame, now.keys) { key, laidOut -> previous.frameOf(key, laidOut, at).first }
         // Set here, so the frame that first shows the new layout already draws its start.
         progress = 0f
         active = true
         waitsForGrid = gridChanges
-        // A switch during a switch starts each tile from where it is drawn now. Read without
-        // observing, so composition never follows the per-frame progress.
-        val previous = plan
-        val at = Snapshot.withoutReadObservation { progress }
-        plan = SwitchPlan.of(before, beforeFrame, now.keys) { key, laidOut -> previous.frameOf(key, laidOut, at).first }
         return true
     }
 
@@ -100,12 +100,16 @@ internal class SwitchMotion {
     fun takeSwitch(): Boolean = pending.also { pending = false }
 
     /**
-     * Plays the planned switch to its end; it ends (see [ended]) even when cancelled. A play
-     * cancelled by a newer switch leaves that switch's plan alone.
+     * Plays the planned switch to its end, after [beforeMoving] (a bounded wait for the new grid's
+     * settings). However it ends (done, cancelled, failed) the switch is cleared and [ended] bumped,
+     * so nothing is left drawn or snapping; a play cancelled by a newer switch leaves that one's plan
+     * alone. Without a plan (animations off, see [update]) it only clears.
      */
-    suspend fun play(durationMillis: Int) {
+    suspend fun play(durationMillis: Int, beforeMoving: suspend () -> Unit = {}) {
         val playing = plan
         try {
+            if (!active) return
+            beforeMoving()
             animate(progress, 1f, animationSpec = tween(durationMillis, easing = FastOutSlowInEasing)) { value, _ ->
                 if (plan === playing) progress = value
             }

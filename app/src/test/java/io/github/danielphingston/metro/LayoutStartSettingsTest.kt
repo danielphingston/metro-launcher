@@ -241,7 +241,10 @@ class LayoutStartSettingsTest {
     @Test
     fun aSwitchThatChangesTheGridIsToldApart() {
         assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 4), null))
-        assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 4, "start_top_padding" to 3), mapOf("columns" to 4)))
+        // The top padding moves the grid too; the bottom one and the rest don't.
+        assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 4, "start_top_padding" to 3), mapOf("columns" to 4)))
+        assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 4, "start_bottom_padding" to 3, "accent_arrows" to true), mapOf("columns" to 4)))
+        assertFalse(LayoutStartSettings.changesGrid(mapOf("start_top_padding" to 28), emptyMap()))
         assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 4), mapOf("columns" to 6)))
         assertTrue(LayoutStartSettings.changesGrid(emptyMap(), mapOf("start_left_padding" to 20)))
         // The grid as shown counts, not the stored values: a missing padding is its default, and

@@ -142,8 +142,9 @@ internal object LayoutStartSettings {
     }
 
     /**
-     * Whether a switch from [from] to [to] changes the tile grid's cells (the columns or the side
-     * paddings), so tiles can't glide from where they were. Null [to] keeps the live settings.
+     * Whether a switch from [from] to [to] changes where the tile grid is drawn (the columns, the
+     * side paddings or the top one), so start waits for the new settings before tiles move to it.
+     * Null [to] keeps the live settings.
      *
      * Compares the grid each would show, not the stored values: a missing key is its default, and
      * the automatic column count is [autoColumns] (what start shows for it now, see
@@ -155,7 +156,7 @@ internal object LayoutStartSettings {
         return grid(from, autoColumns) != grid(to, autoColumns)
     }
 
-    /** The columns and side paddings [values] give the grid; see [changesGrid]. */
+    /** The columns, side paddings and top padding [values] give the grid; see [changesGrid]. */
     private fun grid(values: Map<String, Any>, autoColumns: Int?): List<Int> {
         val stored = (values[keys.columns.name] as? Int)?.let(LauncherSettings::clampColumns) ?: LauncherSettings.AUTO_COLUMNS
         val columns = if (stored == LauncherSettings.AUTO_COLUMNS) autoColumns ?: stored else stored
@@ -164,6 +165,8 @@ internal object LayoutStartSettings {
             columns,
             side(keys.startLeftPadding, LauncherSettings.DEFAULT_START_LEFT_PADDING),
             side(keys.startRightPadding, LauncherSettings.DEFAULT_START_RIGHT_PADDING),
+            (values[keys.startTopPadding.name] as? Int)?.let(LauncherSettings::clampStartTopPadding)
+                ?: LauncherSettings.DEFAULT_START_TOP_PADDING,
         )
     }
 

@@ -753,18 +753,17 @@ fun StartScreen(
             // The new layout starts from its top, with nothing of the old one's edit mode or open folder.
             state.exitEdit()
             state.dismissOverlays()
-            if (!Turnstile.animationsEnabled(context.contentResolver)) {
-                state.scroll.scrollTo(0)
-                return@LaunchedEffect
+            // Whether to animate was decided when the switch was planned (SwitchMotion.update); asking
+            // again could disagree and leave a planned switch never played.
+            if (switchMotion.active) launch { state.scroll.animateScrollTo(0) } else state.scroll.scrollTo(0)
+            switchMotion.play(motion.duration(SWITCH_MILLIS)) {
+                if (switchMotion.waitsForGrid) {
+                    // The new layout's settings (columns, paddings) land just after its tiles: tiles stay
+                    // drawn where they were until they have, briefly at most, so they move to the final grid.
+                    val before = settingsWatch.beforeSwitch
+                    withTimeoutOrNull(SWITCH_SETTINGS_WAIT_MILLIS) { snapshotFlow { currentSettings }.first { it != before } }
+                }
             }
-            launch { state.scroll.animateScrollTo(0) }
-            if (switchMotion.waitsForGrid) {
-                // The new layout's settings (columns, paddings) land just after its tiles: tiles stay
-                // drawn where they were until they have, briefly at most, so they move to the final grid.
-                val before = settingsWatch.beforeSwitch
-                withTimeoutOrNull(SWITCH_SETTINGS_WAIT_MILLIS) { snapshotFlow { currentSettings }.first { it != before } }
-            }
-            switchMotion.play(motion.duration(SWITCH_MILLIS))
         }
 
         // A top-level tile and a folder child differ only in the drag callbacks and where they appear from.
@@ -841,7 +840,8 @@ fun StartScreen(
         ) {
             Spacer(Modifier.height(topInset))
 
-            if (loadedTiles != null && tiles.isEmpty()) {
+            // Not while a switch is drawn: it would push the grid down under the tiles fading out where they were.
+            if (loadedTiles != null && tiles.isEmpty() && !switchMotion.active) {
                 MetroText(
                     "your start screen is empty.\nswipe left and press and hold an app to pin it.",
                     MetroType.body,
