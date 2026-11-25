@@ -73,12 +73,13 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         description = "Start the app while the launcher is still animating, so it opens sooner",
     )
 
-    Section("tilt", anchor = "tilt")
+    Section("tilt")
     MetroToggle(
         "Tilt when pressed",
         settings.tiltEnabled,
         { scope.launch { repository.setTiltEnabled(it) } },
         description = "Tiles and list items tip toward your finger",
+        modifier = Modifier.settingAnchor("tilt"),
     )
     if (settings.tiltEnabled) {
         LabeledSlider(
@@ -105,11 +106,12 @@ internal fun AnimationsPage(settings: LauncherSettings, repository: SettingsRepo
         ) { repository.setFlipInterval(it) }
     }
 
-    Section("pages", anchor = "swing_pages")
+    Section("pages")
     MetroToggle(
         "Swing pages",
         settings.swingPages,
         { scope.launch { repository.setSwingPages(it) } },
         description = "Start and the app list lean as you swipe between them",
+        modifier = Modifier.settingAnchor("swing_pages"),
     )
 }

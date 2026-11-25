@@ -108,7 +108,7 @@ internal fun StartLayoutsSectionContent(
     }
     MetroText(
         if (sameGrid) {
-            "These settings belong to the layout “${set.activeLayout.name}”, except tiles per row and the paddings, which all layouts share."
+            "Tiles per row and padding are shared. The rest belongs to “${set.activeLayout.name}”."
         } else {
             "These settings belong to the layout “${set.activeLayout.name}”. Each layout keeps its own."
         },
