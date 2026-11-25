@@ -19,16 +19,6 @@ android {
         // Instrumented tests (src/androidTest): code that needs a real Android, such as the image
         // decoder, which Robolectric can't run. CI runs them on the smoke test's emulator.
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        manifestPlaceholders["appLabel"] = "@string/app_name"
-
-        // A preview build (-Ppreview) installs beside the real app instead of over it: its own
-        // package, name and version suffix, so trying it never touches the installed app's layouts.
-        // CI and normal builds don't set it.
-        if (providers.gradleProperty("preview").isPresent) {
-            applicationIdSuffix = ".preview"
-            versionNameSuffix = "-preview"
-            manifestPlaceholders["appLabel"] = "Metro preview"
-        }
     }
 
     signingConfigs {

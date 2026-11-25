@@ -50,7 +50,7 @@ A launcher is on screen all day: every change is weighed for battery and perform
 - Prefer no background work: refresh when Start is shown, cache results, never repeat the same
   request, keep blocking I/O off the main thread and put a time limit on anything a tap waits for.
 
-## Settings search, hints and previews
+## Settings search, hints and first-run defaults
 
 - Every setting is in `SettingsIndex` (`ui/settings/SettingsSearch.kt`) with the words people use for
   it, and marked on its page with `Section(..., anchor = ...)` or `Modifier.settingAnchor(...)`. A new
@@ -61,8 +61,6 @@ A launcher is on screen all day: every change is weighed for battery and perform
 - First-run defaults (`SettingsRepository.applyFirstRunDefaults`) are written only on a fresh install:
   three tiles per row on a phone and one grid shared by all layouts. A missing key keeps its old
   meaning (auto columns, separate grids), so updates and old backups never change under the user.
-- `-Ppreview` builds a side-by-side install (`.preview` package, "Metro preview") for trying a
-  branch on a phone without touching the installed app. Never publish one.
 
 ## Checks
 
