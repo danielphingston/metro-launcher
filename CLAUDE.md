@@ -58,6 +58,9 @@ A launcher is on screen all day: every change is weighed for battery and perform
 - The start screen hints (`CoachMark`, `ui/start/CoachMarks.kt`) are stored per install as bits by
   ordinal in `coach_marks` (never backed up): append new hints, never reorder or remove one. Only a
   finished first-run setup turns them on, so updating never shows them to existing users.
+- First-run defaults (`SettingsRepository.applyFirstRunDefaults`) are written only on a fresh install:
+  three tiles per row on a phone and one grid shared by all layouts. A missing key keeps its old
+  meaning (auto columns, separate grids), so updates and old backups never change under the user.
 - `-Ppreview` builds a side-by-side install (`.preview` package, "Metro preview") for trying a
   branch on a phone without touching the installed app. Never publish one.
 

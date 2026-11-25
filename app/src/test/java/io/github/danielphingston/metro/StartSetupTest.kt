@@ -101,7 +101,7 @@ class StartSetupTest {
     @Test
     fun hintsFollowDoneOnlyAndGoOnceSeen() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
-        val settings = SettingsRepository(context)
+        val settings = freshSettings()
         // Every install that didn't just finish setup: none.
         assertEquals(0, settings.coachMarks.first())
         // Skipped (or a restored backup): done, and no hints.
@@ -118,6 +118,47 @@ class StartSetupTest {
         // A wrongly typed value reads as none instead of crashing start.
         context.metroDataStore.edit { it[androidx.datastore.preferences.core.stringPreferencesKey("coach_marks")] = "x" }
         assertEquals(0, settings.coachMarks.first())
+    }
+
+    /** A repository over an empty store: the store outlives a test, so one test's writes can't leak into the next. */
+    private suspend fun freshSettings(): SettingsRepository {
+        val context = RuntimeEnvironment.getApplication()
+        context.metroDataStore.edit { it.clear() }
+        return SettingsRepository(context)
+    }
+
+    @Test
+    fun aFreshInstallSharesOneGridAndAPhoneShowsThreePerRow() = runBlocking {
+        val settings = freshSettings()
+        // Before the first run, and for every install or backup from before the option: separate grids.
+        assertFalse(settings.settings.first().sameGridAllLayouts)
+        assertEquals(LauncherSettings.FIRST_RUN_PHONE_COLUMNS, settings.applyFirstRunDefaults(large = false))
+        settings.settings.first().let {
+            assertTrue(it.sameGridAllLayouts)
+            assertEquals(LauncherSettings.FIRST_RUN_PHONE_COLUMNS, it.columns)
+        }
+    }
+
+    @Test
+    fun aTabletKeepsAutoColumnsAndStillSharesOneGrid() = runBlocking {
+        val settings = freshSettings()
+        assertNull(settings.applyFirstRunDefaults(large = true))
+        settings.settings.first().let {
+            assertTrue(it.sameGridAllLayouts)
+            assertEquals(LauncherSettings.AUTO_COLUMNS, it.columns)
+        }
+    }
+
+    @Test
+    fun firstRunDefaultsNeverOverwriteWhatIsStored() = runBlocking {
+        val settings = freshSettings()
+        settings.setColumns(4)
+        settings.setSameGridAllLayouts(false)
+        assertNull(settings.applyFirstRunDefaults(large = false))
+        settings.settings.first().let {
+            assertFalse(it.sameGridAllLayouts)
+            assertEquals(4, it.columns)
+        }
     }
 
     @Test

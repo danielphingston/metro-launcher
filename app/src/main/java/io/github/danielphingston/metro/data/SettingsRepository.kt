@@ -104,7 +104,9 @@ data class LauncherSettings(
     val photoMovesWithTiles: Boolean = false,
     /**
      * Every start layout uses the live tiles per row and paddings instead of its own: a switch keeps
-     * them, and each layout's own values wait in its entry (see [LayoutStartSettings.GRID]).
+     * them, and each layout's own values wait in its entry (see [LayoutStartSettings.GRID]). Off when
+     * not stored (installs and backups from before it); a fresh install stores it on (see
+     * [SettingsRepository.applyFirstRunDefaults]).
      */
     val sameGridAllLayouts: Boolean = false,
     /** Where the search overlay's "web" row searches. */
@@ -425,6 +427,25 @@ class SettingsRepository(private val context: Context) {
     suspend fun setTheme(mode: ThemeMode) = context.metroDataStore.edit { it[Keys.theme] = mode.name }
     suspend fun setAccent(color: Int) = context.metroDataStore.edit { it[Keys.accent] = LauncherSettings.opaque(color) }
     suspend fun setColumns(columns: Int) = context.metroDataStore.edit { it[Keys.columns] = LauncherSettings.clampColumns(columns) }
+
+    /**
+     * What a fresh install starts with, in one write; LauncherViewModel calls it on a first run only.
+     * A phone gets three medium tiles per row ([LauncherSettings.FIRST_RUN_PHONE_COLUMNS]) unless a
+     * count is stored already, and every start layout shares one grid ([LauncherSettings.sameGridAllLayouts])
+     * unless that is stored already. A missing key still reads as before (auto columns, separate
+     * grids), so existing installs and restored backups are unchanged. Returns the columns it set, or null.
+     */
+    suspend fun applyFirstRunDefaults(large: Boolean): Int? {
+        var columnsSet: Int? = null
+        context.metroDataStore.edit {
+            if (!large && (it[Keys.columns] ?: LauncherSettings.AUTO_COLUMNS) == LauncherSettings.AUTO_COLUMNS) {
+                it[Keys.columns] = LauncherSettings.FIRST_RUN_PHONE_COLUMNS
+                columnsSet = LauncherSettings.FIRST_RUN_PHONE_COLUMNS
+            }
+            if (it[Keys.sameGridAllLayouts] == null) it[Keys.sameGridAllLayouts] = true
+        }
+        return columnsSet
+    }
     suspend fun setMonochromeIcons(enabled: Boolean) = context.metroDataStore.edit { it[Keys.monochrome] = enabled }
     suspend fun setAppListPlainIcons(enabled: Boolean) =
         context.metroDataStore.edit { it[Keys.appListPlainIcons] = enabled }
