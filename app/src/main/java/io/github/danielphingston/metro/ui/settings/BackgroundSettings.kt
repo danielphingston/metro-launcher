@@ -61,6 +61,12 @@ fun BackgroundSettingsSection(settings: LauncherSettings, repository: SettingsRe
     BackgroundChoice(settings, repository)
 
     Spacer(Modifier.height(16.dp))
+    TileTransparencySlider(settings, repository)
+}
+
+/** How much of the background shows through the tiles: the settings page and the first-run setup. */
+@Composable
+fun TileTransparencySlider(settings: LauncherSettings, repository: SettingsRepository) {
     LabeledSlider(
         "Tile transparency",
         (settings.transparencyFraction * 100).roundToInt(),

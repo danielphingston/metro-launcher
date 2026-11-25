@@ -40,6 +40,7 @@ import io.github.danielphingston.metro.ui.components.MetroChoice
 import io.github.danielphingston.metro.ui.components.MetroText
 import io.github.danielphingston.metro.ui.settings.AccentFromBackgroundToggle
 import io.github.danielphingston.metro.ui.settings.BackgroundChoice
+import io.github.danielphingston.metro.ui.settings.TileTransparencySlider
 import io.github.danielphingston.metro.ui.settings.AccentGrid
 import io.github.danielphingston.metro.ui.settings.NOTIFICATION_DISCLOSURE
 import io.github.danielphingston.metro.ui.settings.RestoreFromBackupButton
@@ -206,6 +207,8 @@ private fun BackgroundStep(settings: LauncherSettings) {
     Spacer(Modifier.height(16.dp))
     BackgroundChoice(settings, repository)
     AccentFromBackgroundToggle(settings, repository)
+    Spacer(Modifier.height(16.dp))
+    TileTransparencySlider(settings, repository)
 }
 
 @Composable
