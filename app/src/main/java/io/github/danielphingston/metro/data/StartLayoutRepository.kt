@@ -73,6 +73,14 @@ class StartLayoutRepository(
     private val _switches = MutableSharedFlow<Switched>(extraBufferCapacity = 1)
     val switches: SharedFlow<Switched> = _switches.asSharedFlow()
 
+    /**
+     * The columns start shows for the automatic setting at its current width and paddings, as the
+     * start screen last reported it; null before it has. Lets a switch tell "auto" from a chosen
+     * count that looks the same (see [LayoutStartSettings.changesGrid]).
+     */
+    @Volatile
+    var autoColumns: Int? = null
+
     @Volatile
     private var held: Pair<LayoutSet, List<List<TileSpec>>>? = null
 
@@ -207,7 +215,7 @@ class StartLayoutRepository(
         val from = tiles.tiles.value.orEmpty()
         // Tiles glide to their new places only when the grid's cells stay the same size.
         val before = LayoutStartSettings.read(context.metroDataStore.data.first())
-        val glide = !LayoutStartSettings.changesGrid(before, target.settings)
+        val glide = !LayoutStartSettings.changesGrid(before, target.settings, autoColumns)
         var next: LayoutSet? = null
         val swapped = tiles.swap(target.tiles, beforePublish = { keys.switched(from, it, glide) }) { prefs ->
             next = LayoutOps.switchStore(prefs, set, live, id)

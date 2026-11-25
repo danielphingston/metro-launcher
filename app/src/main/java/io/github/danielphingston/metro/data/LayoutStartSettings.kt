@@ -117,11 +117,27 @@ internal object LayoutStartSettings {
     /**
      * Whether a switch from [from] to [to] changes the tile grid's cells (the columns or the side
      * paddings), so tiles can't glide from where they were. Null [to] keeps the live settings.
+     *
+     * Compares the grid each would show, not the stored values: a missing key is its default, and
+     * the automatic column count is [autoColumns] (what start shows for it now, see
+     * [StartLayoutRepository.autoColumns]). "Auto" showing six columns and a chosen six are the
+     * same grid; comparing the stored values made every switch between them fade instead of glide.
      */
-    fun changesGrid(from: Map<String, Any>, to: Map<String, Any>?): Boolean {
+    fun changesGrid(from: Map<String, Any>, to: Map<String, Any>?, autoColumns: Int? = null): Boolean {
         to ?: return false
-        val grid = listOf(keys.columns, keys.startLeftPadding, keys.startRightPadding).map { it.name }
-        return grid.any { from[it] != to[it] }
+        return grid(from, autoColumns) != grid(to, autoColumns)
+    }
+
+    /** The columns and side paddings [values] give the grid; see [changesGrid]. */
+    private fun grid(values: Map<String, Any>, autoColumns: Int?): List<Int> {
+        val stored = (values[keys.columns.name] as? Int)?.let(LauncherSettings::clampColumns) ?: LauncherSettings.AUTO_COLUMNS
+        val columns = if (stored == LauncherSettings.AUTO_COLUMNS) autoColumns ?: stored else stored
+        fun side(key: Preferences.Key<Int>, default: Int) = (values[key.name] as? Int)?.let(LauncherSettings::clampStartSidePadding) ?: default
+        return listOf(
+            columns,
+            side(keys.startLeftPadding, LauncherSettings.DEFAULT_START_LEFT_PADDING),
+            side(keys.startRightPadding, LauncherSettings.DEFAULT_START_RIGHT_PADDING),
+        )
     }
 
     /**

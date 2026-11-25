@@ -571,14 +571,13 @@ fun StartScreen(
         // With the automatic setting the width decides the columns, so measure it with the paddings
         // for the fewest, then fit them again for the count that results.
         val narrowPadding = fitPadding(LauncherSettings.MIN_COLUMNS)
-        val columns = StartColumns.resolve(
-            settings.columns,
-            large = isLarge,
-            widthDp = (maxWidth - sides).value - narrowPadding.left - narrowPadding.right + TileGap.value,
-        )
+        val gridWidthDp = (maxWidth - sides).value - narrowPadding.left - narrowPadding.right + TileGap.value
+        val columns = StartColumns.resolve(settings.columns, large = isLarge, widthDp = gridWidthDp)
+        // What "auto" would show here, so a layout switch can tell it from the same count chosen.
+        val autoColumns = StartColumns.resolve(LauncherSettings.AUTO_COLUMNS, large = isLarge, widthDp = gridWidthDp)
         val padding = fitPadding(columns)
         // Edits settle the stored layout for the columns being shown.
-        LaunchedEffect(columns) { viewModel.setColumns(columns) }
+        LaunchedEffect(columns, autoColumns) { viewModel.setColumns(columns, autoColumns) }
         val leftPadding = padding.left.dp
         val rightPadding = padding.right.dp
         // Stored positions settled for this column count; with a drag in progress, as if it were dropped now.

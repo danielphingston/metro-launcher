@@ -198,6 +198,15 @@ class LayoutStartSettingsTest {
         assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 4, "start_top_padding" to 3), mapOf("columns" to 4)))
         assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 4), mapOf("columns" to 6)))
         assertTrue(LayoutStartSettings.changesGrid(emptyMap(), mapOf("start_left_padding" to 20)))
+        // The grid as shown counts, not the stored values: a missing padding is its default, and
+        // "auto" is the count start shows for it.
+        assertFalse(LayoutStartSettings.changesGrid(emptyMap(), mapOf("start_left_padding" to 8, "start_right_padding" to 8)))
+        assertFalse(LayoutStartSettings.changesGrid(mapOf("columns" to 0), mapOf("columns" to 6), autoColumns = 6))
+        assertFalse(LayoutStartSettings.changesGrid(emptyMap(), mapOf("columns" to 4), autoColumns = 4))
+        assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 0), mapOf("columns" to 4), autoColumns = 6))
+        // Before start has reported its automatic count, "auto" only matches "auto".
+        assertTrue(LayoutStartSettings.changesGrid(mapOf("columns" to 0), mapOf("columns" to 6)))
+        assertFalse(LayoutStartSettings.changesGrid(emptyMap(), mapOf("columns" to 0)))
         // Without a glide no tile keeps its key, so none moves from where the old grid had it.
         val keys = TileKeys()
         keys.switched(listOf(app(1, "phone")), listOf(app(1, "phone")), glide = false)

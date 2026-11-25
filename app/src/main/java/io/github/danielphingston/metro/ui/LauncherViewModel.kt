@@ -365,8 +365,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     /** Drops tile [id] with its top-left corner on the grid cell [x], [y]. */
     fun moveTo(id: Long, x: Int, y: Int) = undoable(StartEdit.MOVE) { metro.tiles.moveTo(id, x, y) }
 
-    /** The start screen now shows [count] columns; see [io.github.danielphingston.metro.data.TileRepository.setColumns]. */
-    fun setColumns(count: Int) = metro.tiles.setColumns(count)
+    /**
+     * The start screen now shows [count] columns, and would show [autoCount] with the automatic
+     * setting; see [io.github.danielphingston.metro.data.TileRepository.setColumns] and
+     * [io.github.danielphingston.metro.data.StartLayoutRepository.autoColumns].
+     */
+    fun setColumns(count: Int, autoCount: Int) {
+        metro.tiles.setColumns(count)
+        metro.layouts.autoColumns = autoCount
+    }
 
     /** Groups tiles [ids] with [anchorId] into a new folder or the anchor folder; returns the folder's id, or null if nothing was grouped. */
     fun groupIntoFolder(anchorId: Long, ids: List<Long>): Long? {
