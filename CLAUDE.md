@@ -89,6 +89,12 @@ export ANDROID_HOME=/opt/android-sdk
 - Roborazzi screenshot tests compare against goldens in `app/src/test/screenshots`. Do not re-record
   them unless the visual change is intended; a changed settings page fails its golden on purpose.
 - Do not run `assembleDebug` just to check; unit tests and lint are the gate.
+- Compose previews of every main screen live in `app/src/debug/.../previews/ScreenPreviews.kt` (debug
+  only, not in the release APK). `tools/preview-check.sh build/previews -- --init-script tools/google-mirror.init.gradle`
+  renders them all with Google's Android CLI (`android`, always run with `--no-metrics`) in about 20 s
+  and fails if one doesn't render; CI runs it in the `previews` job. It has no golden comparison, so it
+  never replaces a Roborazzi test. Settings pages that read the app object, the role or accessibility
+  managers or installed apps while drawing can't be previewed; Roborazzi covers them.
 
 ## Trying the app on an emulator (cloud sessions)
 
