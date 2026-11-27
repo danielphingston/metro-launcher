@@ -86,7 +86,7 @@ internal object ApiImport {
         }
         val url = when (val v = obj.opt("url")) {
             null -> ""
-            is String -> if (v.isBlank()) "" else ApiStore.address(v.trim()) ?: "".also { errors += "url: must be an https address: skipped, the tile keeps its own" }
+            is String -> if (v.isBlank()) "" else ApiAddress.tileAddress(v.trim()) ?: "".also { errors += "url: ${(ApiAddress.tileProblem(v) ?: "must be an https address").removePrefix("the tile's address ").removePrefix("the tile's address: ")}: skipped, the tile keeps its own" }
             else -> "".also { errors += "url: must be text: skipped, the tile keeps its own" }
         }
         val headers = headerNames(obj.opt("headers"), errors)
@@ -329,7 +329,7 @@ internal object ApiImport {
 The tile setup is one JSON object:
 {
   "name": "short name shown on the tile",
-  "url": "https://the.api/address (the API that answers with JSON)",
+  "url": "https://the.api/address (the API that answers with JSON; can hold formulas after the site, like https://the.api/items/{random(1, 100)})",
   "headers": ["X-Api-Key"],
   "tile": {
     "title": "{name}",
@@ -359,6 +359,9 @@ Rules:
 ${'$'}FUNCTION_LIST
   Times can be ISO 8601 text or seconds or milliseconds since 1970.
   Units for convert: temperature c f k; length m km cm mm mi ft in yd; mass kg g lb oz t; speed m/s km/h mph kn; volume l ml gal; data b kb mb gb tb kib mib gib; pressure hpa mbar psi inhg.
+- The tile's own "url" can hold formulas after its site, worked out afresh on every refresh. They can use functions and the clock but no fields, since there's no answer yet when it's fetched, and the site itself stays fixed (formulas go after the first /).
+  A new Pokémon every refresh: "url": "https://pokeapi.co/api/v2/pokemon/{random(1, 1025)}" (1025 is the National Dex count; higher ids are alternate forms).
+  A Pokémon of the day, the same one all day: "url": "https://pokeapi.co/api/v2/pokemon/{dayOfYear() * 7 % 1025 + 1}".
 - "expanded" is the view a tap on the tile opens. Without its own "url" it reads the tile's answer.
 - The expanded view can fetch other data: its "url" can take a link from the tile's answer, either a whole field ("{species.url}") or fields inside an address ("https://the.api/items/{id}"). It is worked out again each time the tile's answer changes, and the expanded view's fields then read that second answer, not the tile's.
   Example: the tile reads https://pokeapi.co/api/v2/pokemon/pikachu, whose answer has species.url; "expanded": {"url": "{species.url}", "title": "{name}", "line1": "colour {color.name}"} shows the species data.
@@ -403,6 +406,8 @@ ${'$'}FUNCTION_LIST
         "time" to "a time's clock time; optional time zone like 'Europe/London'",
         "date" to "a time's date; optional pattern like 'EEE d MMM' or 'd/M/yyyy' and time zone",
         "datetime" to "reads text as a time, like datetime(day + 'T' + hour)",
+        "random" to "a whole number from min to max, both included; picked again on every refresh",
+        "dayOfYear" to "today's day of the year, 1 to 366, in the phone's time zone (or of a time given to it); changes at midnight",
         "if" to "the second value when the test is true, else the third (or nothing)",
         "default" to "the second value when the first is missing or empty",
         "number" to "text read as a number",

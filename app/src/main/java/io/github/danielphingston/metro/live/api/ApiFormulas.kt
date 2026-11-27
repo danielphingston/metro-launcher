@@ -41,6 +41,8 @@ data class FormulaContext(
     val zone: ZoneId = ZoneId.systemDefault(),
     val locale: Locale = Locale.getDefault(),
     val is24Hour: Boolean = true,
+    /** What random() draws from: the moment of the refresh it belongs to, so a redraw keeps the same pick. Null: [now]. */
+    val seed: Long? = null,
 )
 
 /**
@@ -101,13 +103,17 @@ object BuiltInFormulas : ApiFormulas {
         "time" to "time(race.start)",
         "date" to "date(race.start, 'EEE d MMM')",
         "datetime" to "datetime(date + 'T' + time)",
+        "random" to "random(1, 1025)",
+        "dayOfYear" to "dayOfYear()",
         "if" to "if(live, 'live', 'next')",
         "default" to "default(name, 'none')",
         "number" to "number(text)",
         "text" to "text(value)",
     )
 
-    private val NAMES = FUNCTIONS.map { it.first }.toSet()
+    /** Function names are read in any case: dayOfYear, dayofyear. */
+    private val NAMES = FUNCTIONS.map { it.first.lowercase(Locale.ROOT) }.toSet()
+    private val SHOWN = FUNCTIONS.associate { it.first.lowercase(Locale.ROOT) to it.first }
 
     override fun evaluate(template: String, root: Any?, context: FormulaContext, row: Any?): Evaluated {
         if (template.length > MAX_TEMPLATE) return Evaluated("", error = "a template holds up to $MAX_TEMPLATE characters")
@@ -396,6 +402,8 @@ object BuiltInFormulas : ApiFormulas {
     private class Run(val root: Any?, val row: Any?, val context: FormulaContext) {
         var steps = 0
         var changesAt: Long? = null
+        /** random() calls so far: each draws its own number from the same seed. */
+        var draws = 0L
 
         /** When set, paths that find nothing are written here ([missingPaths]); a ?? left side is skipped. */
         var missing: MutableSet<String>? = null
@@ -491,6 +499,7 @@ object BuiltInFormulas : ApiFormulas {
         }
 
         private fun call(name: String, args: List<Expr>, depth: Int): Any? {
+            val label = SHOWN[name] ?: name
             // if() works out only the side it picks.
             if (name == "if") {
                 if (args.size !in 2..3) throw FormulaException("if needs a test, a value, and optionally another")
@@ -499,16 +508,16 @@ object BuiltInFormulas : ApiFormulas {
             val v = args.map { eval(it, depth + 1) }
             fun arg(i: Int): Any? = v.getOrNull(i)
             fun n(i: Int, default: Double? = null): Double =
-                num(arg(i)) ?: default ?: throw FormulaException("$name needs a number" + if (i > 0) " as value ${i + 1}" else "")
+                num(arg(i)) ?: default ?: throw FormulaException("$label needs a number" + if (i > 0) " as value ${i + 1}" else "")
             fun s(i: Int): String = text(arg(i), context)
-            fun list(i: Int): List<Any?> = asList(arg(i)) ?: throw FormulaException("$name needs a list")
+            fun list(i: Int): List<Any?> = asList(arg(i)) ?: throw FormulaException("$label needs a list")
             fun zone(i: Int): ZoneId = if (arg(i) == null) context.zone else try {
                 ZoneId.of(s(i))
             } catch (e: java.time.DateTimeException) {
                 throw FormulaException("'${s(i)}' isn't a time zone, like 'Europe/London'")
             }
             fun need(range: IntRange) {
-                if (v.size !in range) throw FormulaException("$name takes ${if (range.first == range.last) "${range.first}" else "${range.first} to ${range.last}"} values")
+                if (v.size !in range) throw FormulaException("$label takes ${if (range.first == range.last) "${range.first}" else "${range.first} to ${range.last}"} values")
             }
             return when (name) {
                 "upper" -> { need(1..1); s(0).uppercase(context.locale) }
@@ -551,6 +560,25 @@ object BuiltInFormulas : ApiFormulas {
                 "time" -> { need(1..2); clock(time(arg(0)), zone(1)) }
                 "date" -> { need(1..3); date(time(arg(0)), arg(1)?.let { s(1) }, zone(2)) }
                 "datetime" -> { need(1..1); time(arg(0)).toDouble() }
+                "random" -> {
+                    need(2..2)
+                    val lo = Math.ceil(minOf(n(0), n(1)))
+                    val hi = Math.floor(maxOf(n(0), n(1)))
+                    if (hi < lo) throw FormulaException("random needs a whole number between its two values")
+                    if (hi - lo > 1e12) throw FormulaException("random's range is too large")
+                    val seed = (context.seed ?: context.now) xor (draws++ * -7046029254386353131L)
+                    lo + kotlin.random.Random(seed).nextLong((hi - lo).toLong() + 1)
+                }
+                "dayofyear" -> {
+                    need(0..1)
+                    if (arg(0) != null) {
+                        Instant.ofEpochMilli(time(arg(0))).atZone(context.zone).dayOfYear.toDouble()
+                    } else {
+                        val today = Instant.ofEpochMilli(context.now).atZone(context.zone)
+                        changeAt(today.toLocalDate().plusDays(1).atStartOfDay(context.zone).toInstant().toEpochMilli())
+                        today.dayOfYear.toDouble()
+                    }
+                }
                 "default" -> { need(2..2); if (isEmpty(arg(0))) arg(1) else arg(0) }
                 "number" -> { need(1..1); num(arg(0)) }
                 "text" -> { need(1..1); s(0) }

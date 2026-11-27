@@ -106,7 +106,7 @@ internal object ApiTiles {
     fun metered(context: Context): Boolean =
         runCatching { (context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).isActiveNetworkMetered }.getOrDefault(true)
 
-    fun formulaContext(context: Context, now: Long) = FormulaContext(now, is24Hour = DateFormat.is24HourFormat(context))
+    fun formulaContext(context: Context, now: Long, seed: Long? = null) = FormulaContext(now, is24Hour = DateFormat.is24HourFormat(context), seed = seed)
 
     /** Opens an https link from the API in the browser; anything else is ignored. */
     fun open(context: Context, link: String?) {
@@ -220,7 +220,7 @@ internal fun ApiFace(
     val white = Metro.colors.onAccent
     val root = cached?.root
     val rendered = remember(root, view, now, size) {
-        if (cached?.hasData == true) ApiRender.render(view, root, ApiTiles.formulaContext(context, now), ApiTiles.rows(size)) else ApiRendered()
+        if (cached?.hasData == true) ApiRender.render(view, root, ApiTiles.formulaContext(context, now, cached.fetchedAt), ApiTiles.rows(size)) else ApiRendered()
     }
     LaunchedEffect(rendered.changesAt) { onChangesAt(rendered.changesAt) }
     Box(Modifier.fillMaxSize().tileSurface()) {
@@ -503,7 +503,7 @@ internal fun ApiDetailBody(
     val context = LocalContext.current
     val colors = Metro.colors
     val rendered = remember(cached?.root, api, now, maxRows) {
-        if (cached?.hasData == true) ApiRender.render(api.detail, cached.root, ApiTiles.formulaContext(context, now), maxRows, fallback = api.tile) else ApiRendered()
+        if (cached?.hasData == true) ApiRender.render(api.detail, cached.root, ApiTiles.formulaContext(context, now, cached.fetchedAt), maxRows, fallback = api.tile) else ApiRendered()
     }
     LaunchedEffect(rendered.changesAt) { onChangesAt(rendered.changesAt) }
     Column(Modifier.fillMaxWidth()) {

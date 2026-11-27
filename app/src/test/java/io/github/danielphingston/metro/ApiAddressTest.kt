@@ -22,11 +22,13 @@ import io.github.danielphingston.metro.live.api.ApiRequest
 import io.github.danielphingston.metro.live.api.ApiResponse
 import io.github.danielphingston.metro.live.api.ApiSecrets
 import io.github.danielphingston.metro.live.api.ApiStore
+import io.github.danielphingston.metro.live.api.BuiltInFormulas
 import io.github.danielphingston.metro.live.api.FormulaContext
 import io.github.danielphingston.metro.live.api.InMemoryApiSecrets
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.tiles.ApiDetail
+import io.github.danielphingston.metro.ui.tiles.ApiImport
 import io.github.danielphingston.metro.ui.tiles.withAddressField
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -112,6 +114,86 @@ class ApiAddressTest {
         bad.getJSONObject("detail").put("url", "ftp://x/{id}")
         val read = TileJson.decode(JSONArray().put(bad)).singleOrNull()?.content as? TileContent.Api
         assertTrue(read == null || read.detail.url.isEmpty())
+    }
+
+    @Test
+    fun randomAndDayOfYearWorkAndRandomStaysInItsRange() {
+        // ctx.now is 2026-11-26 or so in UTC: dayOfYear matches java.time, and the text changes at the next midnight.
+        val today = java.time.Instant.ofEpochMilli(ctx.now).atZone(ZoneOffset.UTC)
+        val day = BuiltInFormulas.evaluate("{dayOfYear()}", null, ctx)
+        assertEquals(today.dayOfYear.toString(), day.text)
+        assertEquals(today.toLocalDate().plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(), day.changesAt)
+        assertEquals("1", BuiltInFormulas.evaluate("{dayOfYear('2026-01-01T12:00:00Z')}", null, ctx).text)
+        assertEquals((today.dayOfYear * 7 % 1025 + 1).toString(), BuiltInFormulas.evaluate("{dayOfYear() * 7 % 1025 + 1}", null, ctx).text)
+        val picks = (0 until 300).map { i -> BuiltInFormulas.evaluate("{random(1, 1025)}", null, ctx.copy(now = ctx.now + i)).text.toInt() }
+        assertTrue(picks.all { it in 1..1025 })
+        assertTrue("random picks differ between refreshes", picks.toSet().size > 200)
+        // The same refresh (seed) gives the same pick, so a redraw doesn't change it; two calls draw separately.
+        val seeded = ctx.copy(seed = 42L)
+        val a = BuiltInFormulas.evaluate("{random(1, 1000000)} {random(1, 1000000)}", null, seeded).text
+        assertEquals(a, BuiltInFormulas.evaluate("{random(1, 1000000)} {random(1, 1000000)}", null, seeded.copy(now = ctx.now + 5_000)).text)
+        assertTrue(a, a.split(' ').let { it[0] != it[1] })
+        assertEquals("7", BuiltInFormulas.evaluate("{random(7, 7)}", null, ctx).text)
+        for (bad in listOf("{random(1)}", "{random(1.2, 1.8)}", "{random('a', 2)}", "{random(0, 1e15)}", "{dayOfYear(1, 2)}", "{dayOfYear('x')}")) {
+            assertTrue(bad, BuiltInFormulas.evaluate(bad, null, ctx).error != null)
+        }
+    }
+
+    @Test
+    fun theTilesOwnAddressTakesFunctionsAfterAFixedSite() {
+        assertEquals("https://pokeapi.co/api/v2/pokemon/{random(1, 1025)}", ApiAddress.tileAddress("pokeapi.co/api/v2/pokemon/{random(1, 1025)}"))
+        assertEquals("https://pokeapi.co/api/v2/pokemon/{dayOfYear() * 7 % 1025 + 1}", ApiAddress.tileAddress("https://pokeapi.co/api/v2/pokemon/{dayOfYear() * 7 % 1025 + 1}"))
+        assertEquals("https://a.example.com/x", ApiAddress.tileAddress("a.example.com/x"))
+        // No answer yet: a field can't be read. The site can't come from a formula either.
+        assertNull(ApiAddress.tileAddress("https://a.example.com/{id}"))
+        assertNull(ApiAddress.tileAddress("{random(1, 2)}"))
+        assertNull(ApiAddress.tileAddress("https://{random(1, 2)}.example.com/x"))
+        assertNull(ApiAddress.tileAddress("https://a.example.com/{random(1,}"))
+        assertTrue(ApiAddress.tileProblem("https://a.example.com/{id}")!!.contains("not fields"))
+        assertTrue(ApiAddress.tileProblem("https://{random(1, 2)}.example.com/x")!!.contains("start with its site"))
+        assertNull(ApiAddress.tileProblem("https://a.example.com/{random(1, 2)}"))
+        val url = ApiAddress.fetchAddress("https://pokeapi.co/api/v2/pokemon/{random(1, 1025)}", ctx.now)!!
+        assertTrue(url, Regex("https://pokeapi\\.co/api/v2/pokemon/\\d+").matches(url))
+        val day = java.time.Instant.ofEpochMilli(ctx.now).atZone(java.time.ZoneId.systemDefault()).dayOfYear
+        assertEquals("https://pokeapi.co/api/v2/pokemon/${day * 7 % 1025 + 1}", ApiAddress.fetchAddress("https://pokeapi.co/api/v2/pokemon/{dayOfYear() * 7 % 1025 + 1}", ctx.now))
+        // Headers still go to the tile's site, whatever the formula picked.
+        val key = mapOf("X-Api-Key" to "secret")
+        assertEquals(key, ApiAddress.headersFor("https://a.example.com/{n}", "https://a.example.com/7", "https://a.example.com/{random(1, 9)}", key))
+    }
+
+    @Test
+    fun eachRefreshFetchesAFreshRandomAddressUnderOneCachedCopy() = runBlocking {
+        val fetched = Collections.synchronizedList(ArrayList<String>())
+        val conditional = Collections.synchronizedList(ArrayList<Boolean>())
+        ApiStore.http = ApiHttp { url, headers, _ ->
+            fetched += url
+            conditional += "If-None-Match" in headers
+            ApiResponse("""{"id": ${url.substringAfterLast('/')}}""".toByteArray(), etag = "\"e\"")
+        }
+        val app = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val request = ApiRequest("https://pokeapi.co/api/v2/pokemon/{random(1, 1000000)}", emptyMap())
+        repeat(3) {
+            ApiStore.refresh(app, request, maxAgeMs = 0, force = true)
+            Thread.sleep(3)
+        }
+        assertEquals(3, fetched.size)
+        assertTrue(fetched.all { Regex("https://pokeapi\\.co/api/v2/pokemon/\\d+").matches(it) })
+        assertTrue("a new number each refresh: $fetched", fetched.toSet().size > 1)
+        // A copy from another address says nothing about this one: no If-None-Match.
+        assertTrue(conditional.none { it })
+        assertEquals(fetched.last().substringAfterLast('/'), (ApiStore.data.value[request.key]!!.root as org.json.JSONObject).get("id").toString())
+    }
+
+    @Test
+    fun anAddressWithFunctionsSurvivesSavingAndTheImport() {
+        val api = TileContent.Api("poke", ApiView("https://pokeapi.co/api/v2/pokemon/{random(1, 1025)}", mapOf(ApiSlot.TITLE to "{name}")), ApiView("", emptyMap()))
+        val json = TileJson.encode(listOf(TileSpec(1, TileSize.WIDE, api)))
+        assertEquals(api, TileJson.decode(JSONArray(json.toString())).single().content)
+        val read = ApiImport.parse("""{"url": "https://pokeapi.co/api/v2/pokemon/{dayOfYear() * 7 % 1025 + 1}", "tile": {"title": "{name}"}}""")
+        assertEquals("https://pokeapi.co/api/v2/pokemon/{dayOfYear() * 7 % 1025 + 1}", (read as ApiImport.Parsed.Ok).draft.url)
+        val withField = ApiImport.parse("""{"url": "https://pokeapi.co/api/v2/pokemon/{id}", "tile": {"title": "{name}"}}""") as ApiImport.Parsed.Ok
+        assertEquals("", withField.draft.url)
+        assertTrue(withField.notes.toString(), withField.notes.any { it.startsWith("url: can use functions") })
     }
 
     @Test

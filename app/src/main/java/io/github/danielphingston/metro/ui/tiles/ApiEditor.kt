@@ -146,7 +146,7 @@ internal fun apiTileProblem(
     detail: Map<ApiTarget, String>,
     headers: List<Pair<String, String>>,
 ): String? {
-    if (ApiStore.address(url) == null) return "the tile's address must be an https address"
+    ApiAddress.tileProblem(url)?.let { return it }
     if (detailUrl.isNotBlank() && ApiAddress.normalize(detailUrl) == null) {
         return if (ApiAddress.usesFields(detailUrl)) {
             BuiltInFormulas.problem(detailUrl)?.let { "the expanded view's address: $it" } ?: "the expanded view's address must make an https address"
@@ -251,14 +251,14 @@ internal fun ApiEditor(
                 }
             }
         } else {
-            ApiStore.address(if (which == ApiEditorTab.EXPANDED && separateDetail) detailUrl else url)
+            if (which == ApiEditorTab.EXPANDED && separateDetail) ApiStore.address(detailUrl) else ApiAddress.tileAddress(url)
         }
         if (address == null) {
-            status = FeedEditorStatus.Error(ApiStore.address(url)?.let { "the expanded view's address must be https" } ?: "enter an https address that answers with JSON")
+            status = FeedEditorStatus.Error(ApiAddress.tileAddress(url)?.let { "the expanded view's address must be https" } ?: ApiAddress.tileProblem(url)?.takeIf { ApiAddress.usesFields(url) } ?: "enter an https address that answers with JSON")
             return
         }
         if (which == ApiEditorTab.TILE) url = address else if (separateDetail && !fromTile) detailUrl = address
-        val sent = if (fromTile) ApiAddress.headersFor(detailUrl, address, ApiStore.address(url).orEmpty(), headerMap()) else headerMap()
+        val sent = if (fromTile) ApiAddress.headersFor(detailUrl, address, ApiAddress.tileAddress(url).orEmpty(), headerMap()) else headerMap()
         job = scope.launch {
             status = FeedEditorStatus.Checking("fetching ${runCatching { URL(address).host }.getOrDefault(address)}…")
             when (val result = ApiStore.check(context, ApiRequest(address, sent))) {
@@ -296,8 +296,8 @@ internal fun ApiEditor(
             building = BuildState.Working("checking it against the API's answer…")
             val draft = parsed.draft
             val notes = ArrayList(parsed.notes)
-            val address = ApiStore.address(draft.url.ifEmpty { url })
-            var root: Any? = if (address != null && address == ApiStore.address(url)) tileRoot else null
+            val address = ApiAddress.tileAddress(draft.url.ifEmpty { url })
+            var root: Any? = if (address != null && address == ApiAddress.tileAddress(url)) tileRoot else null
             if (address == null) {
                 notes += "no https address to fetch: enter one above, then import again to check it"
             } else if (root == null) {
@@ -385,7 +385,7 @@ internal fun ApiEditor(
     }
 
     fun copyPrompt() {
-        val text = ApiImport.prompt(ApiStore.address(url).orEmpty(), prompt, tileRoot)
+        val text = ApiImport.prompt(ApiAddress.tileAddress(url).orEmpty(), prompt, tileRoot)
         val copied = runCatching {
             context.getSystemService(ClipboardManager::class.java)!!.setPrimaryClip(ClipData.newPlainText("tile prompt", text))
         }.isSuccess
@@ -424,7 +424,7 @@ internal fun ApiEditor(
         val problem = apiTileProblem(url, if (separateDetail) detailUrl else "", tileTemplates, detailTemplates, pairs)
         saveProblem = problem
         if (problem != null) return
-        val tileUrl = ApiStore.address(url)!!
+        val tileUrl = ApiAddress.tileAddress(url)!!
         val content = TileContent.Api(
             name = name.trim().ifEmpty { runCatching { URL(tileUrl).host }.getOrDefault("api") }.take(ApiTileJson.MAX_NAME),
             tile = viewOf(tileUrl, tileTemplates),
@@ -473,7 +473,7 @@ internal fun ApiEditor(
                 EditorField(url, { url = it; status = FeedEditorStatus.None }, "api.example.com/data.json", Modifier.weight(1f), keyboard = KeyboardType.Uri)
                 MetroButton("fetch", { fetch(ApiEditorTab.TILE) })
             }
-            Hint("https only, answering with JSON (up to 1 MB). Fetch it to pick what to show.")
+            Hint("https only, answering with JSON (up to 1 MB). Formulas can follow the site, like {random(1, 1025)} or {dayOfYear()}, worked out on every refresh. Fetch it to pick what to show.")
             Spacer(Modifier.height(16.dp))
             Caption("HEADERS")
             headers.forEachIndexed { i, row ->

@@ -40,6 +40,47 @@ object ApiAddress {
         }
     }
 
+    private val fixedSite = Regex("^https://[^/{}?#]+/", RegexOption.IGNORE_CASE)
+
+    /**
+     * The tile's own address as saved: a plain https address, or one with formulas after the site
+     * ("pokeapi.co/api/v2/pokemon/{random(1, 1025)}"). The tile has no answer yet when it asks, so
+     * its formulas can use functions and the clock but no fields, and the site itself stays fixed:
+     * its headers (an API key) only ever go to that one site. Null for anything else.
+     */
+    fun tileAddress(input: String): String? {
+        val text = input.trim()
+        if (!usesFields(text)) return ApiStore.address(text)
+        val normal = normalize(text) ?: return null
+        if (!fixedSite.containsMatchIn(normal)) return null
+        val missing = BuiltInFormulas.missingPaths(normal, null, FormulaContext(System.currentTimeMillis())) ?: return null
+        return normal.takeIf { missing.isEmpty() }
+    }
+
+    /** Why [input] can't be the tile's address, for the editor and the import. */
+    fun tileProblem(input: String): String? {
+        val text = input.trim()
+        if (tileAddress(text) != null) return null
+        if (!usesFields(text)) return "the tile's address must be an https address"
+        BuiltInFormulas.problem(text)?.let { return "the tile's address: $it" }
+        val normal = normalize(text) ?: return "the tile's address must make an https address"
+        if (!fixedSite.containsMatchIn(normal)) return "the tile's address must start with its site, formulas go after it: api.example.com/items/{random(1, 100)}"
+        return "the tile's address can use functions like random() and dayOfYear(), not fields: it has no answer yet"
+    }
+
+    /** The address to fetch for the tile's [template] at [now]: its formulas worked out afresh, a new random() each time. */
+    fun fetchAddress(template: String, now: Long): String? = try {
+        if (!usesFields(template)) {
+            ApiStore.address(template)
+        } else {
+            val e = BuiltInFormulas.evaluate(template, null, FormulaContext(now))
+            val url = e.takeIf { it.error == null }?.text?.trim()?.let { ApiStore.address(it) }
+            url?.takeIf { host(it) == host(template.replace(field, "x")) }
+        }
+    } catch (e: Throwable) {
+        null
+    }
+
     /** [template] worked out against the tile's answer [root]; never throws. */
     fun resolve(template: String, root: Any?, hasData: Boolean, context: FormulaContext): Resolved = try {
         if (!usesFields(template)) {
@@ -65,7 +106,7 @@ object ApiAddress {
      * headers (an API key) go only to the tile's own host. An address typed in full keeps them.
      */
     fun headersFor(template: String, url: String, tileUrl: String, headers: Map<String, String>): Map<String, String> =
-        if (!usesFields(template) || host(url) == host(tileUrl)) headers else emptyMap()
+        if (!usesFields(template) || host(url) == host(tileUrl.replace(field, "x"))) headers else emptyMap()
 
     private fun host(url: String): String? = runCatching { URL(url).host?.lowercase() }.getOrNull()
 }

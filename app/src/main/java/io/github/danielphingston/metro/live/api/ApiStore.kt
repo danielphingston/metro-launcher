@@ -111,6 +111,9 @@ object ApiStore {
     private val lock = Mutex()
     private val inFlight = HashSet<String>()
 
+    /** The address each request last fetched: one with formulas ({random(1, 1025)}) can change between refreshes. */
+    private val fetchedFrom = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     /** Whether [cached] is older than [maxAgeMs]; after a failure, waits [retryMs] before the next try. */
     fun isStale(cached: CachedApi?, maxAgeMs: Long, now: Long = System.currentTimeMillis(), retryMs: Long = maxAgeMs): Boolean = when {
         cached == null -> true
@@ -139,19 +142,23 @@ object ApiStore {
             val now = System.currentTimeMillis()
             val result = withContext(Dispatchers.IO) {
                 runCatching {
+                    val url = ApiAddress.fetchAddress(request.url, now) ?: throw BadAddressException()
+                    // A copy from another address (yesterday's Pokémon) says nothing about this one.
+                    val same = !ApiAddress.usesFields(request.url) || fetchedFrom[request.key] == url
                     val conditional = buildMap {
                         putAll(request.headers)
-                        if (held?.hasData == true) {
+                        if (held?.hasData == true && same) {
                             held.etag?.let { put("If-None-Match", it) }
                             held.lastModified?.let { put("If-Modified-Since", it) }
                         }
                     }
-                    val response = http.get(request.url, conditional, MAX_BYTES)
-                    if (response.notModified && held?.hasData == true) {
+                    val response = http.get(url, conditional, MAX_BYTES)
+                    if (response.notModified && held?.hasData == true && same) {
                         held.copy(fetchedAt = now, error = null)
                     } else {
                         val body = response.bytes.toString(Charsets.UTF_8)
                         CachedApi(request.key, ApiJson.parse(body), body, now, etag = response.etag, lastModified = response.lastModified)
+                            .also { fetchedFrom[request.key] = url }
                     }
                 }
             }
@@ -168,13 +175,14 @@ object ApiStore {
 
     /** Downloads [request] for the editor, so the user can pick fields from a real answer. A good answer is kept for the tile. */
     suspend fun check(context: Context, request: ApiRequest): ApiCheck = withContext(Dispatchers.IO) {
-        if (address(request.url) == null) return@withContext ApiCheck.Failed(ApiProblem.BAD_ADDRESS)
+        val url = ApiAddress.fetchAddress(request.url, System.currentTimeMillis()) ?: return@withContext ApiCheck.Failed(ApiProblem.BAD_ADDRESS)
         try {
-            val response = http.get(request.url, request.headers, MAX_BYTES)
+            val response = http.get(url, request.headers, MAX_BYTES)
             val body = response.bytes.toString(Charsets.UTF_8)
             val root = ApiJson.parse(body)
             val cached = CachedApi(request.key, root, body, System.currentTimeMillis(), etag = response.etag, lastModified = response.lastModified)
             _data.update { it + (request.key to cached) }
+            fetchedFrom[request.key] = url
             runCatching { save(context.applicationContext, cached) }
             ApiCheck.Ok(root)
         } catch (e: HttpStatusException) {

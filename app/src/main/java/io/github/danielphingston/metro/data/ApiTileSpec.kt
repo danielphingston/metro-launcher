@@ -108,7 +108,7 @@ internal object ApiTileJson {
         val url = when {
             rawUrl.isEmpty() -> ""
             fields -> ApiAddress.normalize(rawUrl) ?: return null
-            else -> ApiStore.address(rawUrl) ?: return null
+            else -> ApiAddress.tileAddress(rawUrl) ?: return null
         }
         val slots = obj.optJSONObject("slots")?.let { s ->
             s.keys().asSequence().mapNotNull { k -> ApiSlot.fromId(k)?.let { it to template(s.optString(k)) } }.filter { it.second.isNotEmpty() }.toMap()
