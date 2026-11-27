@@ -76,7 +76,7 @@ class ApiImportTest {
         assertTrue(failed("just words").startsWith("no tile setup found"))
         assertTrue(failed("{ \"name\": ").startsWith("no tile setup found"))
         assertTrue(failed("{ name: [ }").startsWith("that isn't valid JSON"))
-        assertTrue(failed("""{"name": "x"}""").startsWith("nothing to show in it"))
+        assertTrue(failed("""{"name": "x"}""").startsWith("nothing usable in it"))
         assertTrue(failed("{" + "x".repeat(ApiImport.MAX_CHARS) + "}").contains("too long"))
         // Odd shapes never throw.
         listOf("""{"tile": 5}""", """{"tile": {"title": null}}""", """{"tile": {"title": ["a"]}, "headers": 7}""", "{}{}", "}{").forEach { ApiImport.parse(it) }
@@ -86,7 +86,7 @@ class ApiImportTest {
     fun headerValuesAreNeverImported() {
         val asObject = ok("""{"headers": {"X-Api-Key": "sk-secret"}, "tile": {"title": "{name}"}}""")
         assertEquals(listOf("X-Api-Key"), asObject.draft.headers)
-        assertTrue(asObject.notes.any { "header values aren't imported" in it })
+        assertTrue(asObject.notes.any { "values aren't imported" in it })
         val asList = ok("""{"headers": [{"name": "Authorization2", "value": "Bearer x"}, "X-Key", "bad name!"], "tile": {"title": "{name}"}}""")
         assertEquals(listOf("Authorization2", "X-Key"), asList.draft.headers)
         assertTrue(asList.notes.any { "bad name!" in it })
@@ -102,6 +102,73 @@ class ApiImportTest {
         assertEquals("", r.draft.detailUrl)
         assertEquals(mapOf(ApiTarget.TITLE to "{name}"), r.draft.detail)
         assertTrue(r.notes.toString(), r.notes.size >= 5)
+    }
+
+    @Test
+    fun theFormatIsStrictAndEveryErrorIsListedWhereItIs() {
+        val r = ok(
+            """{"name": 5, "url": 7, "colour": "red", "headers": "X-Key", "refreshMinutes": "15", "liveSeconds": 2.5,
+               "tile": {"title": "{name}", "value": 60, "line1": ["a"], "url": "https://x.example.com", "list": "{stats}", "rowText": "{x}", "size": "wide"},
+               "expanded": {"url": 3, "title": "{name}", "list": {"path": "stats", "text": "{stat.name}", "colour": "red", "detail": 5}},
+               "detail": {"title": "{x}"}}""",
+        )
+        val errors = r.notes
+        listOf(
+            "\"colour\" isn't part of a tile setup: skipped",
+            "name: must be text: skipped",
+            "url: must be text: skipped, the tile keeps its own",
+            "headers: must be a list of header names: skipped",
+            "refreshMinutes: must be a whole number: skipped",
+            "liveSeconds: must be a whole number: skipped",
+            "tile.value: must be text: skipped",
+            "tile.line1: must be text: skipped",
+            "tile.url: the address goes at the top, as \"url\": skipped",
+            "tile.list: must be a plain path like stats, without braces: skipped",
+            "tile.rowText: rows need a \"list\": skipped",
+            "tile.size: isn't a field a tile has: skipped",
+            "expanded.url: must be text: skipped",
+            "expanded.list.colour: isn't part of a list (path, text, detail, image): skipped",
+            "expanded.list.detail: must be text: skipped",
+            "\"detail\" and \"expanded\" are the same view: \"detail\" skipped",
+        ).forEach { assertTrue("missing: $it in $errors", it in errors) }
+        assertEquals(mapOf(ApiTarget.TITLE to "{name}"), r.draft.tile)
+        assertEquals(mapOf(ApiTarget.TITLE to "{name}", ApiTarget.LIST to "stats", ApiTarget.ROW_PRIMARY to "{stat.name}"), r.draft.detail)
+        assertEquals("", r.draft.name)
+        assertNull(r.draft.refreshMinutes)
+        assertNull(r.draft.liveSeconds)
+    }
+
+    @Test
+    fun numbersOutOfRangeAreSkippedNotBent() {
+        val r = ok("""{"tile": {"title": "{name}"}, "refreshMinutes": 1, "liveSeconds": 900, "name": "${"n".repeat(60)}"}""")
+        assertNull(r.draft.refreshMinutes)
+        assertNull(r.draft.liveSeconds)
+        assertEquals("", r.draft.name)
+        assertEquals(3, r.notes.size)
+        assertEquals(0, ok("""{"tile": {"title": "{name}"}, "liveSeconds": 0}""").draft.liveSeconds)
+    }
+
+    @Test
+    fun aSetupWithNothingUsableListsEveryError() {
+        val p = ApiImport.parse("""{"tile": {"title": 1, "value": "{round(}"}, "extra": true}""")
+        assertTrue(p is ApiImport.Parsed.Failed)
+        assertEquals(3, (p as ApiImport.Parsed.Failed).errors.size)
+    }
+
+    @Test
+    fun theExpandedViewCanFetchFromALinkInTheTilesAnswer() {
+        val r = ok("""{"url": "https://pokeapi.co/api/v2/pokemon/pikachu", "tile": {"title": "{name}"}, "expanded": {"url": "{species.url}", "title": "{name}"}}""")
+        assertEquals("{species.url}", r.draft.detailUrl)
+        assertTrue(ApiImport.FORMAT.contains("its \"url\" can take a link from the tile's answer"))
+    }
+
+    @Test
+    fun thePromptListsEverySupportedFunctionWithAWorkingExample() {
+        BuiltInFormulas.FUNCTIONS.forEach { (name, example) ->
+            assertTrue("$name missing", ApiImport.FORMAT.contains("  $example: "))
+            assertNull("$example", BuiltInFormulas.problem("{$example}"))
+        }
+        assertFalse(ApiImport.FORMAT.contains("FUNCTION_LIST"))
     }
 
     @Test

@@ -137,7 +137,7 @@ class ApiEditorImportTest {
             ```""")
         waitFor("use this")
         rule.onNodeWithText("the answer has no zebra", substring = true).performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("header values aren't imported", substring = true).performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("values aren't imported", substring = true).performScrollTo().assertIsDisplayed()
         tap("use this")
         // The header comes as a name waiting for its value; an empty one isn't saved.
         rule.onNodeWithText("type the value for X-Key under headers").performScrollTo().assertIsDisplayed()

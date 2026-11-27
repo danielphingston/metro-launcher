@@ -272,10 +272,11 @@ class ApiTileScreenshotTest {
         rule.onAllNodes(hasSetTextAction())[1].performTextInput("https://pokeapi.co/api/v2/pokemon/pikachu")
         rule.onNodeWithText("import").performScrollTo().performClick()
         rule.onNodeWithContentDescription("tile setup to import").performScrollTo().performTextInput(
-            """{"name": "Pikachu", "headers": ["X-Key"], "tile": {"title": "{name}", "value": "{weight}", "line1": "height {height}", "line2": "{nickname}", "list": "stats", "rowText": "{stat.name}", "rowDetail": "{base_stat}"}}""",
+            """{"name": "Pikachu", "headers": ["X-Key"], "tile": {"title": "{name}", "value": "{weight}", "line1": "height {height}", "line2": "{nickname}", "list": "stats", "rowText": "{stat.name}", "rowDetail": "{base_stat}"}, "expanded": {"title": "{name}", "line1": "{base_experience} xp", "list": "abilities", "rowText": "{ability.name}"}, "colour": "red"}""",
         )
         rule.onNodeWithText("read import").performScrollTo().performClick()
         rule.waitUntil(5_000) { rule.onAllNodesWithText("use this").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("skipped (2):").assertExists()
         rule.onNodeWithText("use this").performScrollTo()
         rule.onRoot().captureRoboImage("src/test/screenshots/api_import_preview.png", roborazziOptions = ScreenshotOptions)
     }

@@ -287,7 +287,7 @@ internal fun ApiEditor(
     fun runImport() {
         val parsed = ApiImport.parse(importText)
         if (parsed is ApiImport.Parsed.Failed) {
-            building = BuildState.Note(parsed.message)
+            building = BuildState.Note((listOf(parsed.message) + parsed.errors).joinToString("\n· "))
             return
         }
         parsed as ApiImport.Parsed.Ok
@@ -340,7 +340,7 @@ internal fun ApiEditor(
                     aiUi = AiUi.Thinking
                     aiUi = try {
                         when (val parsed = askTileAi(model, answer, url, prompt)) {
-                            is ApiImport.Parsed.Failed -> AiUi.Failed("the model's answer wasn't a tile setup: ${parsed.message}")
+                            is ApiImport.Parsed.Failed -> AiUi.Failed((listOf("the model's answer wasn't a tile setup: ${parsed.message}") + parsed.errors.take(5)).joinToString("\n· "))
                             is ApiImport.Parsed.Ok -> {
                                 // The model sets what shows, never the address or its headers.
                                 val draft = parsed.draft.copy(url = "", headers = emptyList(), name = parsed.draft.name.ifBlank { name })
@@ -790,10 +790,18 @@ private fun ImportPreview(b: BuildState.Imported, name: String, url: String, cre
         if (d.detailUrl.isNotEmpty()) MetroText("expanded view address: ${d.detailUrl}", MetroType.caption, color = colors.foreground, maxLines = 2)
         d.detail.forEach { (t, text) -> MetroText("expanded ${t.label}: $text", MetroType.caption, color = colors.foreground, maxLines = 1) }
         if (d.headers.isNotEmpty()) MetroText("headers to fill in: ${d.headers.joinToString(", ")}", MetroType.caption, color = colors.foreground)
+        // The expanded view as it will open, read from its own answer or the tile's.
+        val detailAnswer = if (d.detailUrl.isNotEmpty()) b.detailRoot else b.root
+        if (d.detail.isNotEmpty() && detailAnswer != null) {
+            MetroText("expanded view:", MetroType.caption, color = colors.subtle, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+            Box(Modifier.fillMaxWidth().border(1.dp, colors.subtle.copy(alpha = 0.4f)).padding(8.dp)) {
+                ApiDetailBody(draft, CachedApi("import-detail", detailAnswer, "", System.currentTimeMillis()), System.currentTimeMillis(), live = false, paused = false, maxRows = 3)
+            }
+        }
+        // Every error, none hidden: what was skipped and why.
         if (b.checked.notes.isNotEmpty()) {
-            MetroText("left out:", MetroType.caption, color = colors.accent, modifier = Modifier.padding(top = 6.dp))
-            b.checked.notes.take(8).forEach { MetroText("· $it", MetroType.caption, color = colors.accent) }
-            if (b.checked.notes.size > 8) MetroText("· and ${b.checked.notes.size - 8} more", MetroType.caption, color = colors.accent)
+            MetroText("skipped (${b.checked.notes.size}):", MetroType.caption, color = colors.accent, modifier = Modifier.padding(top = 6.dp))
+            b.checked.notes.forEach { MetroText("· $it", MetroType.caption, color = colors.accent) }
         }
     }
 }

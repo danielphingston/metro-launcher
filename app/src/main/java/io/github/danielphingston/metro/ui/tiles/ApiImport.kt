@@ -33,9 +33,10 @@ internal object ApiImport {
     )
 
     sealed interface Parsed {
-        /** Read: [notes] says what was left out and why. */
+        /** Read: [notes] lists everything that was skipped and why. */
         data class Ok(val draft: Draft, val notes: List<String> = emptyList()) : Parsed
-        data class Failed(val message: String) : Parsed
+        /** Nothing usable: [message] says why, and [errors] lists everything that was skipped. */
+        data class Failed(val message: String, val errors: List<String> = emptyList()) : Parsed
     }
 
     /** The keys of a view, as the import format and [prompt] write them. */
@@ -73,81 +74,135 @@ internal object ApiImport {
                 Draft(api.name, api.tile.url, api.headers, templatesOf(api.tile), api.detail.url, templatesOf(api.detail), api.refreshMinutes, api.liveSeconds),
             )
         }
-        val notes = ArrayList<String>()
-        val name = obj.optString("name").trim().take(ApiTileJson.MAX_NAME)
-        val rawUrl = obj.optString("url").trim()
-        val url = if (rawUrl.isEmpty()) "" else ApiStore.address(rawUrl) ?: "".also { notes += "the address isn't an https address, so the tile keeps its own" }
-        val headers = headerNames(obj.opt("headers"), notes)
-        val tile = view(obj.optJSONObject("tile"), "tile", notes)
-        val expanded = obj.optJSONObject("expanded") ?: obj.optJSONObject("detail")
-        val detail = view(expanded, "expanded view", notes)
-        val rawDetailUrl = expanded?.optString("url")?.trim().orEmpty()
-        val detailUrl = if (rawDetailUrl.isEmpty()) {
-            ""
-        } else {
-            ApiAddress.normalize(rawDetailUrl) ?: "".also { notes += "the expanded view's address can't make an https address, so it reads the tile's" }
+        // Strict: only the keys and types of the format below. Anything else is skipped and listed.
+        val errors = ArrayList<String>()
+        obj.keys().asSequence().toList().filter { it !in TOP_KEYS }.forEach { errors += "\"$it\" isn't part of a tile setup: skipped" }
+        val name = when (val v = obj.opt("name")) {
+            null -> ""
+            is String -> v.trim().let { n ->
+                if (n.length > ApiTileJson.MAX_NAME) "".also { errors += "name: longer than ${ApiTileJson.MAX_NAME} characters: skipped" } else n
+            }
+            else -> "".also { errors += "name: must be text: skipped" }
         }
-        val refresh = obj.optInt("refreshMinutes", -1).takeIf { it > 0 }?.let { m ->
-            m.coerceIn(ApiTileJson.REFRESH_MINUTES).also { if (it != m) notes += "refreshes every $it min (the closest it can)" }
+        val url = when (val v = obj.opt("url")) {
+            null -> ""
+            is String -> if (v.isBlank()) "" else ApiStore.address(v.trim()) ?: "".also { errors += "url: must be an https address: skipped, the tile keeps its own" }
+            else -> "".also { errors += "url: must be text: skipped, the tile keeps its own" }
         }
-        val live = if (!obj.has("liveSeconds")) null else obj.optInt("liveSeconds", 0).let { s ->
-            if (s <= 0) 0 else s.coerceIn(ApiTileJson.LIVE_SECONDS).also { if (it != s) notes += "live updates every $it s (the closest it can)" }
+        val headers = headerNames(obj.opt("headers"), errors)
+        val tile = viewOf(obj, "tile", errors)
+        if (obj.has("expanded") && obj.has("detail")) errors += "\"detail\" and \"expanded\" are the same view: \"detail\" skipped"
+        val expandedKey = if (obj.has("expanded")) "expanded" else "detail"
+        val detail = viewOf(obj, expandedKey, errors)
+        val detailUrl = when (val v = (obj.opt(expandedKey) as? JSONObject)?.opt("url")) {
+            null -> ""
+            is String -> if (v.isBlank()) "" else ApiAddress.normalize(v) ?: "".also { errors += "$expandedKey.url: must make an https address: skipped, the expanded view reads the tile's" }
+            else -> "".also { errors += "$expandedKey.url: must be text: skipped" }
         }
-        if (tile.isEmpty() && detail.isEmpty()) return Parsed.Failed("nothing to show in it: it needs a \"tile\" with fields like \"title\"")
-        return Parsed.Ok(Draft(name, url, headers, tile, detailUrl, detail, refresh, live), notes)
+        val refresh = whole(obj, "refreshMinutes", errors)?.let { m ->
+            if (m !in ApiTileJson.REFRESH_MINUTES) null.also { errors += "refreshMinutes: must be ${ApiTileJson.REFRESH_MINUTES.first} to ${ApiTileJson.REFRESH_MINUTES.last}: skipped" } else m
+        }
+        val live = whole(obj, "liveSeconds", errors)?.let { s ->
+            when {
+                s == 0 -> 0
+                s in ApiTileJson.LIVE_SECONDS -> s
+                else -> null.also { errors += "liveSeconds: must be 0 (off) or ${ApiTileJson.LIVE_SECONDS.first} to ${ApiTileJson.LIVE_SECONDS.last}: skipped" }
+            }
+        }
+        if (tile.isEmpty() && detail.isEmpty()) {
+            return Parsed.Failed("nothing usable in it: it needs a \"tile\" with fields like \"title\"", errors)
+        }
+        return Parsed.Ok(Draft(name, url, headers, tile, detailUrl, detail, refresh, live), errors)
     }
 
-    private fun headerNames(value: Any?, notes: MutableList<String>): List<String> {
-        val names = when (value) {
-            is JSONArray -> (0 until value.length()).mapNotNull { i ->
+    private val TOP_KEYS = setOf("name", "url", "headers", "tile", "expanded", "detail", "refreshMinutes", "liveSeconds")
+    private val LIST_KEYS = mapOf("path" to ApiTarget.LIST, "text" to ApiTarget.ROW_PRIMARY, "detail" to ApiTarget.ROW_SECONDARY, "image" to ApiTarget.ROW_IMAGE)
+
+    /** A whole number at [key], or null (with an error when it is there but isn't one). */
+    private fun whole(obj: JSONObject, key: String, errors: MutableList<String>): Int? {
+        val v = obj.opt(key) ?: return null
+        val n = (v as? Number)?.toDouble()
+        if (n == null || n != Math.floor(n) || n.isInfinite() || n > Int.MAX_VALUE || n < Int.MIN_VALUE) {
+            errors += "$key: must be a whole number: skipped"
+            return null
+        }
+        return n.toInt()
+    }
+
+    private fun headerNames(value: Any?, errors: MutableList<String>): List<String> {
+        val names = ArrayList<String>()
+        var values = false
+        when (value) {
+            null -> return emptyList()
+            is JSONArray -> for (i in 0 until value.length()) {
                 when (val h = value.opt(i)) {
-                    is String -> h
-                    is JSONObject -> h.optString("name").ifEmpty { null }.also { if (h.has("value")) notes += "header values aren't imported: type them in, they stay encrypted on this phone" }
-                    else -> null
+                    is String -> names += h
+                    is JSONObject -> {
+                        if (h.has("value")) values = true
+                        h.keys().asSequence().filter { it != "name" && it != "value" }.forEach { errors += "headers[$i].$it: isn't part of a header: skipped" }
+                        (h.opt("name") as? String)?.let { names += it } ?: run { errors += "headers[$i]: needs a \"name\": skipped" }
+                    }
+                    else -> errors += "headers[$i]: must be a header name: skipped"
                 }
             }
-            is JSONObject -> value.keys().asSequence().toList().also { if (it.isNotEmpty()) notes += "header values aren't imported: type them in, they stay encrypted on this phone" }
-            else -> emptyList()
+            is JSONObject -> {
+                names += value.keys().asSequence().toList()
+                if (names.isNotEmpty()) values = true
+            }
+            else -> {
+                errors += "headers: must be a list of header names: skipped"
+                return emptyList()
+            }
         }
-        val good = names.map { it.trim() }.filter { ApiTileJson.validHeader(it) }.distinctBy { it.lowercase() }.take(ApiTileJson.MAX_HEADERS)
-        (names.map { it.trim() } - good.toSet()).filter { it.isNotEmpty() }.forEach { notes += "$it can't be used as a header name" }
-        return good
+        if (values) errors += "headers: values aren't imported: type them in, they stay encrypted on this phone"
+        val out = ArrayList<String>()
+        for (raw in names) {
+            val h = raw.trim()
+            when {
+                !ApiTileJson.validHeader(h) -> errors += "headers: \"$h\" can't be used as a header name: skipped"
+                out.any { it.equals(h, ignoreCase = true) } -> errors += "headers: \"$h\" is there twice: skipped"
+                out.size >= ApiTileJson.MAX_HEADERS -> errors += "headers: at most ${ApiTileJson.MAX_HEADERS}: \"$h\" skipped"
+                else -> out += h
+            }
+        }
+        return out
     }
 
-    private fun view(obj: JSONObject?, which: String, notes: MutableList<String>): Map<ApiTarget, String> {
-        obj ?: return emptyMap()
-        val out = LinkedHashMap<ApiTarget, String>()
-        for (key in obj.keys().asSequence().toList()) {
-            if (key == "url") continue
-            val value = obj.opt(key)
-            // The list may also come as {"path", "text", "detail", "image"}.
-            if (key == "list" && value is JSONObject) {
-                value.optString("path").trim().takeIf { it.isNotEmpty() }?.let { out[ApiTarget.LIST] = it.take(200) }
-                listOf("text" to ApiTarget.ROW_PRIMARY, "detail" to ApiTarget.ROW_SECONDARY, "image" to ApiTarget.ROW_IMAGE).forEach { (k, t) ->
-                    value.optString(k).trim().takeIf { it.isNotEmpty() }?.let { out[t] = it }
-                }
-                continue
-            }
-            val target = KEYS[key]
-            if (target == null) {
-                notes += "$which: \"$key\" isn't a field a tile has, so it was left out"
-                continue
-            }
-            val text = when (value) {
-                is String -> value.trim()
-                is Number, is Boolean -> value.toString()
-                else -> ""
-            }
-            if (text.isNotEmpty()) out[target] = if (target.isPath) text.take(200) else text
+    /** The view at [key] of [parent]: only known keys, each text, each formula readable; the rest skipped with an error. */
+    private fun viewOf(parent: JSONObject, key: String, errors: MutableList<String>): Map<ApiTarget, String> {
+        val obj = when (val v = parent.opt(key)) {
+            null -> return emptyMap()
+            is JSONObject -> v
+            else -> return emptyMap<ApiTarget, String>().also { errors += "$key: must be an object of fields: skipped" }
         }
-        // Formulas that can't be read, or are too long, never reach the tile.
-        for ((target, text) in out.toMap()) {
-            if (target.isPath) continue
-            val problem = if (text.length > BuiltInFormulas.MAX_TEMPLATE) "too long" else BuiltInFormulas.problem(text)
-            if (problem != null) {
-                out.remove(target)
-                notes += "$which, ${target.label}: $problem"
+        val out = LinkedHashMap<ApiTarget, String>()
+        fun put(where: String, target: ApiTarget, value: Any?) {
+            when {
+                value !is String -> errors += "$where: must be text: skipped"
+                value.isBlank() -> Unit
+                target.isPath && value.contains('{') -> errors += "$where: must be a plain path like stats, without braces: skipped"
+                target.isPath && value.trim().length > 200 -> errors += "$where: longer than 200 characters: skipped"
+                !target.isPath && value.length > BuiltInFormulas.MAX_TEMPLATE -> errors += "$where: longer than ${BuiltInFormulas.MAX_TEMPLATE} characters: skipped"
+                !target.isPath && BuiltInFormulas.problem(value) != null -> errors += "$where: ${BuiltInFormulas.problem(value)}: skipped"
+                else -> out[target] = value.trim()
             }
+        }
+        for (k in obj.keys().asSequence().toList()) {
+            val value = obj.opt(k)
+            when {
+                k == "url" -> if (key == "tile") errors += "tile.url: the address goes at the top, as \"url\": skipped"
+                k == "list" && value is JSONObject -> {
+                    for (lk in value.keys().asSequence().toList()) {
+                        val target = LIST_KEYS[lk]
+                        if (target == null) errors += "$key.list.$lk: isn't part of a list (path, text, detail, image): skipped" else put("$key.list.$lk", target, value.opt(lk))
+                    }
+                }
+                KEYS[k] != null -> put("$key.$k", KEYS[k]!!, value)
+                else -> errors += "$key.$k: isn't a field a tile has: skipped"
+            }
+        }
+        if (ApiTarget.LIST !in out) {
+            ApiTarget.entries.filter { it.isRow }.forEach { t -> if (out.remove(t) != null) errors += "$key.${KEYS.entries.first { it.value == t }.key}: rows need a \"list\": skipped" }
         }
         return out
     }
@@ -193,6 +248,10 @@ internal object ApiImport {
         return Checked(draft.copy(tile = tile, detail = detail, detailUrl = detailUrl), notes)
     }
 
+    /** Where a field sits in the import format, as errors name it: "tile.value", "expanded.list". */
+    private fun at(which: String, target: ApiTarget): String =
+        (if (which == "tile") "tile" else "expanded") + "." + (KEYS.entries.firstOrNull { it.value == target }?.key ?: target.label)
+
     private fun checkView(view: Map<ApiTarget, String>, root: Any?, which: String, context: FormulaContext, notes: MutableList<String>): Map<ApiTarget, String> {
         if (view.isEmpty()) return view
         if (root == null) return view
@@ -203,7 +262,7 @@ internal object ApiImport {
         if (listPath != null) {
             val list = if (listPath == "$" || listPath.isBlank()) root else ApiJson.valueAt(root, listPath)
             if (list !is JSONArray) {
-                notes += "$which, list: \"$listPath\" isn't a list in the answer"
+                notes += "${at(which, ApiTarget.LIST)}: \"$listPath\" isn't a list in the answer: skipped with its rows"
                 ApiTarget.entries.filter { it.isPath || it.isRow }.forEach { out.remove(it) }
             } else {
                 item = list.opt(0)
@@ -215,7 +274,7 @@ internal object ApiImport {
                 }
             }
         } else {
-            ApiTarget.entries.filter { it.isRow }.forEach { t -> if (out.remove(t) != null) notes += "$which, ${t.label}: there's no list for rows" }
+            ApiTarget.entries.filter { it.isRow }.forEach { t -> if (out.remove(t) != null) notes += "${at(which, t)}: rows need a \"list\": skipped" }
         }
         for ((target, text) in out.toMap()) {
             if (target.isPath) continue
@@ -225,22 +284,22 @@ internal object ApiImport {
             when {
                 missing == null -> {
                     out.remove(target)
-                    notes += "$which, ${target.label}: ${BuiltInFormulas.problem(text) ?: "can't read that formula"}"
+                    notes += "${at(which, target)}: ${BuiltInFormulas.problem(text) ?: "can't read that formula"}: skipped"
                 }
                 missing.isNotEmpty() -> {
                     out.remove(target)
-                    notes += "$which, ${target.label}: the answer has no ${missing.take(3).joinToString(", ")}"
+                    notes += "${at(which, target)}: the answer has no ${missing.take(3).joinToString(", ")}: skipped"
                 }
                 e.error != null -> {
                     out.remove(target)
-                    notes += "$which, ${target.label}: ${e.error}"
+                    notes += "${at(which, target)}: ${e.error}: skipped"
                 }
             }
         }
         if (out[ApiTarget.LIST] != null && out[ApiTarget.ROW_PRIMARY].isNullOrBlank()) {
             out.remove(ApiTarget.LIST)
             ApiTarget.entries.filter { it.isRow }.forEach { out.remove(it) }
-            notes += "$which, list: no row text works with its items, so it was left out"
+            notes += "${at(which, ApiTarget.LIST)}: no row text works with its items: skipped"
         }
         return out
     }
@@ -265,7 +324,8 @@ internal object ApiImport {
     }
 
     /** How to write a tile's setup: for a chatbot ([prompt]) and the on-device AI ([TileAi]). */
-    val FORMAT: String = """
+    val FORMAT: String by lazy {
+        """
 The tile setup is one JSON object:
 {
   "name": "short name shown on the tile",
@@ -294,14 +354,64 @@ Rules:
 - "headers" lists header NAMES only (like an API key header). Never put a key or any secret in the JSON.
 - Text in {braces} is a formula reading the API's JSON answer: a path like {name}, {main.temp}, {items[0].title}, {sprites.other['official-artwork'].front_default}. Text outside braces is shown as is.
 - "list" is a plain path to an array (no braces), or "$" when the whole answer is an array. rowText, rowDetail and rowImage read each item first: {name}, {stat.name}; {@} is the item itself; {$.path} reads the whole answer.
-- Formulas can use: + - * / %, comparisons, a ?? 'fallback' for missing values, and functions:
-  round(x, 1), fixed(x, 2), compact(1234567) gives 1.2M, thousands(x), upper(x), lower(x), title(x),
-  count(list), join(list, ', ', 'field'), sum(list, 'field'), first(list), last(list), if(cond, 'a', 'b'),
-  convert(x, 'c', 'f') for units, time(t), date(t), countdown(t) for "2h 5m" until a time, until(t) in seconds, ago(t) for "5 min ago".
+- Formulas can use numbers, 'text' or "text", + (adds numbers or joins text) - * / %, comparisons == != < > <= >= (true or false), ( ), and a ?? 'fallback' when the left side is missing. There is no && or ||; nest if() instead.
+- These are ALL the functions; nothing else exists (no toFixed, no format, no Math.x, no methods on values):
+${'$'}FUNCTION_LIST
   Times can be ISO 8601 text or seconds or milliseconds since 1970.
-- "expanded" is the view a tap on the tile opens; leave out "url" to read the tile's own address.
+  Units for convert: temperature c f k; length m km cm mm mi ft in yd; mass kg g lb oz t; speed m/s km/h mph kn; volume l ml gal; data b kb mb gb tb kib mib gib; pressure hpa mbar psi inhg.
+- "expanded" is the view a tap on the tile opens. Without its own "url" it reads the tile's answer.
+- The expanded view can fetch other data: its "url" can take a link from the tile's answer, either a whole field ("{species.url}") or fields inside an address ("https://the.api/items/{id}"). It is worked out again each time the tile's answer changes, and the expanded view's fields then read that second answer, not the tile's.
+  Example: the tile reads https://pokeapi.co/api/v2/pokemon/pikachu, whose answer has species.url; "expanded": {"url": "{species.url}", "title": "{name}", "line1": "colour {color.name}"} shows the species data.
+- Headers go only to the tile's own site: a link from the answer that points to another site is fetched without them.
+- If you don't know the second address's answer, keep the expanded fields to likely ones; anything that isn't in it is skipped when it's checked.
+- Use only the keys shown here, with text values. refreshMinutes is a whole number from 5 to 60; liveSeconds is 0 (off) or 5 to 120. Anything else is skipped as an error.
 - Use only fields that are really in the API's answer.
-""".trim()
+""".trim().replace("${'$'}FUNCTION_LIST", functionList())
+    }
+
+    /** What each function does, by name; [functionList] lists them in the formula engine's own order, so none is ever missing. */
+    private val FUNCTION_HELP = mapOf(
+        "upper" to "text in capitals",
+        "lower" to "text in small letters",
+        "title" to "Each Word Capitalised",
+        "trim" to "text without spaces at the ends",
+        "left" to "the first n characters",
+        "right" to "the last n characters",
+        "replace" to "every 'from' replaced with 'to'",
+        "len" to "how many characters, or items in a list",
+        "round" to "rounded to n decimals (0 if left out)",
+        "floor" to "rounded down",
+        "ceil" to "rounded up",
+        "abs" to "without its minus sign",
+        "min" to "the smallest of up to 8 numbers",
+        "max" to "the largest of up to 8 numbers",
+        "fixed" to "always n decimals: fixed(3.1, 2) gives 3.10",
+        "thousands" to "with thousands separators: 1,234,567",
+        "compact" to "short: 1234567 gives 1.2M",
+        "percent" to "a share as a percentage: percent(0.25) gives 25%",
+        "convert" to "converts between units (listed below)",
+        "count" to "how many items a list has",
+        "first" to "a list's first item",
+        "last" to "a list's last item",
+        "at" to "the item at an index, counting from 0",
+        "join" to "a list's items (or one field of each) joined with a separator",
+        "sum" to "the total of a list's numbers, or of one field of each item",
+        "avg" to "the average of a list's numbers, or of one field of each item",
+        "countdown" to "time left until a time: 2d 4h, 4h 12m, 12:04; ticks on screen",
+        "until" to "seconds until a time",
+        "ago" to "how long ago a time was: now, 5m, 3h, 2d",
+        "time" to "a time's clock time; optional time zone like 'Europe/London'",
+        "date" to "a time's date; optional pattern like 'EEE d MMM' or 'd/M/yyyy' and time zone",
+        "datetime" to "reads text as a time, like datetime(day + 'T' + hour)",
+        "if" to "the second value when the test is true, else the third (or nothing)",
+        "default" to "the second value when the first is missing or empty",
+        "number" to "text read as a number",
+        "text" to "a value as text",
+    )
+
+    private fun functionList(): String = BuiltInFormulas.FUNCTIONS.joinToString("\n") { (name, example) ->
+        "  $example: ${FUNCTION_HELP[name] ?: name}"
+    }
 
     /**
      * What to give a chatbot so it writes a tile's setup: the format, the API's address and the
