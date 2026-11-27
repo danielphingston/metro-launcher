@@ -119,6 +119,8 @@ dependencies {
     implementation(libs.androidx.billing)
     // Overrides the outdated androidx.fragment (1.1.0) that Play Billing pulls in transitively.
     implementation(libs.androidx.fragment)
+    // On-device AI for the API tile builder (Gemini Nano through AICore); used only on tap in the editor.
+    implementation(libs.mlkit.genai.prompt)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.foundation)

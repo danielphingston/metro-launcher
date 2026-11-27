@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -43,6 +44,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
@@ -80,6 +82,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URL
+import android.content.ClipData
+import android.content.ClipboardManager
 
 /** What a template in the editor fills: a slot of the view, or a part of its list. */
 internal enum class ApiTarget(val label: String, val slot: ApiSlot? = null) {
@@ -183,6 +187,8 @@ internal fun ApiEditor(
     onCancel: () -> Unit,
     /** The answer to show while setting up, for previews and tests; null fetches it. */
     sample: Any? = null,
+    /** A tile setup shared in from another app, shown in the import box to read on a tap. */
+    initialImport: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -204,6 +210,13 @@ internal fun ApiEditor(
     var tileRoot by remember { mutableStateOf(sample) }
     var prompt by remember { mutableStateOf("") }
     var building by remember { mutableStateOf<BuildState?>(null) }
+    var importing by remember { mutableStateOf(initialImport != null) }
+    var importText by remember { mutableStateOf(initialImport.orEmpty().take(ApiImport.MAX_CHARS)) }
+    var ai by remember { mutableStateOf<TileAi?>(null) }
+    var aiUi by remember { mutableStateOf<AiUi>(AiUi.Idle) }
+    var aiJob by remember { mutableStateOf<Job?>(null) }
+    // The model is opened on the first AI tap and closed with the editor: nothing stays loaded.
+    DisposableEffect(Unit) { onDispose { ai?.close() } }
     var detailRoot by remember { mutableStateOf<Any?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
     var saveProblem by remember { mutableStateOf<String?>(null) }
@@ -268,6 +281,142 @@ internal fun ApiEditor(
         ApiStore.load(context, request)
         tileRoot = ApiStore.data.value[request.key]?.root
         if (initial.detail.url.isEmpty()) detailRoot = tileRoot
+    }
+
+    /** Reads a pasted or shared setup, fetches the answer it needs, and shows what works of it to use or discard. */
+    fun runImport() {
+        val parsed = ApiImport.parse(importText)
+        if (parsed is ApiImport.Parsed.Failed) {
+            building = BuildState.Note(parsed.message)
+            return
+        }
+        parsed as ApiImport.Parsed.Ok
+        if (job?.isActive == true) return
+        job = scope.launch {
+            building = BuildState.Working("checking it against the API's answer…")
+            val draft = parsed.draft
+            val notes = ArrayList(parsed.notes)
+            val address = ApiStore.address(draft.url.ifEmpty { url })
+            var root: Any? = if (address != null && address == ApiStore.address(url)) tileRoot else null
+            if (address == null) {
+                notes += "no https address to fetch: enter one above, then import again to check it"
+            } else if (root == null) {
+                when (val r = ApiStore.check(context, ApiRequest(address, headerMap()))) {
+                    is ApiCheck.Ok -> root = r.root
+                    is ApiCheck.Failed -> notes += "couldn't fetch the answer to check it: ${r.message}"
+                }
+            }
+            var detailRoot2: Any? = null
+            if (draft.detailUrl.isNotEmpty() && root != null && address != null) {
+                val r = ApiAddress.resolve(draft.detailUrl, root, true, ApiTiles.formulaContext(context, System.currentTimeMillis()))
+                if (r is ApiAddress.Resolved.Url) {
+                    val res = ApiStore.check(context, ApiRequest(r.url, ApiAddress.headersFor(draft.detailUrl, r.url, address, headerMap())))
+                    if (res is ApiCheck.Ok) detailRoot2 = res.root
+                }
+            }
+            val checked = runCatching { ApiImport.check(draft, root, detailRoot2, ApiTiles.formulaContext(context, System.currentTimeMillis())) }
+                .getOrElse { if (it is kotlinx.coroutines.CancellationException) throw it; building = BuildState.Note("couldn't check the import (${it.javaClass.simpleName})"); return@launch }
+            building = if (checked.draft.tile.isEmpty() && checked.draft.detail.isEmpty()) {
+                BuildState.Note("nothing in it works with this answer: " + (notes + checked.notes).take(3).joinToString("; "))
+            } else {
+                BuildState.Imported(checked.copy(notes = notes + checked.notes), "imported", root, detailRoot2)
+            }
+        }
+    }
+
+    /** Asks the phone's own model for a setup from the prompt; checks the model first, and offers its download. */
+    fun runAi() {
+        if (aiJob?.isActive == true) return
+        val answer = tileRoot
+        if (answer == null) {
+            aiUi = AiUi.Failed("fetch the address first: the AI reads its answer")
+            return
+        }
+        aiJob = scope.launch {
+            val model = ai ?: TileAis.open(context).also { ai = it }
+            aiUi = AiUi.Checking
+            when (val state = model.state()) {
+                AiState.Ready -> {
+                    aiUi = AiUi.Thinking
+                    aiUi = try {
+                        when (val parsed = askTileAi(model, answer, url, prompt)) {
+                            is ApiImport.Parsed.Failed -> AiUi.Failed("the model's answer wasn't a tile setup: ${parsed.message}")
+                            is ApiImport.Parsed.Ok -> {
+                                // The model sets what shows, never the address or its headers.
+                                val draft = parsed.draft.copy(url = "", headers = emptyList(), name = parsed.draft.name.ifBlank { name })
+                                val checked = ApiImport.check(draft, answer, null, ApiTiles.formulaContext(context, System.currentTimeMillis()))
+                                if (checked.draft.tile.isEmpty()) {
+                                    AiUi.Failed("nothing the model wrote works with this answer: " + checked.notes.take(2).joinToString("; "))
+                                } else {
+                                    building = BuildState.Imported(checked.copy(notes = parsed.notes + checked.notes), "written by the on-device AI", answer, null)
+                                    AiUi.Ready
+                                }
+                            }
+                        }
+                    } catch (e: TileAiException) {
+                        AiUi.Failed(e.message ?: "the model failed")
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        AiUi.Failed("the model failed (${e.javaClass.simpleName})")
+                    }
+                }
+                AiState.Downloadable -> aiUi = AiUi.Downloadable
+                AiState.Downloading -> aiUi = AiUi.Downloading("the model is downloading")
+                is AiState.Unavailable -> aiUi = AiUi.Unavailable(state.reason)
+            }
+        }
+    }
+
+    fun downloadAi() {
+        val model = ai ?: return
+        aiJob?.cancel()
+        aiJob = scope.launch {
+            aiUi = AiUi.Downloading("starting the download…")
+            model.download().collect { d ->
+                aiUi = when (d) {
+                    is AiDownload.Started -> AiUi.Downloading("downloading ${megabytes(d.bytes)}…")
+                    is AiDownload.Progress -> AiUi.Downloading("downloaded ${megabytes(d.bytes)}…")
+                    AiDownload.Done -> AiUi.Ready
+                    is AiDownload.Failed -> AiUi.Failed(d.reason)
+                }
+            }
+        }
+    }
+
+    fun copyPrompt() {
+        val text = ApiImport.prompt(ApiStore.address(url).orEmpty(), prompt, tileRoot)
+        val copied = runCatching {
+            context.getSystemService(ClipboardManager::class.java)!!.setPrimaryClip(ClipData.newPlainText("tile prompt", text))
+        }.isSuccess
+        building = BuildState.Note(
+            if (copied) "prompt copied: paste it into Gemini or any chatbot, then paste its answer under import" else "couldn't copy the prompt",
+        )
+    }
+
+    /** Puts an imported or AI-written setup into the editor. Header values are never imported: their rows wait for a value. */
+    fun useImported(b: BuildState.Imported) {
+        val d = b.checked.draft
+        if (d.name.isNotBlank()) name = d.name
+        if (d.url.isNotEmpty() && d.url != url) {
+            url = d.url
+            tileRoot = b.root
+        }
+        d.headers.forEach { h -> if (headers.none { it.name.equals(h, ignoreCase = true) }) headers += HeaderRow(h, "") }
+        tileTemplates.clear()
+        tileTemplates.putAll(d.tile)
+        separateDetail = d.detailUrl.isNotEmpty()
+        detailUrl = d.detailUrl
+        detailTemplates.clear()
+        detailTemplates.putAll(d.detail)
+        detailRoot = if (separateDetail) b.detailRoot else b.root
+        d.refreshMinutes?.let { refresh = it }
+        d.liveSeconds?.let { s -> liveOn = s > 0; if (s > 0) liveSeconds = s }
+        tab = ApiEditorTab.TILE
+        target = d.tile.keys.firstOrNull() ?: ApiTarget.TITLE
+        importing = false
+        val missing = headers.filter { it.name.isNotBlank() && it.value.isEmpty() }.map { it.name }
+        building = if (missing.isEmpty()) null else BuildState.Note("type the value for ${missing.joinToString(", ")} under headers")
     }
 
     fun done() {
@@ -381,10 +530,35 @@ internal fun ApiEditor(
                     }
                 })
             }
-            Hint("Matches your words to the answer's fields on this phone. Leave it empty for a best guess.")
+            Hint("Build matches your words to the answer's fields. Leave it empty for a best guess.")
+            FlowRow(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MetroButton("build with AI", ::runAi)
+                MetroButton(if (importing) "close import" else "import", { importing = !importing })
+                MetroButton("copy prompt", ::copyPrompt)
+            }
+            AiLine(aiUi, onDownload = ::downloadAi)
+            if (importing) {
+                Spacer(Modifier.height(12.dp))
+                Caption("IMPORT A TILE SETUP")
+                ImportField(importText, { importText = it.take(ApiImport.MAX_CHARS) })
+                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetroButton("read import", ::runImport)
+                    if (importText.isNotEmpty()) MetroButton("clear", { importText = "" })
+                }
+                Hint("Paste the JSON a chatbot wrote from the copied prompt, or a tile shared from another phone. Everything is checked against the API's answer first. API keys are never imported.")
+            }
             when (val b = building) {
                 null -> Unit
                 is BuildState.Note -> MetroText(b.text, MetroType.body, color = colors.accent, modifier = Modifier.padding(top = 12.dp))
+                is BuildState.Working -> MetroText(b.text, MetroType.body, color = colors.subtle, modifier = Modifier.padding(top = 12.dp))
+                is BuildState.Imported -> {
+                    Spacer(Modifier.height(12.dp))
+                    ImportPreview(b, name, url, created)
+                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MetroButton("use this", { useImported(b) })
+                        MetroButton("discard", { building = null })
+                    }
+                }
                 is BuildState.Pending -> if (b.tab == tab) {
                     Spacer(Modifier.height(12.dp))
                     BuildPreview(b.result, name, url, detailUrl, tileTemplates, detailTemplates, tab, root, created)
@@ -531,7 +705,97 @@ internal fun useList(templates: MutableMap<ApiTarget, String>, path: String, roo
 /** Where a build stands: nothing, a note on why it made nothing, or a result waiting for use this or discard. */
 internal sealed interface BuildState {
     data class Note(val text: String) : BuildState
+    data class Working(val text: String) : BuildState
     data class Pending(val tab: ApiEditorTab, val result: ApiSuggest.Result) : BuildState
+
+    /** A whole setup, imported or written by the AI and checked: [root] and [detailRoot] are the answers it was checked against. */
+    data class Imported(val checked: ApiImport.Checked, val source: String, val root: Any?, val detailRoot: Any?) : BuildState
+}
+
+/** Where the on-device AI stands in the editor: nothing until the first tap. */
+internal sealed interface AiUi {
+    data object Idle : AiUi
+    data object Checking : AiUi
+    data object Ready : AiUi
+    data object Thinking : AiUi
+    data object Downloadable : AiUi
+    data class Downloading(val text: String) : AiUi
+    data class Unavailable(val reason: String) : AiUi
+    data class Failed(val reason: String) : AiUi
+}
+
+private fun megabytes(bytes: Long): String = if (bytes <= 0) "" else "%.0f MB".format(java.util.Locale.US, bytes / 1_000_000.0)
+
+/** The on-device AI's state, with the download offered when the model can be fetched. */
+@Composable
+private fun AiLine(state: AiUi, onDownload: () -> Unit) {
+    val colors = Metro.colors
+    val live = Modifier.semantics { liveRegion = LiveRegionMode.Polite }.padding(top = 10.dp)
+    val text = when (state) {
+        AiUi.Idle -> return
+        AiUi.Checking -> "on-device AI: checking this phone…"
+        AiUi.Ready -> "on-device AI: ready"
+        AiUi.Thinking -> "on-device AI: writing the tile…"
+        AiUi.Downloadable -> "on-device AI: the model isn't on this phone yet. Android downloads it (a few GB, best on Wi-Fi)."
+        is AiUi.Downloading -> "on-device AI: ${state.text} Keep this open; tap build with AI when it's done."
+        is AiUi.Unavailable -> "on-device AI isn't available: ${state.reason}. Build, import and copy prompt still work."
+        is AiUi.Failed -> "on-device AI: ${state.reason}"
+    }
+    val warn = state is AiUi.Unavailable || state is AiUi.Failed
+    MetroText(text, MetroType.body, color = if (warn) colors.accent else colors.subtle, modifier = live)
+    if (state == AiUi.Downloadable) Box(Modifier.padding(top = 8.dp)) { MetroButton("download model", onDownload) }
+}
+
+/** A box for pasting a tile's setup: several lines, in a fixed-width font. */
+@Composable
+private fun ImportField(value: String, onValueChange: (String) -> Unit) {
+    val colors = Metro.colors
+    var focused by remember { mutableStateOf(false) }
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        textStyle = MetroType.caption.copy(color = colors.foreground, fontFamily = FontFamily.Monospace),
+        cursorBrush = SolidColor(colors.accent),
+        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
+        modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.semantics { contentDescription = "tile setup to import" },
+        decorationBox = { field ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 120.dp, max = 240.dp)
+                    .background(colors.control.copy(alpha = 0.6f))
+                    .then(if (focused) Modifier.border(2.dp, colors.accent) else Modifier)
+                    .padding(12.dp),
+            ) {
+                if (value.isEmpty()) MetroText("{ \"name\": …, \"tile\": { … } }", MetroType.caption, color = colors.subtle)
+                field()
+            }
+        },
+    )
+}
+
+/** An imported or AI-written setup before it is used: the tile it makes, and everything that was left out and why. */
+@Composable
+private fun ImportPreview(b: BuildState.Imported, name: String, url: String, created: Long) {
+    val colors = Metro.colors
+    val d = b.checked.draft
+    val cached = b.root?.let { CachedApi("import", it, "", System.currentTimeMillis()) }
+    Column(Modifier.fillMaxWidth().border(1.dp, colors.accent).padding(12.dp)) {
+        MetroText("${b.source}: use this to replace the tile's setup", MetroType.caption, color = colors.subtle, modifier = Modifier.padding(bottom = 8.dp))
+        val draft = TileContent.Api(d.name.ifBlank { name.ifBlank { "api" } }, viewOf(d.url.ifEmpty { url }, d.tile), viewOf(d.detailUrl, d.detail), created = created)
+        if (cached != null) PreviewTiles(draft, cached)
+        Spacer(Modifier.height(8.dp))
+        if (d.url.isNotEmpty() && d.url != url) MetroText("address: ${d.url}", MetroType.caption, color = colors.foreground, maxLines = 2)
+        d.tile.forEach { (t, text) -> MetroText("${t.label}: $text", MetroType.caption, color = colors.foreground, maxLines = 1) }
+        if (d.detailUrl.isNotEmpty()) MetroText("expanded view address: ${d.detailUrl}", MetroType.caption, color = colors.foreground, maxLines = 2)
+        d.detail.forEach { (t, text) -> MetroText("expanded ${t.label}: $text", MetroType.caption, color = colors.foreground, maxLines = 1) }
+        if (d.headers.isNotEmpty()) MetroText("headers to fill in: ${d.headers.joinToString(", ")}", MetroType.caption, color = colors.foreground)
+        if (b.checked.notes.isNotEmpty()) {
+            MetroText("left out:", MetroType.caption, color = colors.accent, modifier = Modifier.padding(top = 6.dp))
+            b.checked.notes.take(8).forEach { MetroText("· $it", MetroType.caption, color = colors.accent) }
+            if (b.checked.notes.size > 8) MetroText("· and ${b.checked.notes.size - 8} more", MetroType.caption, color = colors.accent)
+        }
+    }
 }
 
 /** A build prompt is at most this long. */

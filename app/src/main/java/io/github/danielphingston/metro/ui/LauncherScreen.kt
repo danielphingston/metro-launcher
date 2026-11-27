@@ -1,5 +1,14 @@
 package io.github.danielphingston.metro.ui
 
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Column
+import io.github.danielphingston.metro.ui.theme.MetroType
+import io.github.danielphingston.metro.ui.components.MetroText
+import io.github.danielphingston.metro.ui.components.MetroButton
+import io.github.danielphingston.metro.ui.components.MetroFlyout
+import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.ui.tiles.TileImports
+import io.github.danielphingston.metro.ui.tiles.ApiEditor
 import android.app.ActivityOptions
 import android.content.Intent
 import android.graphics.Rect
@@ -351,6 +360,36 @@ fun LauncherScreen(viewModel: LauncherViewModel) {
                 CoachMark.next(coachMarks, signals.place)?.let { hint -> CoachMarkBar(hint) { viewModel.coachMarkSeen(hint) } }
             }
             if (onboarding) OnboardingScreen(settings, viewModel.onboarding::finish)
+            // A tile setup shared in from another app ("Import API tile"): the editor opens on it.
+            val shared by TileImports.pending.collectAsStateWithLifecycle()
+            shared?.takeIf { !onboarding }?.let { text -> SharedTileImport(viewModel, text) }
+        }
+    }
+}
+
+/** The API tile editor opened on a shared setup, or, while Metro Plus is locked, a line saying so. */
+@Composable
+private fun SharedTileImport(viewModel: LauncherViewModel, text: String) {
+    val unlocked by viewModel.quickTilesUnlocked.collectAsStateWithLifecycle()
+    key(text) {
+        if (unlocked) {
+            ApiEditor(
+                initial = null,
+                onDone = { api ->
+                    viewModel.addTile(api, TileSize.MEDIUM)
+                    TileImports.clear()
+                },
+                onCancel = TileImports::clear,
+                initialImport = text,
+            )
+        } else {
+            MetroFlyout(onDismiss = TileImports::clear, paneTitle = "import api tile") {
+                Column(Modifier.padding(24.dp)) {
+                    MetroText("api tiles come with metro plus", MetroType.sectionTitle)
+                    MetroText("Unlock it from the metro plus tiles in edit mode, then share the setup again.", MetroType.body, color = Metro.colors.subtle, modifier = Modifier.padding(top = 8.dp))
+                    MetroButton("close", TileImports::clear, Modifier.padding(top = 16.dp))
+                }
+            }
         }
     }
 }

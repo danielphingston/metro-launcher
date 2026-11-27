@@ -2,5 +2,6 @@
 <resources>
     <string name="app_name">Metro Launcher</string>
     <string name="settings_label">Metro settings</string>
+    <string name="import_tile_label">Import API tile</string>
     <string name="notification_listener_label">Metro live tiles</string>
 </resources>

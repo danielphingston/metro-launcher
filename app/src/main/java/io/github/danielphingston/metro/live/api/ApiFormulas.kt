@@ -138,6 +138,26 @@ object BuiltInFormulas : ApiFormulas {
         return Evaluated(out.take(MAX_TEXT).toString(), run.changesAt, error)
     }
 
+    /**
+     * The paths in [template] that find nothing in [root] (or in [row], for a row template), as
+     * written ("species.url", "@.name"): what an imported or generated tile reads that this answer
+     * doesn't have. A path on the left of ?? is allowed to be missing. Null when the template
+     * can't be read ([problem] says why); never throws.
+     */
+    fun missingPaths(template: String, root: Any?, context: FormulaContext, row: Any? = ApiFormulas.NO_ROW): List<String>? {
+        if (problem(template) != null) return null
+        return try {
+            val run = Run(root, row, context)
+            run.missing = LinkedHashSet()
+            for (part in split(template)) {
+                if (part is Part.Formula) runCatching { run.eval(part.expr, 0) }
+            }
+            run.missing!!.toList()
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
     override fun problem(template: String): String? {
         if (template.length > MAX_TEMPLATE) return "a template holds up to $MAX_TEMPLATE characters"
         return try {
@@ -377,6 +397,10 @@ object BuiltInFormulas : ApiFormulas {
         var steps = 0
         var changesAt: Long? = null
 
+        /** When set, paths that find nothing are written here ([missingPaths]); a ?? left side is skipped. */
+        var missing: MutableSet<String>? = null
+        private var optional = 0
+
         fun changeAt(at: Long) {
             if (at <= context.now) return
             changesAt = changesAt?.let { minOf(it, at) } ?: at
@@ -396,7 +420,11 @@ object BuiltInFormulas : ApiFormulas {
             }
         }
 
-        private fun path(p: Path): Any? {
+        private fun path(p: Path): Any? = find(p).also { value ->
+            if (value == null && optional == 0) missing?.add(pathText(p))
+        }
+
+        private fun find(p: Path): Any? {
             if (p.fromRow) return if (row === ApiFormulas.NO_ROW) null else ApiJson.at(row, p.steps)
             if (!p.fromRoot && row !== ApiFormulas.NO_ROW) {
                 val fromRow = ApiJson.at(row, p.steps)
@@ -405,9 +433,22 @@ object BuiltInFormulas : ApiFormulas {
             return ApiJson.at(root, p.steps)
         }
 
+        private fun pathText(p: Path): String {
+            val body = p.steps.joinToString("") { s -> if (s is Int) "[$s]" else ".$s" }.removePrefix(".")
+            return when {
+                p.fromRow -> if (body.isEmpty()) "@" else "@.$body"
+                p.fromRoot -> if (body.isEmpty()) "$" else "$.$body"
+                else -> body
+            }
+        }
+
         private fun binary(b: Binary, depth: Int): Any? {
+            if (b.op == "??") {
+                optional++
+                val l = try { eval(b.left, depth + 1) } finally { optional-- }
+                return if (isEmpty(l)) eval(b.right, depth + 1) else l
+            }
             val l = eval(b.left, depth + 1)
-            if (b.op == "??") return if (isEmpty(l)) eval(b.right, depth + 1) else l
             val r = eval(b.right, depth + 1)
             return when (b.op) {
                 "+" -> {

@@ -224,6 +224,24 @@
             </intent-filter>
         </activity>
 
+        <!-- "Import API tile" in the share sheet: shared text (a tile setup a chatbot wrote) opens the
+             API tile editor with the text in its import box. Nothing is read or fetched until the
+             user taps there; see ShareTileActivity. -->
+        <activity
+            android:name=".ui.ShareTileActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/import_tile_label"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- WorkManager starts on first use instead of at every process start; see
              MetroApplication.workManagerConfiguration. -->
         <provider
@@ -261,5 +279,13 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
         </service>
+
+        <!-- On-device AI for the API tile editor (ML Kit): its start-up provider would set ML Kit up
+             every time the launcher starts. Removed so nothing of it runs until the AI button is
+             tapped, which sets it up then (TileAi). -->
+        <provider
+            android:name="com.google.mlkit.common.internal.MlKitInitProvider"
+            android:authorities="${applicationId}.mlkitinitprovider"
+            tools:node="remove" />
     </application>
 </manifest>

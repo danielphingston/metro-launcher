@@ -44,6 +44,11 @@ import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.tiles.ApiDetailBody
 import io.github.danielphingston.metro.ui.tiles.ApiEditor
 import io.github.danielphingston.metro.ui.tiles.ApiFace
+import io.github.danielphingston.metro.ui.tiles.AiDownload
+import io.github.danielphingston.metro.ui.tiles.AiState
+import io.github.danielphingston.metro.ui.tiles.TileAi
+import io.github.danielphingston.metro.ui.tiles.TileAis
+import kotlinx.coroutines.flow.emptyFlow
 import org.json.JSONObject
 import org.junit.Rule
 import org.junit.Test
@@ -258,6 +263,45 @@ class ApiTileScreenshotTest {
         // The address with the picked field, and the picker under it.
         rule.onNodeWithText("Same address as the tile").performScrollTo()
         rule.onRoot().captureRoboImage("src/test/screenshots/api_address_picker.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** An imported setup, checked against the answer: the tile it makes and what was left out. */
+    @Test
+    fun importPreview() {
+        showPicker()
+        rule.onAllNodes(hasSetTextAction())[1].performTextInput("https://pokeapi.co/api/v2/pokemon/pikachu")
+        rule.onNodeWithText("import").performScrollTo().performClick()
+        rule.onNodeWithContentDescription("tile setup to import").performScrollTo().performTextInput(
+            """{"name": "Pikachu", "headers": ["X-Key"], "tile": {"title": "{name}", "value": "{weight}", "line1": "height {height}", "line2": "{nickname}", "list": "stats", "rowText": "{stat.name}", "rowDetail": "{base_stat}"}}""",
+        )
+        rule.onNodeWithText("read import").performScrollTo().performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithText("use this").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("use this").performScrollTo()
+        rule.onRoot().captureRoboImage("src/test/screenshots/api_import_preview.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** The on-device AI's status when the phone can fetch the model: the download is offered. */
+    @Test
+    fun aiDownloadOffer() {
+        TileAis.override = {
+            object : TileAi {
+                override suspend fun state() = AiState.Downloadable
+                override fun download() = emptyFlow<AiDownload>()
+                override suspend fun generate(system: String, prompt: String) = ""
+                override suspend fun tokenLimit(): Int? = null
+                override suspend fun countTokens(system: String, prompt: String): Int? = null
+                override fun close() = Unit
+            }
+        }
+        try {
+            showPicker()
+            rule.onNodeWithText("build with AI").performScrollTo().performClick()
+            rule.waitUntil(5_000) { rule.onAllNodesWithText("download model").fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithText("download model").performScrollTo()
+            rule.onRoot().captureRoboImage("src/test/screenshots/api_ai_download.png", roborazziOptions = ScreenshotOptions)
+        } finally {
+            TileAis.override = null
+        }
     }
 
     /** A drawn stand-in picture: a road curving over green. */
