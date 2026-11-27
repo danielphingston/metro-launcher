@@ -50,6 +50,7 @@ import io.github.danielphingston.metro.ui.settings.RestoreFromBackupButton
 import io.github.danielphingston.metro.ui.settings.rememberOnResume
 import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroType
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -66,9 +67,13 @@ internal fun OnboardingScreen(
     initialStep: OnboardingStep = OnboardingStep.WELCOME,
 ) {
     val colors = Metro.colors
-    val app = LocalContext.current.applicationContext as MetroApplication
+    val context = LocalContext.current
+    // Null in a Compose preview (Android Studio, the Android CLI), which runs without the app object:
+    // the steps then read the same settings store directly and the grid step shows no tiles of its own.
+    val app = context.applicationContext as? MetroApplication
+    val repository = app?.settings ?: remember(context) { SettingsRepository(context) }
     // The user's own tiles, for the grid step's preview.
-    val tiles by app.tiles.tiles.collectAsState()
+    val tiles by (app?.tiles?.tiles ?: remember { MutableStateFlow(null) }).collectAsState()
     var stepIndex by rememberSaveable { mutableIntStateOf(initialStep.ordinal) }
     val step = OnboardingStep.entries[stepIndex.coerceIn(0, OnboardingStep.entries.lastIndex)]
     val scroll = rememberScrollState()
@@ -102,9 +107,9 @@ internal fun OnboardingScreen(
             when (step) {
                 OnboardingStep.WELCOME -> WelcomeStep(onRestored = { onFinish(false) })
                 OnboardingStep.LIVE_TILES -> LiveTilesStep()
-                OnboardingStep.LOOK -> LookStep(settings)
-                OnboardingStep.BACKGROUND -> BackgroundStep(settings, app.settings)
-                OnboardingStep.GRID -> StartGridStep(settings, app.settings, tiles.orEmpty())
+                OnboardingStep.LOOK -> LookStep(settings, repository)
+                OnboardingStep.BACKGROUND -> BackgroundStep(settings, repository)
+                OnboardingStep.GRID -> StartGridStep(settings, repository, tiles.orEmpty())
                 OnboardingStep.DONE -> DoneStep()
             }
             Spacer(Modifier.height(16.dp))
@@ -184,10 +189,9 @@ private fun LiveTilesStep() {
 }
 
 @Composable
-private fun LookStep(settings: LauncherSettings) {
+private fun LookStep(settings: LauncherSettings, repository: SettingsRepository) {
     val colors = Metro.colors
     val scope = rememberCoroutineScope()
-    val repository = (LocalContext.current.applicationContext as MetroApplication).settings
 
     MetroText("theme", MetroType.sectionTitle, modifier = Modifier.padding(bottom = 8.dp))
     MetroChoiceGroup(ThemeMode.entries.map { it to it.name.lowercase() }, settings.theme, { scope.launch { repository.setTheme(it) } })
