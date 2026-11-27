@@ -11,6 +11,7 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
@@ -316,6 +317,7 @@ class ApiFailureTest {
                 Box(Modifier.fillMaxSize()) { ApiEditor(null, {}, {}, sample = sample) }
             }
         }
+        rule.onNodeWithText("advanced").performClick()
         for (root in roots) {
             sample = root
             rule.waitForIdle()

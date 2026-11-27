@@ -29,6 +29,8 @@ import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.tiles.ApiEditor
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -67,6 +69,8 @@ class ApiEditorTest {
                 }
             }
         }
+        // A new tile opens on the import: the address is set by hand under advanced.
+        rule.onNodeWithText("advanced").performClick()
         rule.onAllNodes(hasSetTextAction())[1].performTextInput("https://pokeapi.co/api/v2/pokemon/pikachu")
     }
 
@@ -122,6 +126,38 @@ class ApiEditorTest {
         rule.onAllNodesWithText("front_default").onFirst().performScrollTo().performClick()
         add()
         assertEquals("{sprites.front_default}", saved!!.tile.slot(ApiSlot.TITLE))
+    }
+
+    @Test
+    fun theBackHasItsOwnTabAndAddressAndNoLink() {
+        show()
+        // The front's big value, then the back's, each in the template field (name, address, prompt, template).
+        rule.onAllNodes(hasSetTextAction())[3].performScrollTo().performTextInput("{name}")
+        rule.onNodeWithText("link").assertExists()
+        chip("back")
+        rule.onNodeWithText("What the tile flips to now and then", substring = true).assertExists()
+        // A tap on the back does what the front does: no link of its own.
+        rule.onNodeWithText("link").assertDoesNotExist()
+        rule.onAllNodes(hasSetTextAction())[3].performScrollTo().performTextInput("{weight} kg")
+        // Its own address, built from the tile's answer, comes before the prompt.
+        rule.onNodeWithText("Same address as the tile").performScrollTo().performClick()
+        rule.onAllNodes(hasSetTextAction())[2].performScrollTo().performTextInput("{species.url}")
+        add()
+        val tile = saved!!
+        assertEquals("{name}", tile.tile.slot(ApiSlot.VALUE))
+        assertEquals("{weight} kg", tile.back.slot(ApiSlot.VALUE))
+        assertEquals("{species.url}", tile.back.url)
+        assertTrue(tile.hasBack)
+        assertEquals("", tile.detail.url)
+    }
+
+    @Test
+    fun aTileWithoutABackDoesntFlip() {
+        show()
+        rule.onAllNodes(hasSetTextAction())[3].performScrollTo().performTextInput("{name}")
+        add()
+        assertFalse(saved!!.hasBack)
+        assertEquals(io.github.danielphingston.metro.data.ApiView(), saved!!.back)
     }
 
     @Test

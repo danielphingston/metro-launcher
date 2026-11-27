@@ -74,6 +74,7 @@ import io.github.danielphingston.metro.live.api.ApiSecrets
 import io.github.danielphingston.metro.live.api.ApiStore
 import io.github.danielphingston.metro.live.api.CachedApi
 import io.github.danielphingston.metro.live.api.FormulaContext
+import io.github.danielphingston.metro.ui.start.FlipCard
 import io.github.danielphingston.metro.ui.components.MetroButton
 import io.github.danielphingston.metro.ui.components.MetroFlyout
 import io.github.danielphingston.metro.ui.components.MetroText
@@ -165,10 +166,12 @@ internal fun rememberTickingNow(changesAt: Long?, active: Boolean): Long {
  * Start is on screen (the activity started: the screen on and the launcher showing), when its copy
  * is older than its interval; the next refresh is aligned to the clock's minute so several tiles
  * share one wake. Nothing runs in the background. While [unlocked] is false (Metro Plus) it
- * downloads nothing and says so.
+ * downloads nothing and says so. With a back face set up it takes part in Start's flips (only on
+ * the page showing, and not at all when tile flips are off); a back with its own address is
+ * refreshed the same way.
  */
 @Composable
-fun ApiTile(tile: ResolvedTile, api: TileContent.Api, cellSize: Dp, unlocked: Boolean) {
+fun ApiTile(tile: ResolvedTile, api: TileContent.Api, cellSize: Dp, unlocked: Boolean, flipped: Boolean = false) {
     val context = LocalContext.current
     val m = rememberTileMetrics(cellSize)
     val headers by rememberApiHeaders(api)
@@ -188,6 +191,33 @@ fun ApiTile(tile: ResolvedTile, api: TileContent.Api, cellSize: Dp, unlocked: Bo
         }
     }
     val cached = request?.let { data[it.key] }
+    val hasBack = api.hasBack && tile.spec.size != TileSize.SMALL && unlocked
+    // A back with its own address ({species.url}) is worked out from the tile's latest answer and
+    // refreshed with it, on the same interval and only while Start is on screen.
+    val backRequest = remember(hasBack, api.back.url, cached?.root, cached?.hasData, headers) {
+        val h = headers
+        if (!hasBack || api.back.url.isEmpty() || h == null) {
+            null
+        } else {
+            when (val r = ApiAddress.resolve(api.back.url, cached?.root, cached?.hasData == true, ApiTiles.formulaContext(context, System.currentTimeMillis()))) {
+                is ApiAddress.Resolved.Url -> ApiRequest(r.url, ApiAddress.headersFor(api.back.url, r.url, api.tile.url, h))
+                else -> null
+            }
+        }
+    }
+    LaunchedEffect(backRequest, api.refreshMinutes) {
+        if (backRequest == null) return@LaunchedEffect
+        ApiStore.load(context, backRequest)
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                val interval = ApiRefresh.tileInterval(api.refreshMinutes, ApiTiles.batterySaver(context))
+                ApiStore.refresh(context, backRequest, interval - ApiRefresh.TOLERANCE_MS, retryMs = ApiRefresh.RETRY_MS)
+                val now = System.currentTimeMillis()
+                delay(ApiRefresh.nextWake(ApiStore.data.value[backRequest.key], interval, now) - now)
+            }
+        }
+    }
+    val backCached = if (api.back.url.isEmpty()) cached else backRequest?.let { data[it.key] }
     // On screen at all: a tile scrolled away, or on a page not showing, doesn't tick its countdown.
     var visible by remember { mutableStateOf(true) }
     Box(
@@ -198,8 +228,15 @@ fun ApiTile(tile: ResolvedTile, api: TileContent.Api, cellSize: Dp, unlocked: Bo
         },
     ) {
         var changesAt by remember { mutableStateOf<Long?>(null) }
-        val now = rememberTickingNow(changesAt, visible && unlocked)
-        ApiFace(tile.spec.size, tile.label, api.tile, cached, unlocked, m, now, onChangesAt = { changesAt = it })
+        var backChangesAt by remember { mutableStateOf<Long?>(null) }
+        val showBack = flipped && hasBack
+        val now = rememberTickingNow(if (showBack) backChangesAt else changesAt, visible && unlocked)
+        FlipCard(
+            showBack = showBack,
+            background = Color.Transparent,
+            front = { ApiFace(tile.spec.size, tile.label, api.tile, cached, unlocked, m, now, onChangesAt = { changesAt = it }) },
+            back = { ApiFace(tile.spec.size, tile.label, api.back, backCached, unlocked, m, now, onChangesAt = { backChangesAt = it }) },
+        )
     }
 }
 

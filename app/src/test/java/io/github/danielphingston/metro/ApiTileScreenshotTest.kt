@@ -36,7 +36,17 @@ import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.api.ApiJson
+import io.github.danielphingston.metro.live.api.ApiHttp
 import io.github.danielphingston.metro.live.api.ApiProblem
+import io.github.danielphingston.metro.live.api.ApiResponse
+import io.github.danielphingston.metro.live.api.ApiSecrets
+import io.github.danielphingston.metro.live.api.ApiStore
+import io.github.danielphingston.metro.live.api.InMemoryApiSecrets
+import io.github.danielphingston.metro.data.TileSpec
+import io.github.danielphingston.metro.ui.ResolvedTile
+import io.github.danielphingston.metro.ui.tiles.ApiTile
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import io.github.danielphingston.metro.live.api.CachedApi
 import io.github.danielphingston.metro.ui.start.TileMetrics
 import io.github.danielphingston.metro.ui.theme.Metro
@@ -204,6 +214,9 @@ class ApiTileScreenshotTest {
             }
         }
         rule.waitForIdle()
+        // A new tile opens on the import; the picker is under advanced.
+        rule.onNodeWithText("advanced").performClick()
+        rule.waitForIdle()
     }
 
     /** A large answer starts as its top level; one object and one list opened. */
@@ -270,7 +283,7 @@ class ApiTileScreenshotTest {
     fun importPreview() {
         showPicker()
         rule.onAllNodes(hasSetTextAction())[1].performTextInput("https://pokeapi.co/api/v2/pokemon/pikachu")
-        rule.onNodeWithText("import").performScrollTo().performClick()
+        rule.onNodeWithText("import").performClick()
         rule.onNodeWithContentDescription("tile setup to import").performScrollTo().performTextInput(
             """{"name": "Pikachu", "headers": ["X-Key"], "tile": {"title": "{name}", "value": "{weight}", "line1": "height {height}", "line2": "{nickname}", "list": "stats", "rowText": "{stat.name}", "rowDetail": "{base_stat}"}, "expanded": {"title": "{name}", "line1": "{base_experience} xp", "list": "abilities", "rowText": "{ability.name}"}, "colour": "red"}""",
         )
@@ -302,6 +315,107 @@ class ApiTileScreenshotTest {
             rule.onRoot().captureRoboImage("src/test/screenshots/api_ai_download.png", roborazziOptions = ScreenshotOptions)
         } finally {
             TileAis.override = null
+        }
+    }
+
+    /** A new tile's editor: only the import to start with, everything else under advanced. */
+    @Test
+    fun editorImportPage() {
+        rule.setContent {
+            MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
+                Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
+                    ApiEditor(null, onDone = {}, onCancel = {}, sample = pokemon)
+                }
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("tile setup to import").assertExists()
+        rule.onNodeWithText("ADDRESS").assertDoesNotExist()
+        rule.onRoot().captureRoboImage("src/test/screenshots/api_editor_import.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** An import used: the tile's front, the back it flips to and the expanded view, with the key it needs asked for right there. */
+    @Test
+    fun editorImportUsed() {
+        showPicker()
+        rule.onAllNodes(hasSetTextAction())[1].performTextInput("https://pokeapi.co/api/v2/pokemon/pikachu")
+        rule.onNodeWithText("import").performClick()
+        rule.onNodeWithContentDescription("tile setup to import").performScrollTo().performTextInput(
+            """{"name": "Pikachu", "headers": ["X-Key"], "tile": {"title": "{name}", "value": "#{id}", "line1": "{join(types, ', ', 'type.name')}"}, "back": {"title": "{name}", "value": "{weight / 10} kg", "line1": "{height * 10} cm tall"}, "expanded": {"title": "{name}", "list": "stats", "rowText": "{stat.name}", "rowDetail": "{base_stat}"}}""",
+        )
+        rule.onNodeWithText("read import").performScrollTo().performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithText("use this").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("use this").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("back, shown now and then").assertExists()
+        rule.onNodeWithText("KEYS IT NEEDS").performScrollTo()
+        rule.onRoot().captureRoboImage("src/test/screenshots/api_editor_import_used.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** The back's own tab under advanced: what the tile flips to, without a link of its own. */
+    @Test
+    fun editorBack() {
+        showPicker()
+        rule.onAllNodesWithText("back")[0].performScrollTo().performClick()
+        rule.onAllNodes(hasSetTextAction())[3].performScrollTo().performTextInput("{weight / 10} kg")
+        rule.onAllNodesWithText("title")[0].performScrollTo().performClick()
+        rule.onAllNodes(hasSetTextAction())[3].performScrollTo().performTextInput("{name}")
+        rule.waitForIdle()
+        rule.onNodeWithText("PREVIEW").performScrollTo()
+        rule.onRoot().captureRoboImage("src/test/screenshots/api_editor_back.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** The tile on Start, front and flipped: the back reads its own address, a link in the tile's answer. */
+    @Test
+    fun tileFlipsToItsBack() {
+        val species = """{"name": "pikachu", "capture_rate": 190, "color": {"name": "yellow"}, "habitat": {"name": "forest"}}"""
+        val asked = java.util.Collections.synchronizedList(ArrayList<String>())
+        val http = ApiStore.http
+        ApiStore.http = ApiHttp { url, _, _ ->
+            asked += url
+            ApiResponse((if ("species" in url) species else pokemon.toString()).toByteArray())
+        }
+        ApiSecrets.override = InMemoryApiSecrets()
+        val api = TileContent.Api(
+            "pikachu",
+            ApiView("https://pokeapi.co/api/v2/pokemon/pikachu", mapOf(ApiSlot.TITLE to "{name}", ApiSlot.VALUE to "#{id}", ApiSlot.LINE1 to "{weight / 10} kg")),
+            ApiView(),
+            back = ApiView("{species.url}", mapOf(ApiSlot.TITLE to "{habitat.name}", ApiSlot.VALUE to "{upper(color.name)}", ApiSlot.LINE1 to "catch rate {capture_rate}")),
+        )
+        try {
+            rule.setContent {
+                MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
+                    Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
+                        BoxWithConstraints(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 52.dp)) {
+                            val gap = 4.dp
+                            val c = (maxWidth + gap) / 4
+                            listOf(
+                                Triple(0, 0, TileSize.WIDE to false),
+                                Triple(0, 2, TileSize.WIDE to true),
+                                Triple(0, 4, TileSize.MEDIUM to false),
+                                Triple(2, 4, TileSize.MEDIUM to true),
+                                // A small tile never flips: too small for a second face.
+                                Triple(0, 6, TileSize.SMALL to true),
+                            ).forEachIndexed { i, (x, y, sf) ->
+                                val (size, flipped) = sf
+                                Box(Modifier.offset(c * x, c * y).size(c * size.width - gap, c * size.height - gap)) {
+                                    ApiTile(ResolvedTile(TileSpec(i + 1L, size, api), null, "pikachu"), api, c - gap, unlocked = true, flipped = flipped)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            rule.waitUntil(5_000) { rule.onAllNodesWithText("YELLOW").fetchSemanticsNodes().size == 2 }
+            rule.waitForIdle()
+            assertTrue(asked.toString(), asked.any { it == "https://pokeapi.co/api/v2/pokemon-species/1/" })
+            // The fronts and the small tile still show the tile's own answer.
+            assertEquals(3, rule.onAllNodesWithText("#25").fetchSemanticsNodes().size)
+            rule.onRoot().captureRoboImage("src/test/screenshots/api_tile_back.png", roborazziOptions = ScreenshotOptions)
+        } finally {
+            ApiStore.http = http
+            ApiStore.clearMemory()
+            ApiSecrets.override = null
         }
     }
 

@@ -110,7 +110,12 @@ sealed interface TileContent {
         val liveSeconds: Int = 0,
         val wifiOnly: Boolean = false,
         val created: Long = 0,
+        /** The face the tile flips to, like a Windows Phone live tile; its blank [ApiView.url] reads the tile's answer. */
+        val back: ApiView = ApiView(),
     ) : TileContent {
+        /** Whether there is a back to flip to: something on it besides a link. */
+        val hasBack: Boolean get() = back.slots.keys.any { it != ApiSlot.LINK } || back.list != null
+
         /** The address the expanded view reads; it may take values from the tile's answer (see [io.github.danielphingston.metro.live.api.ApiAddress]). */
         val detailUrl: String get() = detail.url.ifEmpty { tile.url }
     }

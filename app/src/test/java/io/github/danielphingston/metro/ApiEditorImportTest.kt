@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -110,6 +111,8 @@ class ApiEditorImportTest {
                 }
             }
         }
+        // A new tile opens on the import: the address is set by hand under advanced.
+        rule.onNodeWithText("advanced").performClick()
         rule.onAllNodes(hasSetTextAction())[1].performTextInput(url)
     }
 
@@ -124,7 +127,7 @@ class ApiEditorImportTest {
     }
 
     private fun paste(text: String) {
-        if (rule.onAllNodesWithText("close import").fetchSemanticsNodes().isEmpty()) tap("import")
+        if (rule.onAllNodes(hasContentDescription("tile setup to import")).fetchSemanticsNodes().isEmpty()) rule.onNodeWithText("import").performClick()
         rule.onNodeWithContentDescription("tile setup to import").performScrollTo().performTextReplacement(text)
         tap("read import")
     }
@@ -139,12 +142,14 @@ class ApiEditorImportTest {
         rule.onNodeWithText("the answer has no zebra", substring = true).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("values aren't imported", substring = true).performScrollTo().assertIsDisplayed()
         tap("use this")
-        // The header comes as a name waiting for its value; an empty one isn't saved.
-        rule.onNodeWithText("type the value for X-Key under headers").performScrollTo().assertIsDisplayed()
+        // The header comes as a name waiting for its value, asked for right on the import page; an empty one isn't saved.
+        rule.onNodeWithText("KEYS IT NEEDS").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("YOUR TILE").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("add tile").performClick()
         rule.onNodeWithText("X-Key needs a value").assertIsDisplayed()
         assertNull(saved)
-        rule.onAllNodes(hasSetTextAction())[3].performScrollTo().performTextInput("my-key")
+        // The import box, then the key's value.
+        rule.onAllNodes(hasSetTextAction())[1].performScrollTo().performTextInput("my-key")
         add()
         val tile = saved!!
         assertEquals("Pika", tile.name)
@@ -171,6 +176,7 @@ class ApiEditorImportTest {
     @Test
     fun aSharedSetupWaitsInTheBoxUntilRead() {
         show(initialImport = """{"tile": {"title": "{name}"}}""")
+        rule.onNodeWithText("import").performClick()
         rule.onNodeWithContentDescription("tile setup to import").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("use this").assertDoesNotExist()
         tap("read import")
@@ -184,6 +190,8 @@ class ApiEditorImportTest {
     fun copyPromptPutsTheFormatTheAddressAndTheFieldsOnTheClipboard() {
         show()
         rule.onAllNodes(hasSetTextAction())[2].performScrollTo().performTextInput("name and weight")
+        // The prompt is typed under advanced; copy prompt sits with the import.
+        rule.onNodeWithText("import").performClick()
         tap("copy prompt")
         waitFor("prompt copied", substring = true)
         val clip = ApplicationProvider.getApplicationContext<android.content.Context>().getSystemService(ClipboardManager::class.java).primaryClip!!

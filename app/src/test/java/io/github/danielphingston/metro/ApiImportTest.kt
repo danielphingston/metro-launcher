@@ -163,6 +163,60 @@ class ApiImportTest {
     }
 
     @Test
+    fun theBackIsReadLikeTheExpandedViewButHasNoLinkOfItsOwn() {
+        val r = ok(
+            """{"url": "https://pokeapi.co/api/v2/pokemon/pikachu", "tile": {"title": "{name}"},
+               "back": {"url": "{species.url}", "title": "{name}", "line1": "{zebra}", "link": "{species.url}", "list": "stats", "rowText": "{stat.name}"}}""",
+        )
+        assertEquals("{species.url}", r.draft.backUrl)
+        assertEquals("{name}", r.draft.back[ApiTarget.TITLE])
+        assertNull(r.draft.back[ApiTarget.LINK])
+        assertTrue(r.notes.toString(), r.notes.any { it.startsWith("back.link:") })
+        // Held against the tile's answer when it reads the tile's address: a field it lacks is left out, by name.
+        val same = ok("""{"tile": {"title": "{name}"}, "back": {"title": "{name}", "line1": "{zebra}", "list": "stats", "rowText": "{stat.name}"}}""")
+        val checked = ApiImport.check(same.draft, pokemon, null, ctx)
+        assertEquals("{name}", checked.draft.back[ApiTarget.TITLE])
+        assertNull(checked.draft.back[ApiTarget.LINE1])
+        assertEquals("stats", checked.draft.back[ApiTarget.LIST])
+        assertTrue(checked.notes.toString(), checked.notes.any { it.startsWith("back.line1:") })
+        // Its own address, not fetched: its fields are kept unchecked, and it says so.
+        val own = ApiImport.check(r.draft, pokemon, null, ctx)
+        assertEquals("{zebra}", own.draft.back[ApiTarget.LINE1])
+        assertTrue(own.notes.toString(), own.notes.any { it.contains("the back's fields weren't checked") })
+        // A back that isn't an object, or a bad address, is skipped with a note; a back alone is enough to import.
+        assertTrue(ok("""{"tile": {"title": "{name}"}, "back": "{name}"}""").notes.any { it.startsWith("back") })
+        assertTrue(ok("""{"tile": {"title": "{name}"}, "back": {"url": 3, "title": "{name}"}}""").notes.contains("back.url: must be text: skipped"))
+        val badUrl = ok("""{"tile": {"title": "{name}"}, "back": {"url": "{species.url", "title": "{name}"}}""")
+        assertEquals("", badUrl.draft.backUrl)
+        assertTrue(badUrl.notes.toString(), badUrl.notes.any { it.startsWith("back.url:") })
+        assertEquals("{name}", ok("""{"back": {"title": "{name}"}}""").draft.back[ApiTarget.TITLE])
+        assertTrue(ApiImport.FORMAT.contains("\"back\" is optional"))
+    }
+
+    @Test
+    fun aBackSurvivesTheLayoutAndTheExport() {
+        val api = TileContent.Api(
+            "poke",
+            ApiView("https://pokeapi.co/api/v2/pokemon/pikachu", mapOf(ApiSlot.TITLE to "{name}")),
+            ApiView(),
+            back = ApiView("{species.url}", mapOf(ApiSlot.LINE1 to "{name}"), ApiList("stats", "{stat.name}")),
+        )
+        assertTrue(api.hasBack)
+        assertFalse(api.copy(back = ApiView(slots = mapOf(ApiSlot.LINK to "{x}"))).hasBack)
+        assertFalse(api.copy(back = ApiView()).hasBack)
+        val json = ApiTileJson.encode(api, JSONObject())
+        assertEquals(api, ApiTileJson.decode(json))
+        // A tile without a back writes none, so older layouts read the same.
+        assertFalse(ApiTileJson.encode(api.copy(back = ApiView()), JSONObject()).has("back"))
+        val r = ok(json.toString())
+        assertEquals("{species.url}", r.draft.backUrl)
+        assertEquals("{name}", r.draft.back[ApiTarget.LINE1])
+        val again = ok(ApiImport.export(r.draft)).draft
+        assertEquals(r.draft.backUrl, again.backUrl)
+        assertEquals(r.draft.back.filterValues { it.isNotEmpty() }, again.back)
+    }
+
+    @Test
     fun thePromptListsEverySupportedFunctionWithAWorkingExample() {
         BuiltInFormulas.FUNCTIONS.forEach { (name, example) ->
             assertTrue("$name missing", ApiImport.FORMAT.contains("  $example: "))

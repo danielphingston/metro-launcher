@@ -700,6 +700,7 @@ fun StartScreen(
                 liveTiles.filter { (tile, p) ->
                     p.y * cellPx < top + viewportPx && (p.y + p.height) * cellPx > top && when (tile.spec.content) {
                         TileContent.Weather, TileContent.Photos, TileContent.People, is TileContent.Feed -> tile.spec.size != TileSize.SMALL
+                        is TileContent.Api -> tile.spec.size != TileSize.SMALL && (tile.spec.content as TileContent.Api).hasBack
                         else -> currentLiveFor(tile)?.hasBack(tile.spec.size) == true
                     }
                 }.map { it.first.spec.id }
@@ -1663,7 +1664,7 @@ private fun TileBody(
             val context = LocalContext.current
             val unlocked by remember { (context.applicationContext as MetroApplication).purchases.quickTilesUnlocked }
                 .collectAsStateWithLifecycle()
-            ApiTile(tile, tile.spec.content, cell, unlocked)
+            ApiTile(tile, tile.spec.content, cell, unlocked, flipped)
         }
         is TileContent.LayoutSwitch -> LayoutSwitchTile(tile, cell)
         is TileContent.Tool -> ToolFace(tile, rememberTileMetrics(cell), icons, folderOpen, onNoteTick.takeIf { !editing })

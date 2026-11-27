@@ -63,6 +63,7 @@ internal object ApiTileJson {
         .put("name", c.name)
         .put("tile", view(c.tile))
         .put("detail", view(c.detail))
+        .apply { if (c.back != ApiView()) put("back", view(c.back)) }
         .put("headers", JSONArray(c.headers))
         .put("refreshMinutes", c.refreshMinutes)
         .put("liveSeconds", c.liveSeconds)
@@ -87,6 +88,8 @@ internal object ApiTileJson {
         if (tile.url.isEmpty()) return null
         // The expanded view's address may take values from the tile's answer ({species.url}).
         val detail = readView(obj.optJSONObject("detail"), fields = true) ?: ApiView()
+        // The back face too, with no link of its own: a tap opens the expanded view as on the front.
+        val back = (readView(obj.optJSONObject("back"), fields = true) ?: ApiView()).let { it.copy(slots = it.slots - ApiSlot.LINK) }
         val headers = obj.optJSONArray("headers")?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).takeIf(::validHeader) } }
             .orEmpty().distinctBy { it.lowercase() }.take(MAX_HEADERS)
         val live = obj.optInt("liveSeconds", 0)
@@ -99,6 +102,7 @@ internal object ApiTileJson {
             liveSeconds = if (live <= 0) 0 else live.coerceIn(LIVE_SECONDS),
             wifiOnly = obj.optBoolean("wifiOnly", false),
             created = obj.optLong("created", 0),
+            back = back,
         )
     }
 

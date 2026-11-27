@@ -30,6 +30,9 @@ internal object ApiImport {
         val detail: Map<ApiTarget, String> = emptyMap(),
         val refreshMinutes: Int? = null,
         val liveSeconds: Int? = null,
+        /** The face the tile flips to; a blank [backUrl] reads the tile's answer. */
+        val backUrl: String = "",
+        val back: Map<ApiTarget, String> = emptyMap(),
     )
 
     sealed interface Parsed {
@@ -71,7 +74,7 @@ internal object ApiImport {
         if (obj.optString("type") == ApiTileJson.TYPE || obj.optJSONObject("tile")?.has("slots") == true) {
             val api = ApiTileJson.decode(obj) ?: return Parsed.Failed("that tile's setup can't be read: its address must be https")
             return Parsed.Ok(
-                Draft(api.name, api.tile.url, api.headers, templatesOf(api.tile), api.detail.url, templatesOf(api.detail), api.refreshMinutes, api.liveSeconds),
+                Draft(api.name, api.tile.url, api.headers, templatesOf(api.tile), api.detail.url, templatesOf(api.detail), api.refreshMinutes, api.liveSeconds, api.back.url, templatesOf(api.back)),
             )
         }
         // Strict: only the keys and types of the format below. Anything else is skipped and listed.
@@ -99,6 +102,12 @@ internal object ApiImport {
             is String -> if (v.isBlank()) "" else ApiAddress.normalize(v) ?: "".also { errors += "$expandedKey.url: must make an https address: skipped, the expanded view reads the tile's" }
             else -> "".also { errors += "$expandedKey.url: must be text: skipped" }
         }
+        val back = viewOf(obj, "back", errors)
+        val backUrl = when (val v = (obj.opt("back") as? JSONObject)?.opt("url")) {
+            null -> ""
+            is String -> if (v.isBlank()) "" else ApiAddress.normalize(v) ?: "".also { errors += "back.url: must make an https address: skipped, the back reads the tile's" }
+            else -> "".also { errors += "back.url: must be text: skipped" }
+        }
         val refresh = whole(obj, "refreshMinutes", errors)?.let { m ->
             if (m !in ApiTileJson.REFRESH_MINUTES) null.also { errors += "refreshMinutes: must be ${ApiTileJson.REFRESH_MINUTES.first} to ${ApiTileJson.REFRESH_MINUTES.last}: skipped" } else m
         }
@@ -109,13 +118,13 @@ internal object ApiImport {
                 else -> null.also { errors += "liveSeconds: must be 0 (off) or ${ApiTileJson.LIVE_SECONDS.first} to ${ApiTileJson.LIVE_SECONDS.last}: skipped" }
             }
         }
-        if (tile.isEmpty() && detail.isEmpty()) {
+        if (tile.isEmpty() && detail.isEmpty() && back.isEmpty()) {
             return Parsed.Failed("nothing usable in it: it needs a \"tile\" with fields like \"title\"", errors)
         }
-        return Parsed.Ok(Draft(name, url, headers, tile, detailUrl, detail, refresh, live), errors)
+        return Parsed.Ok(Draft(name, url, headers, tile, detailUrl, detail, refresh, live, backUrl, back), errors)
     }
 
-    private val TOP_KEYS = setOf("name", "url", "headers", "tile", "expanded", "detail", "refreshMinutes", "liveSeconds")
+    private val TOP_KEYS = setOf("name", "url", "headers", "tile", "back", "expanded", "detail", "refreshMinutes", "liveSeconds")
     private val LIST_KEYS = mapOf("path" to ApiTarget.LIST, "text" to ApiTarget.ROW_PRIMARY, "detail" to ApiTarget.ROW_SECONDARY, "image" to ApiTarget.ROW_IMAGE)
 
     /** A whole number at [key], or null (with an error when it is there but isn't one). */
@@ -191,6 +200,7 @@ internal object ApiImport {
             val value = obj.opt(k)
             when {
                 k == "url" -> if (key == "tile") errors += "tile.url: the address goes at the top, as \"url\": skipped"
+                k == "link" && key == "back" -> errors += "back.link: the back has no link of its own, a tap does what the front does: skipped"
                 k == "list" && value is JSONObject -> {
                     for (lk in value.keys().asSequence().toList()) {
                         val target = LIST_KEYS[lk]
@@ -216,7 +226,7 @@ internal object ApiImport {
      * the answer doesn't have, a formula that fails, or a list that isn't one is left out, with a
      * note. Never throws.
      */
-    fun check(draft: Draft, tileRoot: Any?, detailRoot: Any?, context: FormulaContext): Checked {
+    fun check(draft: Draft, tileRoot: Any?, detailRoot: Any?, context: FormulaContext, backRoot: Any? = null): Checked {
         val notes = ArrayList<String>()
         val tile = try {
             checkView(draft.tile, tileRoot, "tile", context, notes)
@@ -245,12 +255,32 @@ internal object ApiImport {
             notes += "expanded view: couldn't check it, so its fields were left out"
             emptyMap()
         }
-        return Checked(draft.copy(tile = tile, detail = detail, detailUrl = detailUrl), notes)
+        var backUrl = draft.backUrl
+        if (ApiAddress.usesFields(backUrl) && tileRoot != null) {
+            val r = ApiAddress.resolve(backUrl, tileRoot, true, context)
+            if (r is ApiAddress.Resolved.Problem) {
+                notes += "back: ${r.message.removePrefix("the expanded view's address: ")}, so the back reads the tile's address"
+                backUrl = ""
+            }
+        }
+        val backAnswer = if (backUrl.isNotEmpty()) backRoot else tileRoot
+        val back = try {
+            if (backAnswer == null) {
+                if (draft.back.isNotEmpty() && backUrl.isNotEmpty()) notes += "the back's fields weren't checked: its answer wasn't fetched"
+                draft.back
+            } else {
+                checkView(draft.back, backAnswer, "back", context, notes)
+            }
+        } catch (e: Throwable) {
+            notes += "back: couldn't check it, so its fields were left out"
+            emptyMap()
+        }
+        return Checked(draft.copy(tile = tile, detail = detail, detailUrl = detailUrl, back = back, backUrl = backUrl), notes)
     }
 
     /** Where a field sits in the import format, as errors name it: "tile.value", "expanded.list". */
     private fun at(which: String, target: ApiTarget): String =
-        (if (which == "tile") "tile" else "expanded") + "." + (KEYS.entries.firstOrNull { it.value == target }?.key ?: target.label)
+        (when (which) { "tile", "back" -> which; else -> "expanded" }) + "." + (KEYS.entries.firstOrNull { it.value == target }?.key ?: target.label)
 
     private fun checkView(view: Map<ApiTarget, String>, root: Any?, which: String, context: FormulaContext, notes: MutableList<String>): Map<ApiTarget, String> {
         if (view.isEmpty()) return view
@@ -318,6 +348,7 @@ internal object ApiImport {
             .put("url", draft.url)
             .apply { if (draft.headers.isNotEmpty()) put("headers", JSONArray(draft.headers)) }
             .put("tile", view("", draft.tile))
+            .apply { if (draft.back.isNotEmpty() || draft.backUrl.isNotEmpty()) put("back", view(draft.backUrl, draft.back)) }
             .apply { if (draft.detail.isNotEmpty() || draft.detailUrl.isNotEmpty()) put("expanded", view(draft.detailUrl, draft.detail)) }
             .apply { draft.refreshMinutes?.let { put("refreshMinutes", it) } }
             .toString(2)
@@ -343,6 +374,10 @@ The tile setup is one JSON object:
     "rowDetail": "{another field of each item}",
     "rowImage": "{picture field of each item}"
   },
+  "back": {
+    "url": "optional: another address, like the expanded view's",
+    "title": "...", "value": "...", "line1": "...", "line2": "...", "image": "...", "list": "...", "rowText": "...", "rowDetail": "..."
+  },
   "expanded": {
     "url": "optional: another address, can use the tile's fields like {species.url} or https://the.api/items/{id}",
     "title": "...", "value": "...", "line1": "...", "line2": "...", "list": "...", "rowText": "...", "rowDetail": "..."
@@ -362,6 +397,7 @@ ${'$'}FUNCTION_LIST
 - The tile's own "url" can hold formulas after its site, worked out afresh on every refresh. They can use functions and the clock but no fields, since there's no answer yet when it's fetched, and the site itself stays fixed (formulas go after the first /).
   A new Pokémon every refresh: "url": "https://pokeapi.co/api/v2/pokemon/{random(1, 1025)}" (1025 is the National Dex count; higher ids are alternate forms).
   A Pokémon of the day, the same one all day: "url": "https://pokeapi.co/api/v2/pokemon/{dayOfYear() * 7 % 1025 + 1}".
+- "back" is optional: the face the tile flips to now and then on the home screen, like a Windows Phone live tile. It has the same fields as "tile" except link (a tap does what the front does). Without its own "url" it reads the tile's answer; its "url" works like the expanded view's below. Use it for a second look at the data, like the stats behind a headline number. Leave it out for a tile that shouldn't flip.
 - "expanded" is the view a tap on the tile opens. Without its own "url" it reads the tile's answer.
 - The expanded view can fetch other data: its "url" can take a link from the tile's answer, either a whole field ("{species.url}") or fields inside an address ("https://the.api/items/{id}"). It is worked out again each time the tile's answer changes, and the expanded view's fields then read that second answer, not the tile's.
   Example: the tile reads https://pokeapi.co/api/v2/pokemon/pikachu, whose answer has species.url; "expanded": {"url": "{species.url}", "title": "{name}", "line1": "colour {color.name}"} shows the species data.
