@@ -88,9 +88,10 @@ import kotlinx.coroutines.withContext
 /** Helpers shared by the API tile, its expanded view and its editor. */
 internal object ApiTiles {
     /** The rows a tile of [size] shows from its list. */
+    /** At most this many rows on a tile of [size]; it shows those that fit under its text. */
     fun rows(size: TileSize): Int = when (size) {
-        TileSize.LARGE -> 4
-        TileSize.WIDE -> 2
+        TileSize.LARGE -> 12
+        TileSize.WIDE, TileSize.MEDIUM -> 6
         else -> 0
     }
 
@@ -233,6 +234,12 @@ internal fun ApiFace(
                     )
                 }
             }
+            // Data came but no field could be worked out: said plainly, not a blank tile.
+            rendered.blank && rendered.error != null -> if (size == TileSize.SMALL) {
+                ApiGlyph(m.dp(40f), Modifier.align(Alignment.Center))
+            } else {
+                TopText("can't show this: edit the tile's fields", m)
+            }
             size == TileSize.SMALL -> {
                 val text = rendered.text(ApiSlot.VALUE).ifEmpty { rendered.text(ApiSlot.TITLE) }
                 MetroText(
@@ -300,15 +307,41 @@ private fun ApiContent(
                     MetroText(it, MetroType.style(m.text(12.5f)), color = white.copy(alpha = 0.85f), maxLines = 1)
                 }
             }
-            if (rendered.rows.isNotEmpty()) Spacer(Modifier.height(m.dp(4f)))
-            rendered.rows.forEach { row ->
-                Row(Modifier.fillMaxWidth().padding(vertical = m.dp(1f))) {
-                    MetroText(row.primary, MetroType.style(m.text(14f)), color = white, maxLines = 1, modifier = Modifier.weight(1f))
-                    if (row.secondary.isNotEmpty()) {
-                        MetroText(row.secondary, MetroType.style(m.text(14f)), color = white.copy(alpha = 0.8f), maxLines = 1, modifier = Modifier.padding(start = m.dp(6f)))
+            if (rendered.rows.isNotEmpty()) {
+                Spacer(Modifier.height(m.dp(4f)))
+                // As many whole rows as fit in the space left.
+                FitRows(Modifier.weight(1f, fill = false)) {
+                    rendered.rows.forEach { row ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = m.dp(1f))) {
+                            MetroText(row.primary, MetroType.style(m.text(14f)), color = white, maxLines = 1, modifier = Modifier.weight(1f))
+                            if (row.secondary.isNotEmpty()) {
+                                MetroText(row.secondary, MetroType.style(m.text(14f)), color = white.copy(alpha = 0.8f), maxLines = 1, modifier = Modifier.padding(start = m.dp(6f)))
+                            }
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+/** Its children one under another, as many whole ones as fit in the height it is given; the rest are left out. */
+@Composable
+private fun FitRows(modifier: Modifier, content: @Composable () -> Unit) {
+    androidx.compose.ui.layout.Layout(content, modifier) { measurables, c ->
+        val loose = c.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity)
+        val placed = ArrayList<androidx.compose.ui.layout.Placeable>()
+        var height = 0
+        for (m in measurables) {
+            val p = m.measure(loose)
+            if (c.hasBoundedHeight && height + p.height > c.maxHeight) break
+            placed += p
+            height += p.height
+        }
+        val width = if (c.hasBoundedWidth) c.maxWidth else placed.maxOfOrNull { it.width } ?: 0
+        layout(width, height) {
+            var y = 0
+            placed.forEach { it.place(0, y); y += it.height }
         }
     }
 }
@@ -328,8 +361,15 @@ private fun TopText(text: String, m: TileMetrics) {
 internal fun rememberApiImage(url: String, width: Int, height: Int): ImageBitmap? {
     val context = LocalContext.current
     val image by produceState<ImageBitmap?>(null, url, width, height) {
+        // A picture that can't be had or decoded (too big for memory, not a picture) is left out.
         value = if (width <= 0 || height <= 0) null else withContext(Dispatchers.IO) {
-            ApiStore.image(context.applicationContext, url, width, height)?.asImageBitmap()
+            try {
+                ApiStore.image(context.applicationContext, url, width, height)?.asImageBitmap()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                null
+            }
         }
     }
     return image
@@ -480,6 +520,10 @@ internal fun ApiDetailBody(
         }
         if (cached?.hasData == true && rendered.slots.isEmpty() && rendered.rows.isEmpty()) {
             MetroText("nothing to show yet: edit the tile and pick some fields", MetroType.body, color = colors.subtle)
+        }
+        // A field that can't be worked out stays empty; this says which problem, so edit can fix it.
+        if (cached?.hasData == true) rendered.error?.let {
+            MetroText("some fields can't be shown: $it", MetroType.caption, color = colors.subtle, modifier = Modifier.padding(top = 12.dp))
         }
         rendered.link?.let { link ->
             Spacer(Modifier.height(16.dp))

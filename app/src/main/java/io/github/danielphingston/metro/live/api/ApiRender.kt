@@ -20,6 +20,9 @@ data class ApiRendered(
 ) {
     fun text(slot: ApiSlot): String = slots[slot].orEmpty()
 
+    /** Nothing at all to show: every slot empty and no rows. */
+    val blank: Boolean get() = slots.values.all { it.isEmpty() } && rows.isEmpty()
+
     /** An https address from the picture slot, else null: pictures come over https only. */
     val image: String? get() = slots[ApiSlot.IMAGE]?.trim()?.takeIf { it.startsWith("https://") }
     val link: String? get() = slots[ApiSlot.LINK]?.trim()?.takeIf { it.startsWith("https://") }
@@ -40,6 +43,12 @@ object ApiRender {
     ): ApiRendered {
         var changesAt: Long? = null
         var error: String? = null
+        // Every part is worked out on its own, so one that fails leaves only itself empty.
+        fun eval(template: String, row: Any?): Evaluated = try {
+            formulas.evaluate(template, root, context, row)
+        } catch (e: Throwable) {
+            Evaluated("", error = "can't work that out")
+        }
         fun take(e: Evaluated): String {
             e.changesAt?.let { at -> changesAt = changesAt?.let { minOf(it, at) } ?: at }
             if (error == null) error = e.error
@@ -47,17 +56,23 @@ object ApiRender {
         }
         val slots = ApiSlot.entries.mapNotNull { slot ->
             val template = view.slot(slot).ifEmpty { fallback?.slot(slot).orEmpty() }
-            if (template.isEmpty()) null else slot to take(formulas.evaluate(template, root, context)).trim()
+            if (template.isEmpty()) null else slot to take(eval(template, ApiFormulas.NO_ROW)).trim()
         }.toMap()
         val list = view.list ?: fallback?.list
         val rows = if (list == null || maxRows <= 0) {
             emptyList()
         } else {
-            ApiJson.items(root, list.path, maxRows).map { item ->
+            val items = try {
+                ApiJson.items(root, list.path, maxRows)
+            } catch (e: Throwable) {
+                if (error == null) error = "can't read the list at ${list.path.take(40)}"
+                emptyList()
+            }
+            items.map { item ->
                 ApiRow(
-                    take(formulas.evaluate(list.primary, root, context, item)).trim(),
-                    if (list.secondary.isEmpty()) "" else take(formulas.evaluate(list.secondary, root, context, item)).trim(),
-                    if (list.image.isEmpty()) null else take(formulas.evaluate(list.image, root, context, item)).trim().takeIf { it.startsWith("https://") },
+                    take(eval(list.primary, item)).trim(),
+                    if (list.secondary.isEmpty()) "" else take(eval(list.secondary, item)).trim(),
+                    if (list.image.isEmpty()) null else take(eval(list.image, item)).trim().takeIf { it.startsWith("https://") },
                 )
             }
         }

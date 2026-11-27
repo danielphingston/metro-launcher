@@ -5,6 +5,7 @@ import io.github.danielphingston.metro.live.feed.FeedAddress
 import io.github.danielphingston.metro.live.feed.FeedStore
 import io.github.danielphingston.metro.live.feed.HttpStatusException
 import io.github.danielphingston.metro.live.feed.TooLargeException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -154,6 +155,7 @@ object ApiStore {
                     }
                 }
             }
+            result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
             val cached = result.getOrElse { e ->
                 (held ?: CachedApi(request.key)).copy(failedAt = now, error = classify(e))
             }
@@ -177,7 +179,10 @@ object ApiStore {
             ApiCheck.Ok(root)
         } catch (e: HttpStatusException) {
             ApiCheck.Failed(classify(e), e.code)
-        } catch (e: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            // Anything at all (an answer too big for memory, a parser that gave up) is a message, never a crash.
             ApiCheck.Failed(classify(e))
         }
     }
@@ -194,6 +199,8 @@ object ApiStore {
         is javax.net.ssl.SSLException -> ApiProblem.INSECURE
         is JSONException -> ApiProblem.NOT_JSON
         is BadAddressException -> ApiProblem.BAD_ADDRESS
+        is OutOfMemoryError -> ApiProblem.TOO_LARGE
+        is StackOverflowError -> ApiProblem.NOT_JSON
         else -> ApiProblem.OFFLINE
     }
 
@@ -319,8 +326,10 @@ object ApiStore {
     }.getOrNull()
 
     /** A picture for a tile, through the feed tile's picture cache (3 MB cap, web formats only, stored at tile size). https only. */
-    fun image(context: Context, url: String, width: Int, height: Int) =
-        address(url)?.takeIf { it == url.trim() }?.let { FeedStore.image(context, it, width, height) }
+    fun image(context: Context, url: String, width: Int, height: Int): android.graphics.Bitmap? =
+        if (width <= 0 || height <= 0) null else runCatching {
+            address(url)?.takeIf { it == url.trim() }?.let { FeedStore.image(context, it, width, height) }
+        }.getOrNull()
 
     /** Forgets everything held in memory; for tests. */
     internal fun clearMemory() {

@@ -1,5 +1,7 @@
 package io.github.danielphingston.metro.ui.tiles
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -195,7 +197,7 @@ internal fun ApiEditor(
     var tileRoot by remember { mutableStateOf(sample) }
     var detailRoot by remember { mutableStateOf<Any?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
-    var showAllFields by remember { mutableStateOf(false) }
+    var saveProblem by remember { mutableStateOf<String?>(null) }
 
     // Saved header values: read once, so an edited tile keeps its key without showing it.
     LaunchedEffect(Unit) {
@@ -241,10 +243,8 @@ internal fun ApiEditor(
     fun done() {
         val pairs = headers.map { it.name.trim() to it.value }.filter { it.first.isNotEmpty() || it.second.isNotEmpty() }
         val problem = apiTileProblem(url, if (separateDetail) detailUrl else "", tileTemplates, detailTemplates, pairs)
-        if (problem != null) {
-            status = FeedEditorStatus.Error(problem)
-            return
-        }
+        saveProblem = problem
+        if (problem != null) return
         val tileUrl = ApiStore.address(url)!!
         val content = TileContent.Api(
             name = name.trim().ifEmpty { runCatching { URL(tileUrl).host }.getOrDefault("api") }.take(ApiTileJson.MAX_NAME),
@@ -275,9 +275,15 @@ internal fun ApiEditor(
                 .windowInsetsPadding(WindowInsets.navigationBars)
                 .imePadding()
                 .background(colors.chrome)
-                .clickable(enabled = false, onClick = {})
+                // Keeps taps on the panel from reaching the dismiss scrim, without merging
+                // the panel into one semantics node (that hid the inner scroll's real bounds).
+                .pointerInput(Unit) { detectTapGestures { } },
+        ) {
+        Column(
+            Modifier
+                .weight(1f, fill = false)
                 .verticalScroll(rememberScrollState())
-                .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 20.dp),
+                .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 12.dp),
         ) {
             MetroText("api tile", MetroType.pageTitle, modifier = Modifier.padding(bottom = 12.dp))
             Caption("NAME")
@@ -350,42 +356,25 @@ internal fun ApiEditor(
                 root = root,
             )
             Spacer(Modifier.height(12.dp))
-            Caption(if (target.isPath) "LISTS: TAP TO USE" else "FIELDS: TAP TO ADD")
-            val fields = remember(root, target, templates[ApiTarget.LIST]) {
-                when {
-                    root == null -> emptyList()
-                    target.isPath -> ApiJson.fields(root).filter { it.list }
-                    target.isRow -> ApiJson.rowFields(root, templates[ApiTarget.LIST].orEmpty())
-                    else -> ApiJson.fields(root).filterNot { it.list && it.count == 0 }
-                }
+            val listPath = templates[ApiTarget.LIST].orEmpty()
+            val pickRoot = remember(root, target.isRow, listPath) {
+                if (target.isRow) ApiJson.items(root, listPath, 1).firstOrNull() else root
             }
-            if (root == null) {
-                Hint("Fetch the address to see its fields.")
-            } else if (fields.isEmpty()) {
-                Hint(if (target.isRow) "Pick a list first: its items' fields show here." else "No fields of that kind in the answer.")
-            }
-            val shownFields = if (showAllFields) fields else fields.take(30)
-            shownFields.forEach { field ->
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(onClickLabel = "use ${field.path}") {
-                            val current = templates[target].orEmpty()
-                            templates[target] = when {
-                                target.isPath -> field.path
-                                target == ApiTarget.IMAGE || target == ApiTarget.LINK || target == ApiTarget.ROW_IMAGE -> "{${field.path}}"
-                                current.isEmpty() -> "{${field.path}}"
-                                else -> "$current {${field.path}}"
-                            }
-                            if (target.isPath && templates[ApiTarget.ROW_PRIMARY].isNullOrBlank()) target = ApiTarget.ROW_PRIMARY
-                        }
-                        .padding(vertical = 6.dp),
-                ) {
-                    MetroText(field.path, MetroType.body.copy(fontFamily = FontFamily.Monospace), maxLines = 1)
-                    MetroText(field.sample, MetroType.caption, color = colors.subtle, maxLines = 1)
-                }
-            }
-            if (fields.size > 30 && !showAllFields) MetroButton("show all ${fields.size}", { showAllFields = true })
+            ApiFieldPicker(
+                root = pickRoot,
+                mode = when {
+                    target.isPath -> PickMode.LIST
+                    target.isRow -> PickMode.ROW
+                    else -> PickMode.FIELDS
+                },
+                listPath = listPath,
+                onPick = { node -> templates[target] = withField(templates[target].orEmpty(), node.path, target) },
+                onUseList = { path ->
+                    useList(templates, path, root)
+                    target = ApiTarget.ROW_PRIMARY
+                },
+            )
+            Spacer(Modifier.height(12.dp))
 
             if (!target.isPath) {
                 Spacer(Modifier.height(12.dp))
@@ -417,12 +406,45 @@ internal fun ApiEditor(
             }
             Hint("Polls only while the expanded view is open and the screen is on, and stops when it closes. Battery saver slows it to at least 30 s.")
 
-            Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        }
+        // Always in view: the buttons, and why the tile can't be saved yet, next to them.
+        Column(Modifier.fillMaxWidth().border(width = 1.dp, color = colors.control).padding(start = 20.dp, end = 20.dp, top = 10.dp, bottom = 12.dp)) {
+            saveProblem?.let {
+                MetroText(it, MetroType.body, color = colors.accent, modifier = Modifier.padding(bottom = 8.dp).semantics { liveRegion = LiveRegionMode.Assertive })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetroButton(if (initial == null) "add tile" else "done", ::done)
                 MetroButton("cancel", onCancel)
             }
         }
+        }
     }
+}
+
+/** [current] with the field at [path] added: a picture or link takes the field alone; text gets it appended. */
+internal fun withField(current: String, path: String, target: ApiTarget): String {
+    val field = "{$path}"
+    return when {
+        target.isPath -> path
+        target == ApiTarget.IMAGE || target == ApiTarget.LINK || target == ApiTarget.ROW_IMAGE -> field
+        current.isBlank() -> field
+        else -> "$current $field"
+    }
+}
+
+/**
+ * Shows the list at [path] as rows: sets it, and when the rows have no text yet, starts them with
+ * the item's first name-like text and first number, so rows show at once (easy to change).
+ */
+internal fun useList(templates: MutableMap<ApiTarget, String>, path: String, root: Any?) {
+    val changed = !templates[ApiTarget.LIST].isNullOrBlank() && templates[ApiTarget.LIST] != path
+    templates[ApiTarget.LIST] = path
+    if (!changed && !templates[ApiTarget.ROW_PRIMARY].isNullOrBlank()) return
+    // Rows set up for another list would read nothing from this one: start them again.
+    val (primary, secondary) = ApiJson.suggestRow(ApiJson.items(root, path, 1).firstOrNull())
+    templates[ApiTarget.ROW_PRIMARY] = primary?.let { if (it == "@") "{@}" else "{$it}" }.orEmpty()
+    templates[ApiTarget.ROW_SECONDARY] = secondary?.let { "{$it}" }.orEmpty()
+    if (changed) templates[ApiTarget.ROW_IMAGE] = ""
 }
 
 /** The tile at medium and wide size, from the fetched answer. */

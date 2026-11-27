@@ -66,15 +66,23 @@ internal class KeystoreApiSecrets(private val context: Context) : ApiSecrets {
         }.getOrDefault(emptyMap())
     }
 
+    // A keystore that can't seal (a reset, a broken one) leaves the key unsaved: the tile then
+    // shows "refused access" and the editor can try again, instead of the launcher crashing.
     override fun put(tile: Long, headers: Map<String, String>) = synchronized(lock) {
-        val all = read()
-        if (headers.isEmpty()) all.remove(tile.toString()) else all.put(tile.toString(), seal(JSONObject(headers).toString()))
-        write(all)
+        runCatching {
+            val all = read()
+            if (headers.isEmpty()) all.remove(tile.toString()) else all.put(tile.toString(), seal(JSONObject(headers).toString()))
+            write(all)
+        }
+        Unit
     }
 
     override fun remove(tile: Long) = synchronized(lock) {
-        val all = read()
-        if (all.remove(tile.toString()) != null) write(all)
+        runCatching {
+            val all = read()
+            if (all.remove(tile.toString()) != null) write(all)
+        }
+        Unit
     }
 
     private fun read(): JSONObject = runCatching { JSONObject(file.readText()) }.getOrDefault(JSONObject())

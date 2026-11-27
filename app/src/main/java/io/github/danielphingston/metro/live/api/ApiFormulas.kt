@@ -115,6 +115,8 @@ object BuiltInFormulas : ApiFormulas {
             split(template)
         } catch (e: FormulaException) {
             return Evaluated("", error = e.message)
+        } catch (e: Throwable) {
+            return Evaluated("", error = "can't read that formula")
         }
         val run = Run(root, row, context)
         val out = StringBuilder()
@@ -126,7 +128,8 @@ object BuiltInFormulas : ApiFormulas {
                     out.append(show(run.eval(part.expr, 0), context))
                 } catch (e: FormulaException) {
                     if (error == null) error = e.message
-                } catch (e: RuntimeException) {
+                } catch (e: Throwable) {
+                    // Anything else (a time out of range, a value too deep): this part stays empty.
                     if (error == null) error = "can't work that out"
                 }
             }
@@ -142,6 +145,8 @@ object BuiltInFormulas : ApiFormulas {
             null
         } catch (e: FormulaException) {
             e.message
+        } catch (e: Throwable) {
+            "can't read that formula"
         }
     }
 

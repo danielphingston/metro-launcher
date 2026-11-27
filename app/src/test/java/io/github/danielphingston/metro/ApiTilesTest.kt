@@ -27,6 +27,8 @@ import io.github.danielphingston.metro.live.weather.WeatherRefresh
 import io.github.danielphingston.metro.ui.tiles.ApiTarget
 import io.github.danielphingston.metro.ui.tiles.apiTileProblem
 import io.github.danielphingston.metro.ui.tiles.templatesOf
+import io.github.danielphingston.metro.ui.tiles.useList
+import io.github.danielphingston.metro.ui.tiles.withField
 import io.github.danielphingston.metro.ui.tiles.viewOf
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
@@ -210,6 +212,66 @@ class ApiTilesTest {
         assertEquals(listOf("name", "points", "avatar"), ApiJson.rowFields(doc, "standings").map { it.path })
         assertEquals(listOf("@"), ApiJson.rowFields(doc, "tags").map { it.path })
         assertEquals("$", ApiJson.fields(JSONArray("[{\"a\":1}]")).first().path)
+    }
+
+    @Test
+    fun theTreeOpensOneLevelAtATime() {
+        val top = ApiJson.children(doc, "")
+        assertEquals(listOf("event", "temp_c", "wind_kmh", "views", "live", "note", "odd key", "tags", "standings"), top.map { it.key })
+        assertEquals(ApiJson.Kind.OBJECT, top[0].kind)
+        assertEquals(3, top[0].size)
+        assertEquals("['odd key']", top[6].path)
+        val standings = top.last()
+        assertEquals(ApiJson.Kind.LIST, standings.kind)
+        assertEquals(listOf("standings[0]", "standings[1]", "standings[2]"), ApiJson.children(doc.get("standings"), "standings").map { it.path })
+        assertEquals("standings[1].points", ApiJson.children(ApiJson.valueAt(doc, "standings[1]"), "standings[1]")[1].path)
+        // Every path in the tree reads back its value.
+        assertEquals("96.5", eval("{standings[1].points}").text)
+        assertEquals(listOf("sprites", "sprites.other", "sprites.other['official-artwork']", "sprites.other['official-artwork'].front_default"), ApiJson.ancestors("sprites.other['official-artwork'].front_default"))
+        assertEquals(listOf("a", "a[2]", "a[2].b"), ApiJson.ancestors("a[2].b"))
+    }
+
+    @Test
+    fun searchRanksNamesFirstAndReachesEveryItem() {
+        val pokemon = ApiJson.parse(javaClass.getResource("/api/pokemon-shaped.json")!!.readText())
+        // "name" is in hundreds of places: the document's own name comes first.
+        val name = ApiJson.search(pokemon, "name")
+        assertEquals("name", name.nodes.first().path)
+        assertFalse(name.complete)
+        // By value, and deep inside the last items of a long list.
+        assertTrue(ApiJson.search(pokemon, "move-104").nodes.any { it.path == "moves[104].move.name" })
+        assertEquals("sprites.other['official-artwork']", ApiJson.search(pokemon, "official").nodes.first().path)
+        assertTrue(ApiJson.search(pokemon, "  ").nodes.isEmpty())
+        assertTrue(ApiJson.count(pokemon) > 1000)
+    }
+
+    @Test
+    fun rowsStartWithANameAndANumber() {
+        val pokemon = ApiJson.parse(javaClass.getResource("/api/pokemon-shaped.json")!!.readText())
+        assertEquals("stat.name" to "base_stat", ApiJson.suggestRow(ApiJson.items(pokemon, "stats", 1).first()))
+        assertEquals("type.name" to "slot", ApiJson.suggestRow(ApiJson.items(pokemon, "types", 1).first()))
+        assertEquals("name" to "points", ApiJson.suggestRow(doc.getJSONArray("standings").get(0)))
+        assertEquals("@" to null, ApiJson.suggestRow("a"))
+        val templates = HashMap<ApiTarget, String>()
+        useList(templates, "stats", pokemon)
+        assertEquals("{stat.name}", templates[ApiTarget.ROW_PRIMARY])
+        // Rows the user wrote stay; another list starts them again.
+        templates[ApiTarget.ROW_PRIMARY] = "{upper(stat.name)}"
+        useList(templates, "stats", pokemon)
+        assertEquals("{upper(stat.name)}", templates[ApiTarget.ROW_PRIMARY])
+        useList(templates, "types", pokemon)
+        assertEquals("{type.name}", templates[ApiTarget.ROW_PRIMARY])
+        assertEquals("{a} {b}", withField("{a}", "b", ApiTarget.TITLE))
+        assertEquals("{b}", withField("{a}", "b", ApiTarget.IMAGE))
+        assertEquals("b", withField("a", "b", ApiTarget.LIST))
+    }
+
+    @Test
+    fun mediumTilesShowRows() {
+        // The tile is added at medium size: it must show the list, as many rows as fit.
+        assertTrue(io.github.danielphingston.metro.ui.tiles.ApiTiles.rows(TileSize.MEDIUM) > 0)
+        assertTrue(io.github.danielphingston.metro.ui.tiles.ApiTiles.rows(TileSize.WIDE) > 0)
+        assertEquals(0, io.github.danielphingston.metro.ui.tiles.ApiTiles.rows(TileSize.SMALL))
     }
 
     @Test

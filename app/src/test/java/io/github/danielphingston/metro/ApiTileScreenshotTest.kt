@@ -1,5 +1,6 @@
 package io.github.danielphingston.metro
 
+import androidx.compose.ui.test.hasContentDescription
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -14,7 +15,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import io.github.danielphingston.metro.data.ApiList
@@ -24,6 +33,7 @@ import io.github.danielphingston.metro.data.LauncherSettings
 import io.github.danielphingston.metro.data.ThemeMode
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.live.api.ApiJson
 import io.github.danielphingston.metro.live.api.ApiProblem
 import io.github.danielphingston.metro.live.api.CachedApi
 import io.github.danielphingston.metro.ui.start.TileMetrics
@@ -174,6 +184,52 @@ class ApiTileScreenshotTest {
         }
         rule.waitForIdle()
         rule.onRoot().captureRoboImage("src/test/screenshots/api_tile_editor.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    private val pokemon by lazy { ApiJson.parse(javaClass.getResource("/api/pokemon-shaped.json")!!.readText()) }
+
+    private fun showPicker() {
+        rule.setContent {
+            MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
+                Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
+                    ApiEditor(null, onDone = {}, onCancel = {}, sample = pokemon)
+                }
+            }
+        }
+        rule.waitForIdle()
+    }
+
+    /** A large answer starts as its top level; one object and one list opened. */
+    @Test
+    fun pickerTree() {
+        showPicker()
+        rule.onNodeWithContentDescription("sprites, { 10 }").performScrollTo().performClick()
+        rule.onNodeWithContentDescription("stats, [ 6 ]").performScrollTo().performClick()
+        rule.onNodeWithContentDescription("abilities, [ 2 ]").performScrollTo()
+        rule.onRoot().captureRoboImage("src/test/screenshots/api_picker_tree.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** Searching names and values across the whole answer. */
+    @Test
+    fun pickerSearch() {
+        showPicker()
+        rule.onNodeWithContentDescription("search fields").performScrollTo().performTextInput("front")
+        rule.waitForIdle()
+        // Bring the box and the first results into view together.
+        val hits = rule.onAllNodes(hasContentDescription("front", substring = true)).fetchSemanticsNodes().size
+        rule.onAllNodes(hasContentDescription("front", substring = true))[minOf(7, hits - 1)].performScrollTo()
+        rule.onRoot().captureRoboImage("src/test/screenshots/api_picker_search.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** Using a list: rows start with its items' name and a number, and show on the medium tile too. */
+    @Test
+    fun pickerRows() {
+        showPicker()
+        rule.onNodeWithContentDescription("stats, [ 6 ]").performScrollTo()
+        rule.onNode(SemanticsMatcher("shows stats as rows") { it.config.getOrNull(SemanticsActions.OnClick)?.label == "show stats as rows" }).performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("PREVIEW").performScrollTo()
+        rule.onRoot().captureRoboImage("src/test/screenshots/api_picker_rows.png", roborazziOptions = ScreenshotOptions)
     }
 
     /** A drawn stand-in picture: a road curving over green. */
