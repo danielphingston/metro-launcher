@@ -77,6 +77,18 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
 
     // The feed tile asks for its feeds first; leaving that, added or not, goes straight back to Start.
     var askingFeed by remember { mutableStateOf(false) }
+    var askingApi by remember { mutableStateOf(false) }
+    if (askingApi) {
+        ApiEditor(
+            initial = null,
+            onDone = { api ->
+                viewModel.addTile(api, TileSize.MEDIUM)
+                onDismiss()
+            },
+            onCancel = onDismiss,
+        )
+        return
+    }
     if (askingFeed) {
         FeedEditor(
             initial = null,
@@ -104,6 +116,7 @@ fun QuickSettingPicker(viewModel: LauncherViewModel, onDismiss: () -> Unit) {
                 onDismiss()
             },
             onAddFeed = { askingFeed = true },
+            onAddApi = { askingApi = true },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
     }
@@ -121,6 +134,7 @@ internal fun MetroPlusPanel(
     onAdd: (TileContent, TileSize) -> Unit,
     modifier: Modifier = Modifier,
     onAddFeed: () -> Unit = {},
+    onAddApi: () -> Unit = {},
     listState: LazyListState = rememberLazyListState(),
 ) {
     val assistantName = assistantApp?.let { AssistantChoice.displayName(it.key.packageName, it.label) }
@@ -185,6 +199,20 @@ internal fun MetroPlusPanel(
                 },
                 title = "feed",
                 subtitle = "headlines from Lemmy communities and RSS or Atom feeds, with their pictures, points and comments",
+            )
+        }
+        item { SectionTitle("api") }
+        item {
+            PickerRow(
+                onClickLabel = if (unlocked) "add api tile" else "unlock metro plus",
+                onClick = { if (unlocked) onAddApi() else onBuy() },
+                preview = {
+                    Box(Modifier.size(PreviewSize)) {
+                        ApiFace(TileSize.SMALL, "api", io.github.danielphingston.metro.data.ApiView(), null, unlocked, rememberTileMetrics(PreviewSize), 0L)
+                    }
+                },
+                title = "api",
+                subtitle = "data from any JSON API you choose, with countdowns, conversions and a live expanded view",
             )
         }
         item { SectionTitle("tracking") }

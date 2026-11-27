@@ -93,6 +93,29 @@ sealed interface TileContent {
     }
 
     /**
+     * Data from a JSON API the user chose (Metro Plus): the tile reads [tile]'s address every
+     * [refreshMinutes] while Start is on screen (never in the background) and shows the parts of
+     * the answer its templates pick; a tap opens an expanded view reading [detail], which can poll
+     * every [liveSeconds] while open (0: off). [headers] names the headers sent with both requests;
+     * their values (API keys) are kept apart, encrypted on the phone and never in the layout (see
+     * [io.github.danielphingston.metro.live.api.ApiSecrets]). A [created] stamp keeps two tiles
+     * on the same API apart and names their secrets.
+     */
+    data class Api(
+        val name: String,
+        val tile: ApiView,
+        val detail: ApiView = ApiView(),
+        val headers: List<String> = emptyList(),
+        val refreshMinutes: Int = 15,
+        val liveSeconds: Int = 0,
+        val wifiOnly: Boolean = false,
+        val created: Long = 0,
+    ) : TileContent {
+        /** The address the expanded view reads. */
+        val detailUrl: String get() = detail.url.ifEmpty { tile.url }
+    }
+
+    /**
      * Something pinned from the search results that isn't an app or an app shortcut: a contact, a
      * settings page, a timer, a web search. [target] says what it opens and [icon] what it shows.
      */
@@ -803,6 +826,7 @@ internal object TileJson {
             TileContent.Me -> obj.put("type", "me")
             TileContent.Tracking -> obj.put("type", "tracking")
             is TileContent.Feed -> obj.put("type", "feed").put("urls", JSONArray(c.urls))
+            is TileContent.Api -> ApiTileJson.encode(c, obj)
             is TileContent.Action -> obj.put("type", "action").put("label", c.label).put("target", c.target.toJson()).apply {
                 when (val icon = c.icon) {
                     is ActionIcon.Glyph -> put("glyph", icon.id)
@@ -846,6 +870,7 @@ internal object TileJson {
                 }
                 TileContent.Feed(urls.ifEmpty { return null })
             }
+            ApiTileJson.TYPE -> ApiTileJson.decode(obj) ?: return null
             "action" -> TileContent.Action(
                 obj.optString("label"),
                 when {

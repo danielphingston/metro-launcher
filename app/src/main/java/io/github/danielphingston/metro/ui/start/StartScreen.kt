@@ -131,6 +131,9 @@ import io.github.danielphingston.metro.ui.tiles.TrackingTile
 import io.github.danielphingston.metro.ui.tiles.FeedTile
 import io.github.danielphingston.metro.ui.tiles.FeedTiles
 import io.github.danielphingston.metro.ui.tiles.FeedEditor
+import io.github.danielphingston.metro.ui.tiles.ApiDetail
+import io.github.danielphingston.metro.ui.tiles.ApiEditor
+import io.github.danielphingston.metro.ui.tiles.ApiTile
 import io.github.danielphingston.metro.MetroApplication
 import io.github.danielphingston.metro.ui.tiles.TrackingTiles
 import io.github.danielphingston.metro.live.tracking.TrackingClock
@@ -292,8 +295,11 @@ class StartState(val scroll: ScrollState) {
     /** Folder whose name is being edited. */
     var renamingFolderId by mutableStateOf<Long?>(null)
 
-    /** Feed tile whose address is being edited. */
+    /** Feed tile whose address is being edited; an API tile whose setup is being edited. */
     var feedAddressId by mutableStateOf<Long?>(null)
+
+    /** API tile whose expanded view is open. */
+    var apiDetailId by mutableStateOf<Long?>(null)
 
     /**
      * Grouping mode, which makes or fills a folder: the tile the group is built around (a folder
@@ -342,7 +348,7 @@ class StartState(val scroll: ScrollState) {
     }
 
     /** Whether a flyout (the grouping bar included) is over the start screen; the pager must not swipe it away. */
-    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || restoringWidgetId != null || quickPickerOpen || renamingFolderId != null || feedAddressId != null || grouping || layoutsMenuOpen || noteDraft != null
+    val flyoutOpen: Boolean get() = addMenuOpen || liveTilesOpen || stylingId != null || iconPickerId != null || widgetPickerOpen || restoringWidgetId != null || quickPickerOpen || renamingFolderId != null || feedAddressId != null || apiDetailId != null || grouping || layoutsMenuOpen || noteDraft != null
 
     /** Closes the flyouts (add-tile menu, widget picker, rename field, grouping); returns true if one was open. */
     fun dismissFlyouts(): Boolean {
@@ -356,6 +362,7 @@ class StartState(val scroll: ScrollState) {
         quickPickerOpen = false
         renamingFolderId = null
         feedAddressId = null
+        apiDetailId = null
         endGrouping()
         layoutsMenuOpen = false
         endNoteEdit()
@@ -1152,9 +1159,34 @@ fun StartScreen(
             )
         }
         if (!state.grouping) UndoPill(notices, viewModel, state.editing, Modifier.align(Alignment.TopCenter))
+        state.apiDetailId?.let { id ->
+            val api = (tiles.map { it.spec } + openChildren.map { it.spec }).firstOrNull { it.id == id }?.content as? TileContent.Api
+            if (api == null) {
+                state.apiDetailId = null
+            } else {
+                ApiDetail(
+                    api,
+                    onEdit = {
+                        state.apiDetailId = null
+                        state.feedAddressId = id
+                    },
+                    onDismiss = { state.apiDetailId = null },
+                )
+            }
+        }
         state.feedAddressId?.let { id ->
-            val feed = (tiles.map { it.spec } + openChildren.map { it.spec }).firstOrNull { it.id == id }?.content as? TileContent.Feed
-            if (feed == null) {
+            val content = (tiles.map { it.spec } + openChildren.map { it.spec }).firstOrNull { it.id == id }?.content
+            val feed = content as? TileContent.Feed
+            if (content is TileContent.Api) {
+                ApiEditor(
+                    initial = content,
+                    onDone = { changed ->
+                        state.feedAddressId = null
+                        if (changed != content) viewModel.updateTile(id, StartEdit.TOOL) { it.copy(content = changed) }
+                    },
+                    onCancel = { state.feedAddressId = null },
+                )
+            } else if (feed == null) {
                 state.feedAddressId = null
             } else {
                 FeedEditor(
@@ -1627,6 +1659,12 @@ private fun TileBody(
                 .collectAsStateWithLifecycle()
             FeedTile(tile, tile.spec.content.urls, cell, flipped, unlocked)
         }
+        is TileContent.Api -> {
+            val context = LocalContext.current
+            val unlocked by remember { (context.applicationContext as MetroApplication).purchases.quickTilesUnlocked }
+                .collectAsStateWithLifecycle()
+            ApiTile(tile, tile.spec.content, cell, unlocked)
+        }
         is TileContent.LayoutSwitch -> LayoutSwitchTile(tile, cell)
         is TileContent.Tool -> ToolFace(tile, rememberTileMetrics(cell), icons, folderOpen, onNoteTick.takeIf { !editing })
     }
@@ -1684,6 +1722,12 @@ private fun activateTile(
         is TileContent.Tool -> Unit
         is TileContent.Feed -> if (quickUnlocked) {
             FeedTiles.open(context, tile.spec.id, content, lemmyApp) { intent -> launcher.start(intent, bounds) }
+        } else {
+            android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
+        }
+        // The expanded view opens over Start; its live updates run only while it is open.
+        is TileContent.Api -> if (quickUnlocked) {
+            state.apiDetailId = tile.spec.id
         } else {
             android.widget.Toast.makeText(context, "unlock to use", android.widget.Toast.LENGTH_SHORT).show()
         }

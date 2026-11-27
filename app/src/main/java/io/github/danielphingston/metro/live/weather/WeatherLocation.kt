@@ -62,7 +62,7 @@ object WeatherLocation {
         }
         val town = DeviceLocation.placeName(context, fix.latitude, fix.longitude)
         // Storing the place restarts the tile's refresh effect and so cancels this call. The two steps
-        // are quick and local (the network fetch is queued with WorkManager), and finishing both keeps
+        // are quick and local (the download runs in the app's own scope), and finishing both keeps
         // the stored place and its forecast refresh together.
         withContext(NonCancellable) {
             WeatherStore.setPlace(context, WeatherPlace(WeatherPlace.MY_LOCATION, town, fix.latitude, fix.longitude))

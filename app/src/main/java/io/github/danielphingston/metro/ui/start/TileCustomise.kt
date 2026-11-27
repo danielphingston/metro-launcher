@@ -237,6 +237,11 @@ private fun CustomiseSections(
         MetroText(feed.urls.joinToString("\n", transform = FeedAddress::shown), MetroType.body, maxLines = 4, modifier = Modifier.padding(bottom = 8.dp))
         MetroButton("change feeds…", onFeedAddress)
     }
+    (spec.content as? TileContent.Api)?.takeIf { TileOption.API_EDIT in options }?.let { api ->
+        SheetSection("api")
+        MetroText(api.tile.url, MetroType.body, maxLines = 2, modifier = Modifier.padding(bottom = 8.dp))
+        MetroButton("edit api tile…", onFeedAddress)
+    }
     if (TileOption.SHOW_NAME in options || hasLook) {
         SheetSection("content")
         if (TileOption.SHOW_NAME in options) {

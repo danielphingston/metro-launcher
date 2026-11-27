@@ -27,6 +27,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.weather.DayForecast
 import io.github.danielphingston.metro.live.weather.Forecast
@@ -67,7 +69,8 @@ object WeatherTiles {
 
 /**
  * Current conditions, flipping to the high/low or the next days. [flipped] toggles every few
- * seconds while the tile is on screen. Refreshes a forecast older than an hour when shown.
+ * seconds while the tile is on screen. Refreshes a forecast older than an hour while Start is
+ * shown, never in the background.
  */
 @Composable
 fun WeatherTile(tile: ResolvedTile, cellSize: Dp, flipped: Boolean) {
@@ -82,12 +85,18 @@ fun WeatherTile(tile: ResolvedTile, cellSize: Dp, flipped: Boolean) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(stored?.place) {
         if (stored?.place == null) return@LaunchedEffect
-        WeatherRefresh.schedulePeriodic(context)
-        // Each time the launcher comes back to the front, top up an old forecast.
+        WeatherRefresh.cancelLegacyWork(context)
+        // Only while Start is in front with the screen on: no background refresh at all. Each
+        // time the launcher comes back, an old forecast is topped up, then again hourly while it
+        // stays in front.
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            if (latest?.let(WeatherRefresh::isStale) == true) WeatherRefresh.refreshNow(context)
             // The device location moves. This stops with the screen; the refresh is retried next time.
-            WeatherLocation.refreshIfDue(context)
+            launch { WeatherLocation.refreshIfDue(context) }
+            while (true) {
+                WeatherRefresh.refresh(context)
+                val now = System.currentTimeMillis()
+                delay(WeatherRefresh.nextCheck(latest, WeatherRefresh.lastFailure, now) - now)
+            }
         }
     }
 

@@ -205,6 +205,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             TileContent.Me -> ResolvedTile(spec, null, "me")
             TileContent.Tracking -> ResolvedTile(spec, null, "tracking")
             is TileContent.Feed -> ResolvedTile(spec, null, FeedAddress.label(c.urls))
+            is TileContent.Api -> ResolvedTile(spec, null, c.name.ifBlank { "api" })
             is TileContent.LayoutSwitch -> ResolvedTile(spec, null, LayoutSwitchTiles.label(c, layouts))
             is TileContent.Tool -> ResolvedTile(spec, null, ToolLabels.label(c))
         }

@@ -1,0 +1,193 @@
+package io.github.danielphingston.metro
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
+import com.github.takahirom.roborazzi.captureRoboImage
+import io.github.danielphingston.metro.data.ApiList
+import io.github.danielphingston.metro.data.ApiSlot
+import io.github.danielphingston.metro.data.ApiView
+import io.github.danielphingston.metro.data.LauncherSettings
+import io.github.danielphingston.metro.data.ThemeMode
+import io.github.danielphingston.metro.data.TileContent
+import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.live.api.ApiProblem
+import io.github.danielphingston.metro.live.api.CachedApi
+import io.github.danielphingston.metro.ui.start.TileMetrics
+import io.github.danielphingston.metro.ui.theme.Metro
+import io.github.danielphingston.metro.ui.theme.MetroTheme
+import io.github.danielphingston.metro.ui.tiles.ApiDetailBody
+import io.github.danielphingston.metro.ui.tiles.ApiEditor
+import io.github.danielphingston.metro.ui.tiles.ApiFace
+import org.json.JSONObject
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import java.util.TimeZone
+
+/**
+ * API tiles: each size with data, a picture and rows; the loading, failed, locked and stale faces;
+ * the expanded view; and the editor set up from a sample answer. Pictures are drawn stand-ins.
+ */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [35], qualifiers = "w411dp-h891dp-xxhdpi", application = android.app.Application::class)
+class ApiTileScreenshotTest {
+    @get:Rule
+    val rule = createComposeRule()
+
+    private companion object {
+        /** 2026-11-27T07:00:00Z. */
+        const val NOW = 1_795_762_800_000L
+        const val URL = "https://api.example.com/race.json"
+    }
+
+    init {
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+    }
+
+    private val doc = JSONObject(
+        """
+        {"race": {"name": "Winter Grand Prix", "circuit": "Lakeside", "start": "2026-11-27T09:30:00Z", "laps": 58, "length_km": 5.4},
+         "picture": "https://img.example.com/track.png",
+         "standings": [
+           {"driver": "A. Rivera", "team": "Comet", "points": 312, "photo": "https://img.example.com/1.png"},
+           {"driver": "K. Osei", "team": "Halcyon", "points": 298.5, "photo": "https://img.example.com/2.png"},
+           {"driver": "M. Lindqvist", "team": "Comet", "points": 251, "photo": "https://img.example.com/3.png"},
+           {"driver": "J. Park", "team": "Vesper", "points": 240, "photo": "https://img.example.com/4.png"},
+           {"driver": "T. Moreau", "team": "Halcyon", "points": 187, "photo": "https://img.example.com/5.png"}
+         ]}
+        """,
+    )
+
+    private val tile = ApiView(
+        URL,
+        mapOf(
+            ApiSlot.TITLE to "{race.name}",
+            ApiSlot.VALUE to "{countdown(race.start)}",
+            ApiSlot.LINE1 to "{race.circuit} · {race.laps} laps",
+            ApiSlot.LINE2 to "{round(convert(race.length_km, 'km', 'mi'), 2)} mi a lap",
+            ApiSlot.IMAGE to "{picture}",
+        ),
+        ApiList("standings", "{driver}", "{points} pts", "{photo}"),
+    )
+    private val api = TileContent.Api(
+        "grand prix",
+        tile,
+        ApiView(slots = mapOf(ApiSlot.LINE2 to "starts {time(race.start)} · {count(standings)} drivers", ApiSlot.LINK to "https://example.com/race")),
+        refreshMinutes = 15,
+        liveSeconds = 15,
+    )
+    private val loaded = CachedApi("k", doc, doc.toString(), fetchedAt = NOW - 4 * 60_000L)
+
+    private class Item(val x: Int, val y: Int, val size: TileSize, val view: ApiView, val cached: CachedApi?, val unlocked: Boolean = true)
+
+    @Test
+    @Config(qualifiers = "w411dp-h1500dp-xxhdpi")
+    fun faces() {
+        val noPicture = tile.copy(slots = tile.slots - ApiSlot.IMAGE)
+        val failed = CachedApi("k", failedAt = NOW, error = ApiProblem.OFFLINE)
+        val stale = loaded.copy(failedAt = NOW, error = ApiProblem.OFFLINE)
+        captureRoboImage("src/test/screenshots/api_tiles.png", roborazziOptions = ScreenshotOptions) {
+            MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
+                Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
+                    BoxWithConstraints(Modifier.fillMaxSize().padding(start = 8.dp, end = 8.dp, top = 52.dp)) {
+                        val gap = 4.dp
+                        val c = (maxWidth + gap) / 4
+                        val m = TileMetrics(c, LocalDensity.current)
+                        listOf(
+                            Item(0, 0, TileSize.WIDE, tile, loaded),
+                            Item(0, 2, TileSize.MEDIUM, tile, loaded),
+                            Item(2, 2, TileSize.MEDIUM, noPicture, loaded),
+                            Item(0, 4, TileSize.LARGE, noPicture, loaded),
+                            Item(0, 8, TileSize.MEDIUM, tile, null),
+                            Item(2, 8, TileSize.MEDIUM, tile, failed),
+                            Item(0, 10, TileSize.MEDIUM, tile, null, unlocked = false),
+                            Item(2, 10, TileSize.MEDIUM, noPicture, stale),
+                            Item(2, 12, TileSize.SMALL, tile, loaded),
+                            Item(3, 12, TileSize.SMALL, tile, null),
+                        ).forEach { item ->
+                            Box(Modifier.offset(c * item.x, c * item.y).size(c * item.size.width - gap, c * item.size.height - gap)) {
+                                ApiFace(item.size, "grand prix", item.view, item.cached, item.unlocked, m, NOW) { _, _, _ -> picture().asImageBitmap() }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun expandedView() {
+        captureRoboImage("src/test/screenshots/api_tile_expanded.png", roborazziOptions = ScreenshotOptions) {
+            MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
+                Box(Modifier.fillMaxSize().background(Metro.colors.background).padding(16.dp)) {
+                    ApiDetailBody(api, loaded, NOW, live = true, paused = false) { _, _, _ -> picture().asImageBitmap() }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun editor() {
+        // No pictures here, so nothing is downloaded; times are left out, since the editor shows the real clock.
+        val sample = JSONObject(
+            """{"name": "pikachu", "id": 25, "height": 4, "weight": 60, "base_experience": 112,
+                "types": [{"slot": 1, "type": {"name": "electric"}}],
+                "stats": [{"base_stat": 35, "stat": {"name": "hp"}}, {"base_stat": 55, "stat": {"name": "attack"}}, {"base_stat": 40, "stat": {"name": "defense"}}]}""",
+        )
+        val initial = TileContent.Api(
+            "pikachu",
+            ApiView(
+                "https://pokeapi.co/api/v2/pokemon/pikachu",
+                mapOf(
+                    ApiSlot.TITLE to "{title(name)}",
+                    ApiSlot.VALUE to "#{id}",
+                    ApiSlot.LINE1 to "{join(types, ', ', 'type.name')}",
+                    ApiSlot.LINE2 to "{weight / 10} kg · {height * 10} cm",
+                ),
+                ApiList("stats", "{stat.name}", "{base_stat}"),
+            ),
+        )
+        rule.setContent {
+            MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
+                Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
+                    ApiEditor(initial, onDone = {}, onCancel = {}, sample = sample)
+                }
+            }
+        }
+        rule.waitForIdle()
+        rule.onRoot().captureRoboImage("src/test/screenshots/api_tile_editor.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** A drawn stand-in picture: a road curving over green. */
+    private fun picture(): Bitmap {
+        val w = 320
+        val h = 200
+        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        canvas.drawColor(0xFF3B7A57.toInt())
+        p.color = 0xFF555B66.toInt(); p.style = Paint.Style.STROKE; p.strokeWidth = 28f
+        canvas.drawArc(w * 0.1f, h * 0.2f, w * 0.9f, h * 1.4f, 200f, 140f, false, p)
+        p.color = 0xFFEEEEEE.toInt(); p.strokeWidth = 3f
+        canvas.drawArc(w * 0.1f, h * 0.2f, w * 0.9f, h * 1.4f, 200f, 140f, false, p)
+        return bitmap
+    }
+}

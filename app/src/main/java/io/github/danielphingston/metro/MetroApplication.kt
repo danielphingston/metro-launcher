@@ -230,13 +230,14 @@ class MetroApplication : Application(), Configuration.Provider {
     }
 
     /**
-     * WorkManager (only the weather refresh uses it) starts on first use, not at every process
-     * start. If its database can't be opened it reports that to the handler below, which would
-     * otherwise be an uncaught exception on every start; the weather tile then just stops refreshing.
+     * WorkManager starts on first use, not at every process start. Nothing schedules work any
+     * more: it is used once, to cancel the hourly weather refresh earlier versions scheduled
+     * (see WeatherRefresh.cancelLegacyWork). If its database can't be opened it reports that to
+     * the handler below, which would otherwise be an uncaught exception on every start.
      */
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
-            .setInitializationExceptionHandler { /* Nothing to do: weather refreshes are dropped. */ }
+            .setInitializationExceptionHandler { /* Nothing to do: there is nothing to cancel. */ }
             .build()
 
     /**

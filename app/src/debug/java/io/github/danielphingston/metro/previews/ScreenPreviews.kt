@@ -26,6 +26,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import androidx.compose.ui.unit.dp
+import io.github.danielphingston.metro.data.ApiList
+import io.github.danielphingston.metro.data.ApiSlot
+import io.github.danielphingston.metro.data.ApiView
 import io.github.danielphingston.metro.data.AppInfo
 import io.github.danielphingston.metro.data.AppKey
 import io.github.danielphingston.metro.data.IconCache
@@ -38,6 +41,7 @@ import io.github.danielphingston.metro.data.TileOptions
 import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.data.TileSpec
 import io.github.danielphingston.metro.live.AppNotifications
+import io.github.danielphingston.metro.live.api.CachedApi
 import io.github.danielphingston.metro.live.CalendarEvent
 import io.github.danielphingston.metro.live.ClockState
 import io.github.danielphingston.metro.live.NotificationPreview
@@ -62,6 +66,9 @@ import io.github.danielphingston.metro.ui.theme.Metro
 import io.github.danielphingston.metro.ui.theme.MetroTheme
 import io.github.danielphingston.metro.ui.theme.StartBackdrop
 import io.github.danielphingston.metro.ui.theme.startBackdrop
+import io.github.danielphingston.metro.ui.tiles.ApiDetailBody
+import io.github.danielphingston.metro.ui.tiles.ApiEditor
+import io.github.danielphingston.metro.ui.tiles.ApiFace
 import io.github.danielphingston.metro.ui.tiles.FeedEditor
 
 /*
@@ -265,4 +272,50 @@ private fun MetroTilesMenuPreview() = Screen {
 @Composable
 private fun FeedEditorPreview() = Screen {
     FeedEditor(null, lemmyApp = null, isTaken = { false }, onDone = {}, onCancel = {})
+}
+
+private val apiSample = org.json.JSONObject(
+    """{"race": {"name": "Winter Grand Prix", "circuit": "Lakeside", "start": ${'$'}{(NOW + 150 * 60_000L) / 1000}, "laps": 58},
+        "standings": [{"driver": "A. Rivera", "points": 312}, {"driver": "K. Osei", "points": 298.5}, {"driver": "M. Lindqvist", "points": 251}]}""",
+)
+
+private val apiTile = TileContent.Api(
+    "grand prix",
+    ApiView(
+        "https://api.example.com/race.json",
+        mapOf(ApiSlot.TITLE to "{race.name}", ApiSlot.VALUE to "{countdown(race.start)}", ApiSlot.LINE1 to "{race.circuit} · {race.laps} laps"),
+        ApiList("standings", "{driver}", "{points} pts"),
+    ),
+    liveSeconds = 15,
+)
+
+@Preview(name = "dark", widthDp = 411, heightDp = 891, uiMode = NIGHT)
+@Composable
+private fun ApiTilesPreview() = Screen {
+    val cached = CachedApi("preview", apiSample, apiSample.toString(), fetchedAt = NOW - 4 * 60_000L)
+    BoxWithConstraints(Modifier.fillMaxSize().padding(8.dp)) {
+        val gap = 4.dp
+        val c = (maxWidth + gap) / 4
+        val m = io.github.danielphingston.metro.ui.start.TileMetrics(c, androidx.compose.ui.platform.LocalDensity.current)
+        listOf(Triple(0, 0, TileSize.WIDE), Triple(0, 2, TileSize.MEDIUM), Triple(2, 2, TileSize.SMALL), Triple(0, 4, TileSize.LARGE)).forEach { (x, y, size) ->
+            Box(Modifier.offset(c * x, c * y).size(c * size.width - gap, c * size.height - gap)) {
+                ApiFace(size, apiTile.name, apiTile.tile, cached, unlocked = true, m = m, now = NOW) { _, _, _ -> null }
+            }
+        }
+    }
+}
+
+@Preview(name = "dark", widthDp = 411, heightDp = 891, uiMode = NIGHT)
+@Composable
+private fun ApiExpandedPreview() = Screen {
+    val cached = CachedApi("preview", apiSample, apiSample.toString(), fetchedAt = NOW - 4 * 60_000L)
+    Box(Modifier.padding(16.dp)) {
+        ApiDetailBody(apiTile, cached, NOW, live = true, paused = false) { _, _, _ -> null }
+    }
+}
+
+@Preview(name = "dark", widthDp = 411, heightDp = 891, uiMode = NIGHT)
+@Composable
+private fun ApiEditorPreview() = Screen {
+    ApiEditor(null, onDone = {}, onCancel = {})
 }

@@ -141,6 +141,9 @@ enum class TileOption {
     /** The feed tile's address. */
     FEED_ADDRESS,
 
+    /** "edit api tile…": its address, fields and refresh. */
+    API_EDIT,
+
     /** A tool tile's own settings: a routine's name and times, a countdown's date, how many dice. */
     TOOL,
 
@@ -174,6 +177,7 @@ object TileOptions {
             TileContent.Assistant, TileContent.Me, TileContent.Tracking, is TileContent.LayoutSwitch,
             -> options += TileOption.SHOW_NAME
             is TileContent.Feed -> options += setOf(TileOption.SHOW_NAME, TileOption.FEED_ADDRESS)
+            is TileContent.Api -> options += setOf(TileOption.SHOW_NAME, TileOption.API_EDIT)
             is TileContent.Coin -> options += TileOption.SHOW_NAME
             is TileContent.Notes -> options += if (spec.content.style == NoteStyle.INK) setOf(TileOption.SHOW_NAME, TileOption.TOOL) else setOf(TileOption.SHOW_NAME)
             is TileContent.Routine, is TileContent.Countdown, is TileContent.Dice -> options += setOf(TileOption.SHOW_NAME, TileOption.TOOL)
