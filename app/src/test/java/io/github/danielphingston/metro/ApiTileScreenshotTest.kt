@@ -20,6 +20,8 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -230,6 +232,32 @@ class ApiTileScreenshotTest {
         rule.waitForIdle()
         rule.onNodeWithText("PREVIEW").performScrollTo()
         rule.onRoot().captureRoboImage("src/test/screenshots/api_picker_rows.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** Building from a prompt: what it would make, before it is used. */
+    @Test
+    fun builderPreview() {
+        showPicker()
+        rule.onAllNodes(hasSetTextAction())[2].performScrollTo().performTextInput("pikachu with weight, height and stats with base_stat")
+        rule.onNodeWithText("build").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("discard").performScrollTo()
+        rule.onRoot().captureRoboImage("src/test/screenshots/api_builder_preview.png", roborazziOptions = ScreenshotOptions)
+    }
+
+    /** The expanded view's address taking a field from the tile's answer. */
+    @Test
+    fun addressPicker() {
+        showPicker()
+        rule.onAllNodesWithText("expanded view")[0].performScrollTo().performClick()
+        rule.onNodeWithText("Same address as the tile").performScrollTo().performClick()
+        rule.onNode(SemanticsMatcher("expand fields") { it.config.getOrNull(SemanticsActions.OnClick)?.label == "expand fields" }).performScrollTo().performClick()
+        rule.onAllNodes(hasContentDescription("species, { 2 }"))[0].performScrollTo().performClick()
+        rule.onAllNodes(hasContentDescription("species.url", substring = true))[0].performScrollTo().performClick()
+        rule.waitForIdle()
+        // The address with the picked field, and the picker under it.
+        rule.onNodeWithText("Same address as the tile").performScrollTo()
+        rule.onRoot().captureRoboImage("src/test/screenshots/api_address_picker.png", roborazziOptions = ScreenshotOptions)
     }
 
     /** A drawn stand-in picture: a road curving over green. */

@@ -1,5 +1,6 @@
 package io.github.danielphingston.metro.data
 
+import io.github.danielphingston.metro.live.api.ApiAddress
 import io.github.danielphingston.metro.live.api.ApiStore
 import io.github.danielphingston.metro.live.api.BuiltInFormulas
 import org.json.JSONArray
@@ -84,7 +85,8 @@ internal object ApiTileJson {
     fun decode(obj: JSONObject): TileContent.Api? {
         val tile = readView(obj.optJSONObject("tile")) ?: return null
         if (tile.url.isEmpty()) return null
-        val detail = readView(obj.optJSONObject("detail")) ?: ApiView()
+        // The expanded view's address may take values from the tile's answer ({species.url}).
+        val detail = readView(obj.optJSONObject("detail"), fields = true) ?: ApiView()
         val headers = obj.optJSONArray("headers")?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).takeIf(::validHeader) } }
             .orEmpty().distinctBy { it.lowercase() }.take(MAX_HEADERS)
         val live = obj.optInt("liveSeconds", 0)
@@ -100,10 +102,14 @@ internal object ApiTileJson {
         )
     }
 
-    private fun readView(obj: JSONObject?): ApiView? {
+    private fun readView(obj: JSONObject?, fields: Boolean = false): ApiView? {
         obj ?: return null
         val rawUrl = obj.optString("url")
-        val url = if (rawUrl.isEmpty()) "" else ApiStore.address(rawUrl) ?: return null
+        val url = when {
+            rawUrl.isEmpty() -> ""
+            fields -> ApiAddress.normalize(rawUrl) ?: return null
+            else -> ApiStore.address(rawUrl) ?: return null
+        }
         val slots = obj.optJSONObject("slots")?.let { s ->
             s.keys().asSequence().mapNotNull { k -> ApiSlot.fromId(k)?.let { it to template(s.optString(k)) } }.filter { it.second.isNotEmpty() }.toMap()
         }.orEmpty()

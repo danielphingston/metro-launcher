@@ -42,6 +42,9 @@ internal enum class PickMode {
     /** A value for a tile part: plain values add to the template; a list can also become the rows. */
     FIELDS,
 
+    /** A value of the tile's answer for the expanded view's address (a link in it, an id). */
+    ADDRESS,
+
     /** A value of each list item, for a row: the tree is one item. */
     ROW,
 
@@ -88,6 +91,7 @@ internal fun ApiFieldPicker(
     Column(modifier.fillMaxWidth()) {
         val title = when (mode) {
             PickMode.FIELDS -> "FIELDS"
+            PickMode.ADDRESS -> "FIELDS OF THE TILE'S ANSWER"
             PickMode.ROW -> "FIELDS OF EACH ITEM"
             PickMode.LIST -> "LISTS"
         }
@@ -109,7 +113,11 @@ internal fun ApiFieldPicker(
         if (!open) return@Column
         if (root == null) {
             MetroText(
-                if (mode == PickMode.ROW) "Pick a list first: the fields of its items show here." else "Fetch the address to see what it answers.",
+                when (mode) {
+                    PickMode.ROW -> "Pick a list first: the fields of its items show here."
+                    PickMode.ADDRESS -> "Fetch the tile's address first: its fields show here."
+                    else -> "Fetch the address to see what it answers."
+                },
                 MetroType.caption, color = colors.subtle, modifier = Modifier.padding(bottom = 8.dp),
             )
             return@Column
@@ -119,6 +127,7 @@ internal fun ApiFieldPicker(
                 PickMode.FIELDS -> "Tap a value to add it. Open { } and [ ] to look inside; a list can become the tile's rows."
                 PickMode.ROW -> "Each row reads one item of ${listPath.ifBlank { "the list" }}. Tap a value to add it."
                 PickMode.LIST -> "Tap the list to show as rows."
+                PickMode.ADDRESS -> "Tap a value (a link, an id) to put it in the address. It's read again each time the tile updates."
             },
             MetroType.caption, color = colors.subtle, modifier = Modifier.padding(bottom = 8.dp),
         )

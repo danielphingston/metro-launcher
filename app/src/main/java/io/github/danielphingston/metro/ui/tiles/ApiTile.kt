@@ -65,6 +65,7 @@ import io.github.danielphingston.metro.data.ApiView
 import io.github.danielphingston.metro.ui.ResolvedTile
 import io.github.danielphingston.metro.data.TileContent
 import io.github.danielphingston.metro.data.TileSize
+import io.github.danielphingston.metro.live.api.ApiAddress
 import io.github.danielphingston.metro.live.api.ApiRefresh
 import io.github.danielphingston.metro.live.api.ApiRender
 import io.github.danielphingston.metro.live.api.ApiRendered
@@ -413,9 +414,27 @@ internal fun ApiGlyph(size: Dp, modifier: Modifier = Modifier) {
 internal fun ApiDetail(api: TileContent.Api, onEdit: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val headers by rememberApiHeaders(api)
-    val request = headers?.let { ApiRequest(api.detailUrl, it) }
     val data by ApiStore.data.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    // An address with fields of the tile's answer ({species.url}) is worked out from its latest
+    // answer: when the tile's refresh brings a new link, the request changes and the view follows it.
+    val tileRequest = headers?.let { ApiRequest(api.tile.url, it) }
+    val tileCached = tileRequest?.let { data[it.key] }
+    val resolved = remember(api.detailUrl, tileCached?.root, tileCached?.hasData) {
+        ApiAddress.resolve(api.detailUrl, tileCached?.root, tileCached?.hasData == true, ApiTiles.formulaContext(context, System.currentTimeMillis()))
+    }
+    val request = headers?.let { h ->
+        (resolved as? ApiAddress.Resolved.Url)?.let { ApiRequest(it.url, ApiAddress.headersFor(api.detailUrl, it.url, api.tile.url, h)) }
+    }
+    if (ApiAddress.usesFields(api.detailUrl)) {
+        LaunchedEffect(tileRequest) {
+            if (tileRequest == null) return@LaunchedEffect
+            ApiStore.load(context, tileRequest)
+            lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                ApiStore.refresh(context, tileRequest, ApiRefresh.tileInterval(api.refreshMinutes, ApiTiles.batterySaver(context)) - ApiRefresh.TOLERANCE_MS, retryMs = ApiRefresh.RETRY_MS)
+            }
+        }
+    }
     var live by remember { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
     LaunchedEffect(request, api.liveSeconds, api.wifiOnly) {
@@ -453,7 +472,12 @@ internal fun ApiDetail(api: TileContent.Api, onEdit: () -> Unit, onDismiss: () -
                 .verticalScroll(rememberScrollState())
                 .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 20.dp),
         ) {
-            ApiDetailBody(api, cached, now, live, paused, onChangesAt = { changesAt = it })
+            val addressNote = when (resolved) {
+                is ApiAddress.Resolved.Problem -> resolved.message
+                ApiAddress.Resolved.Waiting -> "waiting for the tile's answer to find the address…"
+                is ApiAddress.Resolved.Url -> null
+            }
+            ApiDetailBody(api, cached, now, live, paused, onChangesAt = { changesAt = it }, addressNote = addressNote)
             Row(Modifier.padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetroButton("edit", onEdit)
                 MetroButton("close", onDismiss)
@@ -472,6 +496,8 @@ internal fun ApiDetailBody(
     paused: Boolean,
     maxRows: Int = ApiTiles.DETAIL_ROWS,
     onChangesAt: (Long?) -> Unit = {},
+    /** Why the address (taken from the tile's answer) can't be fetched yet; shown in place of the status. */
+    addressNote: String? = null,
     picture: @Composable (url: String, width: Int, height: Int) -> ImageBitmap? = { url, w, h -> rememberApiImage(url, w, h) },
 ) {
     val context = LocalContext.current
@@ -482,7 +508,7 @@ internal fun ApiDetailBody(
     LaunchedEffect(rendered.changesAt) { onChangesAt(rendered.changesAt) }
     Column(Modifier.fillMaxWidth()) {
         MetroText(api.name.ifBlank { "api" }, MetroType.pageTitle, maxLines = 1)
-        val status = buildString {
+        val status = addressNote ?: buildString {
             append(ApiTiles.status(cached, now))
             if (live) append(" · live, every ${api.liveSeconds} s")
             if (paused) append(" · live paused off Wi-Fi")

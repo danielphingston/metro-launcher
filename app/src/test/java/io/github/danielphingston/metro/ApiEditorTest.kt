@@ -59,11 +59,11 @@ class ApiEditorTest {
 
     private var saved: TileContent.Api? = null
 
-    private fun show() {
+    private fun show(sample: Any? = pokemon) {
         rule.setContent {
             MetroTheme(LauncherSettings(theme = ThemeMode.DARK)) {
                 Box(Modifier.fillMaxSize().background(Metro.colors.background)) {
-                    ApiEditor(null, onDone = { saved = it }, onCancel = {}, sample = pokemon)
+                    ApiEditor(null, onDone = { saved = it }, onCancel = {}, sample = sample)
                 }
             }
         }
@@ -128,9 +128,55 @@ class ApiEditorTest {
     fun addTileSavesTheTile() {
         show()
         rule.onAllNodesWithText("title").onFirst().performScrollTo().performClick()
-        rule.onAllNodes(hasSetTextAction())[2].performScrollTo().performTextInput("{name}")
+        // Fields in order: name, address, build prompt, then the template.
+        rule.onAllNodes(hasSetTextAction())[3].performScrollTo().performTextInput("{name}")
         add()
         assertNotNull(saved)
         assertEquals("{name}", saved!!.tile.slots.values.single())
+    }
+
+    private fun build(prompt: String) {
+        rule.onAllNodes(hasSetTextAction())[2].performScrollTo().performTextInput(prompt)
+        rule.onNodeWithText("build").performScrollTo().performClick()
+    }
+
+    @Test
+    fun aBuildFillsTheTileOnlyAfterUseThis() {
+        show()
+        build("weight and height and stats")
+        rule.onNodeWithText("no field for", substring = true).assertDoesNotExist()
+        // Shown first: nothing changes until it is used.
+        rule.onNodeWithText("add tile").performClick()
+        rule.onNodeWithText("pick at least one field for the tile to show").assertIsDisplayed()
+        rule.onNodeWithText("use this").performScrollTo().performClick()
+        add()
+        assertEquals("{weight}", saved!!.tile.slot(ApiSlot.VALUE))
+        assertEquals("height {height}", saved!!.tile.slot(ApiSlot.LINE1))
+        assertEquals("stats", saved!!.tile.list!!.path)
+    }
+
+    @Test
+    fun discardLeavesTheFieldsAsTheyWere() {
+        show()
+        build("")
+        rule.onNodeWithText("discard").performScrollTo().performClick()
+        rule.onNodeWithText("use this").assertDoesNotExist()
+        rule.onNodeWithText("add tile").performClick()
+        rule.onNodeWithText("pick at least one field for the tile to show").assertIsDisplayed()
+        assertNull(saved)
+    }
+
+    @Test
+    fun aBuildSaysWhatItCouldntMatchAndNeedsAnAnswer() {
+        show()
+        build("weight zebra")
+        rule.onNodeWithText("no field for: zebra").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun aBuildBeforeAnyAnswerSaysToFetchFirst() {
+        show(sample = null)
+        build("weight")
+        rule.onNodeWithText("fetch the address first: the build reads its answer").performScrollTo().assertIsDisplayed()
     }
 }

@@ -62,6 +62,7 @@ import io.github.danielphingston.metro.data.TileSize
 import io.github.danielphingston.metro.live.api.ApiCheck
 import io.github.danielphingston.metro.live.api.ApiJson
 import io.github.danielphingston.metro.live.api.ApiRequest
+import io.github.danielphingston.metro.live.api.ApiAddress
 import io.github.danielphingston.metro.live.api.ApiSecrets
 import io.github.danielphingston.metro.live.api.ApiStore
 import io.github.danielphingston.metro.live.api.BuiltInFormulas
@@ -142,7 +143,13 @@ internal fun apiTileProblem(
     headers: List<Pair<String, String>>,
 ): String? {
     if (ApiStore.address(url) == null) return "the tile's address must be an https address"
-    if (detailUrl.isNotBlank() && ApiStore.address(detailUrl) == null) return "the expanded view's address must be an https address"
+    if (detailUrl.isNotBlank() && ApiAddress.normalize(detailUrl) == null) {
+        return if (ApiAddress.usesFields(detailUrl)) {
+            BuiltInFormulas.problem(detailUrl)?.let { "the expanded view's address: $it" } ?: "the expanded view's address must make an https address"
+        } else {
+            "the expanded view's address must be an https address"
+        }
+    }
     val shown = viewOf(url, tile)
     if (shown.slots.keys.none { it != ApiSlot.LINK } && shown.list == null) return "pick at least one field for the tile to show"
     for ((which, templates) in listOf("tile" to tile, "expanded view" to detail)) {
@@ -195,6 +202,8 @@ internal fun ApiEditor(
     var target by remember { mutableStateOf(ApiTarget.VALUE) }
     var status by remember { mutableStateOf<FeedEditorStatus>(FeedEditorStatus.None) }
     var tileRoot by remember { mutableStateOf(sample) }
+    var prompt by remember { mutableStateOf("") }
+    var building by remember { mutableStateOf<BuildState?>(null) }
     var detailRoot by remember { mutableStateOf<Any?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
     var saveProblem by remember { mutableStateOf<String?>(null) }
@@ -210,15 +219,36 @@ internal fun ApiEditor(
 
     fun fetch(which: ApiEditorTab) {
         if (job?.isActive == true) return
-        val address = ApiStore.address(if (which == ApiEditorTab.EXPANDED && separateDetail) detailUrl else url)
+        val fromTile = which == ApiEditorTab.EXPANDED && separateDetail && ApiAddress.usesFields(detailUrl)
+        val address = if (fromTile) {
+            // An address built from the tile's answer is worked out from the answer fetched above.
+            if (ApiAddress.normalize(detailUrl) == null) {
+                status = FeedEditorStatus.Error(apiTileProblem(url.ifBlank { "x" }, detailUrl, emptyMap(), emptyMap(), emptyList()) ?: "the expanded view's address must make an https address")
+                return
+            }
+            when (val r = ApiAddress.resolve(detailUrl, tileRoot, tileRoot != null, ApiTiles.formulaContext(context, System.currentTimeMillis()))) {
+                is ApiAddress.Resolved.Url -> r.url
+                ApiAddress.Resolved.Waiting -> {
+                    status = FeedEditorStatus.Error("fetch the tile's address first: this address uses its answer")
+                    return
+                }
+                is ApiAddress.Resolved.Problem -> {
+                    status = FeedEditorStatus.Error(r.message)
+                    return
+                }
+            }
+        } else {
+            ApiStore.address(if (which == ApiEditorTab.EXPANDED && separateDetail) detailUrl else url)
+        }
         if (address == null) {
             status = FeedEditorStatus.Error(ApiStore.address(url)?.let { "the expanded view's address must be https" } ?: "enter an https address that answers with JSON")
             return
         }
-        if (which == ApiEditorTab.TILE) url = address else if (separateDetail) detailUrl = address
+        if (which == ApiEditorTab.TILE) url = address else if (separateDetail && !fromTile) detailUrl = address
+        val sent = if (fromTile) ApiAddress.headersFor(detailUrl, address, ApiStore.address(url).orEmpty(), headerMap()) else headerMap()
         job = scope.launch {
             status = FeedEditorStatus.Checking("fetching ${runCatching { URL(address).host }.getOrDefault(address)}…")
-            when (val result = ApiStore.check(context, ApiRequest(address, headerMap()))) {
+            when (val result = ApiStore.check(context, ApiRequest(address, sent))) {
                 is ApiCheck.Ok -> {
                     if (which == ApiEditorTab.TILE) tileRoot = result.root
                     if (which == ApiEditorTab.EXPANDED || !separateDetail) detailRoot = result.root
@@ -249,7 +279,7 @@ internal fun ApiEditor(
         val content = TileContent.Api(
             name = name.trim().ifEmpty { runCatching { URL(tileUrl).host }.getOrDefault("api") }.take(ApiTileJson.MAX_NAME),
             tile = viewOf(tileUrl, tileTemplates),
-            detail = viewOf(if (separateDetail) ApiStore.address(detailUrl).orEmpty() else "", detailTemplates),
+            detail = viewOf(if (separateDetail) ApiAddress.normalize(detailUrl).orEmpty() else "", detailTemplates),
             headers = pairs.map { it.first },
             refreshMinutes = refresh,
             liveSeconds = if (liveOn) liveSeconds else 0,
@@ -324,10 +354,52 @@ internal fun ApiEditor(
                         EditorField(detailUrl, { detailUrl = it }, "api.example.com/live.json", Modifier.weight(1f), keyboard = KeyboardType.Uri)
                         MetroButton("fetch", { fetch(ApiEditorTab.EXPANDED) })
                     }
+                    Hint("Can use the tile's answer: {species.url} follows a link in it, api.example.com/items/{id} builds one. Read again each time the tile updates. The tile's headers go only to its own site.")
+                    // A link or id from the tile's answer, picked like any field.
+                    ApiFieldPicker(
+                        root = tileRoot,
+                        mode = PickMode.ADDRESS,
+                        onPick = { node -> detailUrl = withAddressField(detailUrl, node.path); detailRoot = null },
+                        onUseList = {},
+                        startOpen = false,
+                    )
                 }
                 Hint("Empty parts show what the tile shows.")
                 Spacer(Modifier.height(12.dp))
             }
+
+            // Fills this view from its answer: the prompt's words matched to fields, or a best guess.
+            Caption("BUILD FROM THE ANSWER")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                EditorField(prompt, { prompt = it.take(MAX_PROMPT) }, "name, weight and moves as rows", Modifier.weight(1f))
+                MetroButton("build", {
+                    building = if (root == null) {
+                        BuildState.Note("fetch the address first: the build reads its answer")
+                    } else {
+                        val result = ApiSuggest.suggest(root, prompt)
+                        if (result.isEmpty) BuildState.Note("found nothing to show in this answer: pick fields below") else BuildState.Pending(tab, result)
+                    }
+                })
+            }
+            Hint("Matches your words to the answer's fields on this phone. Leave it empty for a best guess.")
+            when (val b = building) {
+                null -> Unit
+                is BuildState.Note -> MetroText(b.text, MetroType.body, color = colors.accent, modifier = Modifier.padding(top = 12.dp))
+                is BuildState.Pending -> if (b.tab == tab) {
+                    Spacer(Modifier.height(12.dp))
+                    BuildPreview(b.result, name, url, detailUrl, tileTemplates, detailTemplates, tab, root, created)
+                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MetroButton("use this", {
+                            templates.clear()
+                            templates.putAll(b.result.templates)
+                            target = b.result.templates.keys.firstOrNull() ?: ApiTarget.TITLE
+                            building = null
+                        })
+                        MetroButton("discard", { building = null })
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
 
             // The preview, from the fetched answer.
             Caption("PREVIEW")
@@ -422,6 +494,15 @@ internal fun ApiEditor(
 }
 
 /** [current] with the field at [path] added: a picture or link takes the field alone; text gets it appended. */
+/**
+ * [current] address with the field at [path] put in: after a "/" or "=" it builds on the address
+ * (api.example.com/items/{id}); otherwise the field (a whole link in the answer) is the address.
+ */
+internal fun withAddressField(current: String, path: String): String {
+    val text = current.trim()
+    return if (text.isNotEmpty() && text.last() in "/=-_") "$text{$path}" else "{$path}"
+}
+
 internal fun withField(current: String, path: String, target: ApiTarget): String {
     val field = "{$path}"
     return when {
@@ -445,6 +526,49 @@ internal fun useList(templates: MutableMap<ApiTarget, String>, path: String, roo
     templates[ApiTarget.ROW_PRIMARY] = primary?.let { if (it == "@") "{@}" else "{$it}" }.orEmpty()
     templates[ApiTarget.ROW_SECONDARY] = secondary?.let { "{$it}" }.orEmpty()
     if (changed) templates[ApiTarget.ROW_IMAGE] = ""
+}
+
+/** Where a build stands: nothing, a note on why it made nothing, or a result waiting for use this or discard. */
+internal sealed interface BuildState {
+    data class Note(val text: String) : BuildState
+    data class Pending(val tab: ApiEditorTab, val result: ApiSuggest.Result) : BuildState
+}
+
+/** A build prompt is at most this long. */
+internal const val MAX_PROMPT = 200
+
+/** What a build would make, before it replaces this view's fields: the view, what each part reads, and the words that matched nothing. */
+@Composable
+private fun BuildPreview(
+    result: ApiSuggest.Result,
+    name: String,
+    url: String,
+    detailUrl: String,
+    tileTemplates: Map<ApiTarget, String>,
+    detailTemplates: Map<ApiTarget, String>,
+    tab: ApiEditorTab,
+    root: Any?,
+    created: Long,
+) {
+    val colors = Metro.colors
+    val cached = root?.let { CachedApi("build", it, "", System.currentTimeMillis()) }
+    Column(Modifier.fillMaxWidth().border(1.dp, colors.accent).padding(12.dp)) {
+        MetroText("built from the answer: use this to replace this view's fields", MetroType.caption, color = colors.subtle, modifier = Modifier.padding(bottom = 8.dp))
+        if (tab == ApiEditorTab.TILE) {
+            val draft = TileContent.Api(name.ifBlank { "api" }, viewOf(url, result.templates), viewOf(detailUrl, detailTemplates), created = created)
+            PreviewTiles(draft, cached)
+        } else {
+            val draft = TileContent.Api(name.ifBlank { "api" }, viewOf(url, tileTemplates), viewOf(detailUrl, result.templates), created = created)
+            ApiDetailBody(draft, cached, System.currentTimeMillis(), live = false, paused = false, maxRows = 3)
+        }
+        Spacer(Modifier.height(8.dp))
+        result.templates.forEach { (t, text) ->
+            MetroText("${t.label}: $text", MetroType.caption, color = colors.foreground, maxLines = 1)
+        }
+        if (result.unmatched.isNotEmpty()) {
+            MetroText("no field for: ${result.unmatched.joinToString(", ")}", MetroType.caption, color = colors.accent, modifier = Modifier.padding(top = 6.dp))
+        }
+    }
 }
 
 /** The tile at medium and wide size, from the fetched answer. */

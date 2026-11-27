@@ -111,7 +111,7 @@ sealed interface TileContent {
         val wifiOnly: Boolean = false,
         val created: Long = 0,
     ) : TileContent {
-        /** The address the expanded view reads. */
+        /** The address the expanded view reads; it may take values from the tile's answer (see [io.github.danielphingston.metro.live.api.ApiAddress]). */
         val detailUrl: String get() = detail.url.ifEmpty { tile.url }
     }
 
