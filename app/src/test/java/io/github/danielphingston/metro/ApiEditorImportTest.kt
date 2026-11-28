@@ -71,6 +71,7 @@ class ApiEditorImportTest {
         var state: AiState = AiState.Ready,
         var answer: () -> String = { "" },
         val downloads: List<AiDownload> = listOf(AiDownload.Started(2_000_000_000), AiDownload.Done),
+        var name: () -> String? = { null },
     ) : TileAi {
         var opened = 0
         var closed = false
@@ -83,6 +84,7 @@ class ApiEditorImportTest {
         }
         override suspend fun tokenLimit(): Int? = null
         override suspend fun countTokens(system: String, prompt: String): Int? = null
+        override suspend fun modelName(): String? = name()
         override fun close() {
             closed = true
         }
@@ -244,6 +246,27 @@ class ApiEditorImportTest {
         waitFor("on-device AI: ready")
         tap("build with AI")
         waitFor("use this")
+    }
+
+    @Test
+    fun theModelThePhoneGaveIsNamedOnTheAiLine() {
+        ai.state = AiState.Downloadable
+        ai.name = { "gemini-nano-4-fast, preview" }
+        show()
+        tap("build with AI")
+        waitFor("model: gemini-nano-4-fast, preview")
+        tap("download model")
+        waitFor("on-device AI: ready (gemini-nano-4-fast, preview)")
+    }
+
+    @Test
+    fun aModelThatWontSayItsNameStillBuilds() {
+        ai.name = { throw IllegalStateException("no name") }
+        ai.answer = { """{"tile": {"title": "{name}"}}""" }
+        show()
+        tap("build with AI")
+        waitFor("use this")
+        waitFor("on-device AI: ready")
     }
 
     @Test

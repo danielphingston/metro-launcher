@@ -243,6 +243,8 @@ internal fun ApiEditor(
     var importText by remember { mutableStateOf(initialImport.orEmpty().take(ApiImport.MAX_CHARS)) }
     var ai by remember { mutableStateOf<TileAi?>(null) }
     var aiUi by remember { mutableStateOf<AiUi>(AiUi.Idle) }
+    // Which model the phone gave, once it's been asked: shown on the AI's line.
+    var aiModel by remember { mutableStateOf<String?>(null) }
     var aiJob by remember { mutableStateOf<Job?>(null) }
     // The model is opened on the first AI tap and closed with the editor: nothing stays loaded.
     DisposableEffect(Unit) { onDispose { ai?.close() } }
@@ -390,7 +392,9 @@ internal fun ApiEditor(
         aiJob = scope.launch {
             val model = ai ?: TileAis.open(context).also { ai = it }
             aiUi = AiUi.Checking
-            when (val state = model.state()) {
+            val state = model.state()
+            aiModel = if (state is AiState.Unavailable) null else aiModelName(model)
+            when (state) {
                 AiState.Ready -> {
                     aiUi = AiUi.Thinking
                     aiUi = try {
@@ -432,7 +436,7 @@ internal fun ApiEditor(
                 aiUi = when (d) {
                     is AiDownload.Started -> AiUi.Downloading("downloading ${megabytes(d.bytes)}…")
                     is AiDownload.Progress -> AiUi.Downloading("downloaded ${megabytes(d.bytes)}…")
-                    AiDownload.Done -> AiUi.Ready
+                    AiDownload.Done -> AiUi.Ready.also { aiModel = aiModelName(model) }
                     is AiDownload.Failed -> AiUi.Failed(d.reason)
                 }
             }
@@ -671,7 +675,7 @@ internal fun ApiEditor(
                     }
                     Hint("Build matches your words to the answer's fields. Leave it empty for a best guess.")
                     Box(Modifier.padding(top = 10.dp)) { MetroButton("build with AI", ::runAi) }
-                    AiLine(aiUi, onDownload = ::downloadAi)
+                    AiLine(aiUi, aiModel, onDownload = ::downloadAi)
                     when (val b = building) {
                         is BuildState.Pending -> if (b.tab == tab) {
                             Spacer(Modifier.height(12.dp))
@@ -928,17 +932,26 @@ internal sealed interface AiUi {
     data class Failed(val reason: String) : AiUi
 }
 
+/** The model's name for the AI's line; never throws, so a phone that won't say just shows none. */
+private suspend fun aiModelName(model: TileAi): String? = try {
+    model.modelName()
+} catch (e: kotlinx.coroutines.CancellationException) {
+    throw e
+} catch (e: Throwable) {
+    null
+}
+
 private fun megabytes(bytes: Long): String = if (bytes <= 0) "" else "%.0f MB".format(java.util.Locale.US, bytes / 1_000_000.0)
 
 /** The on-device AI's state, with the download offered when the model can be fetched. */
 @Composable
-private fun AiLine(state: AiUi, onDownload: () -> Unit) {
+private fun AiLine(state: AiUi, model: String?, onDownload: () -> Unit) {
     val colors = Metro.colors
     val live = Modifier.semantics { liveRegion = LiveRegionMode.Polite }.padding(top = 10.dp)
     val text = when (state) {
         AiUi.Idle -> return
         AiUi.Checking -> "on-device AI: checking this phone…"
-        AiUi.Ready -> "on-device AI: ready"
+        AiUi.Ready -> "on-device AI: ready" + model?.let { " ($it)" }.orEmpty()
         AiUi.Thinking -> "on-device AI: writing the tile…"
         AiUi.Downloadable -> "on-device AI: the model isn't on this phone yet. Android downloads it (a few GB, best on Wi-Fi)."
         is AiUi.Downloading -> "on-device AI: ${state.text} Keep this open; tap build with AI when it's done."
@@ -947,6 +960,7 @@ private fun AiLine(state: AiUi, onDownload: () -> Unit) {
     }
     val warn = state is AiUi.Unavailable || state is AiUi.Failed
     MetroText(text, MetroType.body, color = if (warn) colors.accent else colors.subtle, modifier = live)
+    if (model != null && state != AiUi.Ready) MetroText("model: $model", MetroType.caption, color = colors.subtle, modifier = Modifier.padding(top = 4.dp))
     if (state == AiUi.Downloadable) Box(Modifier.padding(top = 8.dp)) { MetroButton("download model", onDownload) }
 }
 

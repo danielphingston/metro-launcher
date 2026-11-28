@@ -7,9 +7,13 @@ import com.google.mlkit.genai.common.FeatureStatus
 import com.google.mlkit.genai.common.GenAiException
 import com.google.mlkit.genai.prompt.Generation
 import com.google.mlkit.genai.prompt.GenerativeModel
+import com.google.mlkit.genai.prompt.ModelPreference
+import com.google.mlkit.genai.prompt.ModelReleaseStage
 import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generateContentRequest
+import com.google.mlkit.genai.prompt.generationConfig
+import com.google.mlkit.genai.prompt.modelConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -39,6 +43,9 @@ internal interface TileAi {
     /** How many tokens [system] and [prompt] come to, or null when it can't count. */
     suspend fun countTokens(system: String, prompt: String): Int?
 
+    /** Which model the phone gave, as the editor shows it (its name, and whether it's a preview), or null when it doesn't say. */
+    suspend fun modelName(): String? = null
+
     fun close()
 }
 
@@ -67,18 +74,52 @@ internal object TileAis {
     fun open(context: Context): TileAi = override?.invoke() ?: MlKitTileAi(context.applicationContext)
 }
 
-/** Gemini Nano through ML Kit's GenAI Prompt API. Every call is caught: the editor shows a reason, never a crash. */
+/**
+ * Gemini Nano through ML Kit's GenAI Prompt API. Every call is caught: the editor shows a reason, never a crash.
+ *
+ * For a quick test it asks AICore for its preview model first (the fast one, as AICore's own test
+ * screen offers on a phone with the AICore developer preview on). Where the phone has no preview
+ * model it falls back to the stable one and says so.
+ */
 private class MlKitTileAi(private val context: Context) : TileAi {
     private var client: GenerativeModel? = null
 
-    private fun model(): GenerativeModel = client ?: run {
+    /** Which release the open client asked for: shown beside the model's name. */
+    private var stage = PREVIEW
+
+    private fun model(): GenerativeModel = client ?: open(preview = true)
+
+    private fun open(preview: Boolean): GenerativeModel {
         // Set up on the first tap, since the manifest removes ML Kit's own start-up provider.
         MlKitContext.initializeIfNeeded(context)
-        Generation.getClient().also { client = it }
+        val model = if (preview) {
+            runCatching {
+                Generation.getClient(
+                    generationConfig {
+                        modelConfig = modelConfig {
+                            releaseStage = ModelReleaseStage.PREVIEW
+                            preference = ModelPreference.FAST
+                        }
+                    },
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+        stage = if (model != null) PREVIEW else STABLE_FALLBACK
+        return (model ?: Generation.getClient()).also { client = it }
     }
 
     override suspend fun state(): AiState = try {
-        when (model().checkStatus()) {
+        var status = model().checkStatus()
+        if (status == FeatureStatus.UNAVAILABLE && stage == PREVIEW) {
+            // No preview model on this phone: try the stable one before saying it isn't offered.
+            runCatching { client?.close() }
+            client = null
+            open(preview = false)
+            status = model().checkStatus()
+        }
+        when (status) {
             FeatureStatus.AVAILABLE -> AiState.Ready
             FeatureStatus.DOWNLOADABLE -> AiState.Downloadable
             FeatureStatus.DOWNLOADING -> AiState.Downloading
@@ -90,6 +131,11 @@ private class MlKitTileAi(private val context: Context) : TileAi {
         AiState.Unavailable(describe(e))
     } catch (e: Throwable) {
         AiState.Unavailable("this phone doesn't offer it (${e.javaClass.simpleName})")
+    }
+
+    override suspend fun modelName(): String? {
+        val name = runCatchingNotCancel { model().getBaseModelName() }?.takeIf { it.isNotBlank() } ?: "name not given"
+        return "$name, $stage"
     }
 
     override fun download(): Flow<AiDownload> = flow {
@@ -147,6 +193,8 @@ private class MlKitTileAi(private val context: Context) : TileAi {
 
     companion object {
         const val MAX_OUTPUT = 512
+        const val PREVIEW = "preview"
+        const val STABLE_FALLBACK = "stable (no preview model here)"
 
         fun describe(e: GenAiException): String = when (e.errorCode) {
             GenAiException.ErrorCode.NOT_AVAILABLE, GenAiException.ErrorCode.NOT_SUPPORTED -> "this phone doesn't offer it (code ${e.errorCode})"
